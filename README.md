@@ -8,6 +8,8 @@
 
 仓库地址：<https://github.com/jianlei-wang/CESIUM-TREASURE-BOX>
 
+在线预览：<https://jianlei-wang.github.io/CESIUM-TREASURE-BOX/>
+
 ## ✨ 特性
 
 - **200+ 案例**：覆盖 16 个分类（三维特效、天气特效、粒子特效、水面效果、标记标绘、空间测量、空间分析、数据可视化、三维数据加载、场景示例、大气环境、光照效果、界面控件、可视化大屏、ThreeJS 样例等）
@@ -82,7 +84,26 @@ npm run preview
 
 ## 🌐 部署
 
-`vite.config.ts` 已设置 `base: './'`，产物可直接部署到任意静态服务器或子路径（如 GitHub Pages）。将 `dist/` 目录整体上传即可。
+`vite.config.ts` 已设置 `base: './'`，产物可直接部署到任意静态服务器或子路径（如 GitHub Pages）。
+
+### GitHub Pages（推荐：GitHub Actions 自动构建）
+
+仓库已内置 `.github/workflows/deploy.yml`，配置步骤：
+
+1. 确保工作流文件已提交到仓库根目录 `.github/workflows/deploy.yml`
+2. 进入仓库 **Settings → Pages → Build and deployment → Source**，选择 **GitHub Actions**
+3. 推送到 `main` 分支即自动构建 `dist/` 并发布；也可在 **Actions** 页手动触发（workflow_dispatch）
+
+> ⚠️ 不要把项目源码目录直接作为 Pages 目录：源码版 `index.html` 引用 `/src/main.ts`，仅在 dev 模式下由 Vite 提供，线上会 404。
+
+### 手动部署
+
+```bash
+npm run build
+npx gh-pages -d dist   # 将 dist/ 发布到 gh-pages 分支
+```
+
+然后在 **Settings → Pages → Source** 选择 **Deploy from a branch → gh-pages / (root)**。
 
 ## 📄 许可
 

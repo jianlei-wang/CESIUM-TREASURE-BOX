@@ -11,7 +11,7 @@ Updated: 2026-08-23
 
 - `src/style.css`：定义全局 `.cesium-credit-logoContainer` 与 `.cesium-credit-textContainer` 的显示规则。
 - `src/lib/cesium-scene.ts`：保留 Viewer 创建、Bing 影像、状态回调和销毁职责；移除与全局样式重复的 credit API 设置。
-- `docs/code-cleanup-audit-v2.5.md`：记录扫描证据、候选分类、执行动作和遗留风险。
+- `docs/code-cleanup-audit-v2.6.md`：记录扫描证据、候选分类、执行动作和遗留风险。
 
 ## 正确性约束
 

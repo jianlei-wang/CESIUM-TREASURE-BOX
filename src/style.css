@@ -23,6 +23,12 @@ button { border: 0; cursor: pointer; }
 .version-chip { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #9aabc6; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #4fd1a3; box-shadow: 0 0 10px #4fd1a3; }
 .topbar-icon { font-size: 17px; }
+.github-link { display: flex; align-items: center; gap: 8px; color: #a8b7d1; text-decoration: none; transition: color .2s ease, transform .2s ease; }
+.github-link:hover { color: #dfe9f8; transform: translateY(-1px); }
+.github-icon { flex-shrink: 0; }
+.github-stats { display: flex; align-items: center; gap: 10px; }
+.github-stat { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #9aabc6; }
+.github-stat .el-icon { font-size: 12px; }
 .avatar { width: 28px; height: 28px; border-radius: 50%; background: #e6efff; color: #2f80ed; display: grid; place-items: center; font-weight: 800; font-size: 12px; }
 .workspace { display: flex; height: calc(100% - 76px); min-height: 0; overflow: hidden; }
 .sidebar { width: 252px; flex: 0 0 252px; min-height: 0; overflow: hidden; background: #fff; border-right: 1px solid #e9eef5; padding: 30px 16px 18px; display: flex; flex-direction: column; }

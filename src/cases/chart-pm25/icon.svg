@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b3a5e"/>
+      <stop offset="1" stop-color="#0e2340"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="10" fill="url(#bg)"/>
+  <circle cx="14" cy="14" r="3" fill="#4a90d9"/>
+  <circle cx="34" cy="20" r="5" fill="#ffa022"/>
+  <circle cx="20" cy="34" r="8" fill="#ff6b6b" opacity="0.85"/>
+  <text x="20" y="37" text-anchor="middle" font-size="8" fill="#fff" font-family="sans-serif">PM2.5</text>
+</svg>

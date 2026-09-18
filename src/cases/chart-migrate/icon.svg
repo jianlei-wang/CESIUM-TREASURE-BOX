@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b3a5e"/>
+      <stop offset="1" stop-color="#0e2340"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="10" fill="url(#bg)"/>
+  <path d="M10 38 Q20 10 30 30 T40 12" fill="none" stroke="#a6c84c" stroke-width="2.5"/>
+  <path d="M40 12 L36 13.5 L40 16.5 Z" fill="#a6c84c"/>
+  <circle cx="10" cy="38" r="3.5" fill="#46bee9"/>
+  <circle cx="30" cy="30" r="3" fill="#ffa022"/>
+  <text x="8" y="15" font-size="8" fill="#7fb3e8" font-family="sans-serif">飞</text>
+</svg>

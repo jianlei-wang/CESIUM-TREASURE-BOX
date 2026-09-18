@@ -1,0 +1,11 @@
+Model Information:
+* title:	Metro station
+* source:	https://sketchfab.com/3d-models/metro-station-d4e8d5fb1c25499f8d90e3d8c11f43f3
+* author:	martha_dawidiuk (https://sketchfab.com/martha_dawidiuk)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Metro station" (https://sketchfab.com/3d-models/metro-station-d4e8d5fb1c25499f8d90e3d8c11f43f3) by martha_dawidiuk (https://sketchfab.com/martha_dawidiuk) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

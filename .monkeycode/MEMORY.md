@@ -832,6 +832,15 @@ Entries discovered by the Agent during task execution should follow this format:
 - Context: 用户要求在项目根目录建立全量案例清单并实时维护
 - Category: Workflow & Collaboration
 - Instructions:
-  - 根目录 `CASE_LIST.md` 记录全部展示案例（序号/案例名称/创建时间/文章输出），由 `npm run case-list`（`scripts/gen-case-list.mjs`）扫描 `src/cases` 中非 `-lib` 且含 `index.ts` 的目录生成；案例名称取 index.ts 的 title。
-  - 创建时间优先取案例 index.ts 的 `updatedAt`，缺失时回退案例目录 / index.ts 的文件系统时间；文章输出列为人工维护，重新生成时按案例名称保留 ✅/❌，新增案例默认 ❌。
-  - 维护约定：新增或移除案例后运行 `npm run sync` 与 `npm run case-list`；每产出一篇案例文章，将对应行文章输出改为 ✅（先改 md 再运行脚本即可保留状态）。
+  - 根目录 `CASE_LIST.md` 记录全部展示案例（序号/案例名称/创建时间/文章输出/文章在线地址），由 `npm run case-list`（`scripts/gen-case-list.mjs`）扫描 `src/cases` 中非 `-lib` 且含 `index.ts` 的目录生成；案例名称取 index.ts 的 title。
+  - 创建时间优先取案例 index.ts 的 `updatedAt`，缺失时保留清单中已有值（避免重新生成时因文件系统时间变化而打乱排序），新增案例才回退案例目录 / index.ts 的文件系统时间；文章输出与文章在线地址为人工维护列，重新生成时按案例名称保留，新增案例默认 ❌ 与空地址。
+  - 维护约定：新增或移除案例后运行 `npm run sync` 与 `npm run case-list`；每产出一篇案例文章，将对应行文章输出改为 ✅ 并填写文章在线地址（先改 md 再运行脚本即可保留）。
+
+[Project Knowledge Summary]
+- Date: 2026-09-18
+- Context: Discovered by Agent while batch-optimizing all case card icons
+- Category: Build Methods
+- Instructions:
+  - 案例卡片 icon 统一规范：宽度 300px、高度等比（卡片实际展示尺寸，原始 ~1235px 宽的截图过大）；`src/cases/*/icon.*` 覆盖 webp/jpg/png 三种格式，重编码参数 webp/jpeg quality=82、png compressionLevel=9 + adaptiveFiltering。
+  - 本机默认无 cwebp/ImageMagick；批量处理用全局 `sharp`（`npm install -g sharp`），ESM 脚本内用 `createRequire(import.meta.url)` + `NODE_PATH=$(npm root -g)` 加载。
+  - 重编码前用 `sharp(p).metadata()` 检查 `pages>1`（动图跳过），仅当原宽 >300 才处理，且新文件更小才覆盖，避免误伤已优化文件。

@@ -200,6 +200,7 @@ import icon_tiles_3d_flatten from './tiles-3d-flatten/icon.webp'
 import icon_tiles_3d_load from './tiles-3d-load/icon.webp'
 import icon_tiles_3d_local from './tiles-3d-local/icon.webp'
 import icon_triangle_measure from './triangle-measure/icon.webp'
+import icon_uav_test_field from './uav-test-field/icon.webp'
 import icon_underground_mode from './underground-mode/icon.webp'
 import icon_vector_converter from './vector-converter/icon.webp'
 import icon_vector_loader from './vector-loader/icon.webp'
@@ -439,6 +440,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'tiles-3d-load': () => import('./tiles-3d-load/index.ts'),
   'tiles-3d-local': () => import('./tiles-3d-local/index.ts'),
   'triangle-measure': () => import('./triangle-measure/index.ts'),
+  'uav-test-field': () => import('./uav-test-field/index.ts'),
   'underground-mode': () => import('./underground-mode/index.ts'),
   'vector-converter': () => import('./vector-converter/index.ts'),
   'vector-loader': () => import('./vector-loader/index.ts'),
@@ -676,6 +678,7 @@ export const demos: CaseMeta[] = [
   { id: "tiles-3d-load", title: "3DTiles加载", category: "tiles", description: "加载远程倾斜摄影 3DTiles 模型并支持定位与阴影", tag: "模型加载", icon: icon_tiles_3d_load, updatedAt: "2026-08-26", available: true },
   { id: "tiles-3d-local", title: "本地 3DTiles 查看器", category: "tiles", description: "加载本地（拖拽/选择文件夹）或远程 3DTiles，支持屏幕空间误差、包围盒、线框与裁剪平面等参数调整", tag: "模型加载", icon: icon_tiles_3d_local, updatedAt: "2026-09-09", available: true },
   { id: "triangle-measure", title: "空间测量-三角量测", category: "measure", description: "两点直角三角形水平/垂直距离与斜边夹角量测，含地形与三维模型", tag: "测量", icon: icon_triangle_measure, updatedAt: "2026-08-24", available: true },
+  { id: "uav-test-field", title: "无人机试飞场 3D 演示", category: "three", description: "纯 Three.js 构建的无人机试飞场三维可视化：园区跑道、起降场、拱顶机库、通导监气反保障设备与围墙办公区完整建模，无人机沿闭环航线自动巡航并可切换手动操控，内置 GB 42590-2023 的 17 项强制安全测试科目，逐项演示电子围栏、应急处置、结构强度、抗风性、灯光等测试流程与实时结果", tag: "Three.js, 无人机, 试飞场, GB 42590", icon: icon_uav_test_field, updatedAt: "2026-09-18", available: true },
   { id: "underground-mode", title: "地下模式-地铁站", category: "scene", description: "地球半透明地下模式，查看埋设于地表下方的地铁站模型", tag: "地下可视化", icon: icon_underground_mode, updatedAt: "2026-09-06", available: true },
   { id: "vector-converter", title: "数据转换-矢量数据转换", category: "data", description: "纯前端矢量数据格式互转工具：自动识别并解析 GeoJSON/TopoJSON、KML/KMZ、奥维 OVKML/OVKMZ/OVJSN/OVOBJ、GPX、WKT、CSV、Shapefile 等格式，统一为 WGS84 中间模型并在三维场景中预览，支持 WGS84/CGCS2000/GCJ02/BD09/Web墨卡托/高斯投影等坐标系互转，可导出为 GeoJSON/KML/KMZ/奥维/GPX/WKT/CSV/SHP，点位矢量可额外导出为 Excel 表格，内置功能实现说明", tag: "数据转换", icon: icon_vector_converter, available: true },
   { id: "vector-loader", title: "本地矢量数据加载", category: "tiles", description: "加载并展示 SHP / GeoJSON / KML 本地矢量数据", tag: "数据图层", icon: icon_vector_loader, available: true },

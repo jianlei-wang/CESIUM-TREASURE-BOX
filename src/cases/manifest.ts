@@ -58,6 +58,7 @@ import icon_elec_sphere from './elec-sphere/icon.webp'
 import icon_explosion_boom from './explosion-boom/icon.webp'
 import icon_explosion_particles from './explosion-particles/icon.webp'
 import icon_fire_particles from './fire-particles/icon.webp'
+import icon_fireworks_three from './fireworks-three/icon.webp'
 import icon_flag_curve from './flag-curve/icon.webp'
 import icon_flag_curve_edit from './flag-curve-edit/icon.webp'
 import icon_flag_inverted_triangle from './flag-inverted-triangle/icon.webp'
@@ -68,10 +69,12 @@ import icon_flag_regular_triangle from './flag-regular-triangle/icon.webp'
 import icon_flag_regular_triangle_edit from './flag-regular-triangle-edit/icon.webp'
 import icon_flag_triangle from './flag-triangle/icon.webp'
 import icon_flag_triangle_edit from './flag-triangle-edit/icon.webp'
+import icon_flame_three from './flame-three/icon.webp'
 import icon_flood_depth_simulation from './flood-depth-simulation/icon.webp'
 import icon_flood_inundation from './flood-inundation/icon.webp'
 import icon_flood_yield_forecast from './flood-yield-forecast/icon.webp'
 import icon_fluid_sph from './fluid-sph/icon.webp'
+import icon_fountain_three from './fountain-three/icon.webp'
 import icon_free_line from './free-line/icon.webp'
 import icon_free_line_edit from './free-line-edit/icon.webp'
 import icon_free_polygon from './free-polygon/icon.webp'
@@ -552,7 +555,7 @@ export const demos: CaseMeta[] = [
   { id: "explosion-boom", title: "爆炸特效-噪声云团", category: "particles", description: "屏幕空间 fbm 噪声云团爆炸与色彩渐变", tag: "着色器特效", icon: icon_explosion_boom, updatedAt: "2026-08-24", available: true },
   { id: "explosion-particles", title: "爆炸粒子-GPU计算", category: "particles", description: "GPU 粒子系统实时模拟爆炸冲击飞散", tag: "粒子系统", icon: icon_explosion_particles, updatedAt: "2026-08-23", available: true },
   { id: "fire-particles", title: "火焰粒子-GPU计算", category: "particles", description: "GPU 粒子系统实时模拟火焰喷射", tag: "粒子系统", icon: icon_fire_particles, updatedAt: "2026-08-23", available: true },
-  { id: "fireworks-three", title: "Three.Quarks 烟花粒子", category: "particles", description: "基于 three.quarks 粒子引擎与 Cesium 地球的烟花特效：球壳发射器定时爆裂，多层辉光球壳与拉伸拖尾火星同步绽放，重力与随机位置让烟花在地球上空连续随机升起，可选缤纷、金色、赤红、湛蓝、紫罗兰五种配色。爆裂粒子数、速度、尺寸、寿命、重力、爆裂半径、发射间隔均可实时调整并即时生效，切换配色方案会重建粒子系统", tag: "Three.js, three.quarks, 粒子特效", updatedAt: "2026-09-19", available: true },
+  { id: "fireworks-three", title: "Three.Quarks 烟花粒子", category: "particles", description: "基于 three.quarks 粒子引擎与 Cesium 地球的烟花特效：球壳发射器定时爆裂，多层辉光球壳与拉伸拖尾火星同步绽放，重力与随机位置让烟花在地球上空连续随机升起，可选缤纷、金色、赤红、湛蓝、紫罗兰五种配色。爆裂粒子数、速度、尺寸、寿命、重力、爆裂半径、发射间隔均可实时调整并即时生效，切换配色方案会重建粒子系统", tag: "Three.js, three.quarks, 粒子特效", icon: icon_fireworks_three, updatedAt: "2026-09-19", available: true },
   { id: "flag-curve", title: "曲线旗标-曲边旗帜", category: "draw", description: "左键定起点拖至终点，右键完成生成飘动曲线旗标；颜色可调。", tag: "旗标", icon: icon_flag_curve, updatedAt: "2026-09-06", available: true },
   { id: "flag-curve-edit", title: "曲线旗标-编辑版", category: "draw", description: "绘制曲线旗标后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_flag_curve_edit, updatedAt: "2026-09-06", available: true },
   { id: "flag-inverted-triangle", title: "倒三角旗标-倒三角旗帜", category: "draw", description: "左键定起点拖至终点，右键完成生成倒三角旗标；颜色可调。", tag: "旗标", icon: icon_flag_inverted_triangle, updatedAt: "2026-09-06", available: true },
@@ -563,12 +566,12 @@ export const demos: CaseMeta[] = [
   { id: "flag-regular-triangle-edit", title: "正三角旗标-编辑版", category: "draw", description: "绘制正三角旗标后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_flag_regular_triangle_edit, updatedAt: "2026-09-06", available: true },
   { id: "flag-triangle", title: "对三角旗标-对三角旗帜", category: "draw", description: "左键定起点拖至终点，右键完成生成对三角旗标；颜色可调。", tag: "旗标", icon: icon_flag_triangle, updatedAt: "2026-09-06", available: true },
   { id: "flag-triangle-edit", title: "对三角旗标-编辑版", category: "draw", description: "绘制对三角旗标后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_flag_triangle_edit, updatedAt: "2026-09-06", available: true },
-  { id: "flame-three", title: "Three.Quarks 火焰粒子", category: "particles", description: "基于 three.quarks 粒子引擎与 Cesium 地球的火焰特效：锥形发射器配合浮力力场与湍流场，火焰核心自地面向上浮升，随生命周期由亮黄渐变为橙红并收束消散，叠加高速飞溅火星。发射速率、寿命、浮力、张角、湍流强度等参数均可实时调整并即时生效", tag: "Three.js, three.quarks, 粒子特效", updatedAt: "2026-09-19", available: true },
+  { id: "flame-three", title: "Three.Quarks 火焰粒子", category: "particles", description: "基于 three.quarks 粒子引擎与 Cesium 地球的火焰特效：锥形发射器配合浮力力场与湍流场，火焰核心自地面向上浮升，随生命周期由亮黄渐变为橙红并收束消散，叠加高速飞溅火星。发射速率、寿命、浮力、张角、湍流强度等参数均可实时调整并即时生效", tag: "Three.js, three.quarks, 粒子特效", icon: icon_flame_three, updatedAt: "2026-09-19", available: true },
   { id: "flood-depth-simulation", title: "深度图洪水模拟", category: "water", description: "手动输入四至或框选范围，采样真实地形生成深度图，选择出水点后执行 GPU 洪水淹没模拟，支持流体参数与水闸设定", tag: "流体模拟", icon: icon_flood_depth_simulation, available: true },
   { id: "flood-inundation", title: "洪水淹没模拟", category: "water", description: "以 1024×1024 高程深度图映射至西藏那曲 30km×51km 区域，以 GPU 双缓冲流体模拟叠加光线步进水渲染，支持鼠标选取水源点、水闸设置与流体参数实时调节", tag: "流体模拟", icon: icon_flood_inundation, available: true },
   { id: "flood-yield-forecast", title: "DEM+气象预报 产水与淹没预测", category: "analysis", description: "从真实或模拟 DEM 出发，依次完成填洼、真实洼地识别、D8 流向、降水与下垫面产流（SCS-CN / 径流系数）、汇流演算，并以等体积平面或洼地蓄水+溢流方案模拟淹没，输出分级统计与情景对比。", tag: "DEM, 产流, 淹没", icon: icon_flood_yield_forecast, updatedAt: "2026-09-09", available: true },
   { id: "fluid-sph", title: "SPH 地形流体模拟", category: "water", description: "以 GPU 端 SPH 粒子与光滑核函数求解压力、重力与边界约束，多缓冲逐帧推进水位场，水流沿真实地形扩散汇聚成湖，支持实时移动水源并调节重力、水量与渲染质量", tag: "流体模拟", icon: icon_fluid_sph, available: true },
-  { id: "fountain-three", title: "Three.Quarks 喷泉粒子", category: "particles", description: "基于 three.quarks 粒子引擎与 Cesium 地球的喷泉特效：锥形发射器喷出高速水滴，重力作用形成抛物线回落，叠加水雾粒子与湍流扰动。发射速率、寿命、速度、张角、重力、水雾浓度等参数均可实时调整并即时生效", tag: "Three.js, three.quarks, 粒子特效", updatedAt: "2026-09-19", available: true },
+  { id: "fountain-three", title: "Three.Quarks 喷泉粒子", category: "particles", description: "基于 three.quarks 粒子引擎与 Cesium 地球的喷泉特效：锥形发射器喷出高速水滴，重力作用形成抛物线回落，叠加水雾粒子与湍流扰动。发射速率、寿命、速度、张角、重力、水雾浓度等参数均可实时调整并即时生效", tag: "Three.js, three.quarks, 粒子特效", icon: icon_fountain_three, updatedAt: "2026-09-19", available: true },
   { id: "free-line", title: "自由线-随手手绘线条", category: "draw", description: "左键单击并拖拽即可绘制自由线条（类手绘），右键结束；支持颜色、线宽与不透明度实时调整。", tag: "线绘制", icon: icon_free_line, updatedAt: "2026-09-06", available: true },
   { id: "free-line-edit", title: "自由线-编辑版", category: "draw", description: "绘制自由线后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_free_line_edit, updatedAt: "2026-09-06", available: true },
   { id: "free-polygon", title: "自由面-拖拽围合区域", category: "draw", description: "左键按下拖拽围合不规则区域，右键结束生成自由面；支持颜色与不透明度实时调整。", tag: "面绘制", icon: icon_free_polygon, updatedAt: "2026-09-06", available: true },

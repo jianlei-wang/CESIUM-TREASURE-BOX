@@ -32,7 +32,9 @@ export class CesiumQuarksLayer {
   private readonly removePostRender: () => void
   private readonly systems = new Set<ParticleSystem>()
 
-  private readonly axisSwap = new Matrix4(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1)
+  // three.js(x,y,z) -> ENU(x, -z, y)：three +y 向上、+z 向 (ENU 东=x/北=y/上=z)。
+  // 注意 Cesium.Matrix4 构造函数参数为“行优先”，前四个参数是第 0 行。
+  private readonly axisSwap = new Matrix4(1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1)
   private readonly enuToEcef = new Matrix4()
   private readonly threeToEcef = new Matrix4()
   private readonly tmpView = new Matrix4()

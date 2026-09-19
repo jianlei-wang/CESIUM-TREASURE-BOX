@@ -136,7 +136,7 @@ export function downloadText(text: string, filename: string, mime = 'application
 }
 
 // ---- GeoJSON ----
-export function buildGeoJson(features: { type: 'Feature'; properties: Record<string, unknown>; geometry: { type: 'LineString' | 'Polygon' | 'Point'; coordinates: number[][] } }[], name = 'hydro'): string {
+export function buildGeoJson(features: { type: 'Feature'; properties: Record<string, unknown>; geometry: { type: 'LineString' | 'Polygon' | 'Point'; coordinates: number[][] | number[][][] } }[], name = 'hydro'): string {
   return JSON.stringify({
     type: 'FeatureCollection',
     name,

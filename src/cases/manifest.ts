@@ -94,6 +94,7 @@ import icon_hydro_analysis from './hydro-analysis/icon.webp'
 import icon_hydro_analysis_pro from './hydro-analysis-pro/icon.webp'
 import icon_imagery_split from './imagery-split/icon.webp'
 import icon_integral_height_fog from './integral-height-fog/icon.webp'
+import icon_land_use_suitability from './land-use-suitability/icon.webp'
 import icon_landslide_cesium from './landslide-cesium/icon.webp'
 import icon_landslide_sim from './landslide-sim/icon.webp'
 import icon_landslide_three from './landslide-three/icon.webp'
@@ -196,6 +197,9 @@ import icon_terrain_height_mesh from './terrain-height-mesh/icon.webp'
 import icon_terrain_height_pick from './terrain-height-pick/icon.webp'
 import icon_terrain_height_sample from './terrain-height-sample/icon.webp'
 import icon_terrain_height_shader from './terrain-height-shader/icon.webp'
+import icon_terrain_roughness from './terrain-roughness/icon.webp'
+import icon_terrain_ruggedness_index from './terrain-ruggedness-index/icon.webp'
+import icon_terrain_wetness_index from './terrain-wetness-index/icon.webp'
 import icon_tiles_3d_dayanta from './tiles-3d-dayanta/icon.webp'
 import icon_tiles_3d_flatten from './tiles-3d-flatten/icon.webp'
 import icon_tiles_3d_load from './tiles-3d-load/icon.webp'
@@ -203,6 +207,7 @@ import icon_tiles_3d_local from './tiles-3d-local/icon.webp'
 import icon_triangle_measure from './triangle-measure/icon.webp'
 import icon_uav_test_field from './uav-test-field/icon.webp'
 import icon_underground_mode from './underground-mode/icon.webp'
+import icon_urban_flood_risk from './urban-flood-risk/icon.webp'
 import icon_vector_converter from './vector-converter/icon.webp'
 import icon_vector_loader from './vector-loader/icon.webp'
 import icon_video_feather from './video-feather/icon.webp'
@@ -335,6 +340,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'hydro-analysis-pro': () => import('./hydro-analysis-pro/index.ts'),
   'imagery-split': () => import('./imagery-split/index.ts'),
   'integral-height-fog': () => import('./integral-height-fog/index.ts'),
+  'land-use-suitability': () => import('./land-use-suitability/index.ts'),
   'landslide-cesium': () => import('./landslide-cesium/index.ts'),
   'landslide-sim': () => import('./landslide-sim/index.ts'),
   'landslide-three': () => import('./landslide-three/index.ts'),
@@ -437,6 +443,9 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'terrain-height-pick': () => import('./terrain-height-pick/index.ts'),
   'terrain-height-sample': () => import('./terrain-height-sample/index.ts'),
   'terrain-height-shader': () => import('./terrain-height-shader/index.ts'),
+  'terrain-roughness': () => import('./terrain-roughness/index.ts'),
+  'terrain-ruggedness-index': () => import('./terrain-ruggedness-index/index.ts'),
+  'terrain-wetness-index': () => import('./terrain-wetness-index/index.ts'),
   'tiles-3d-dayanta': () => import('./tiles-3d-dayanta/index.ts'),
   'tiles-3d-flatten': () => import('./tiles-3d-flatten/index.ts'),
   'tiles-3d-load': () => import('./tiles-3d-load/index.ts'),
@@ -444,6 +453,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'triangle-measure': () => import('./triangle-measure/index.ts'),
   'uav-test-field': () => import('./uav-test-field/index.ts'),
   'underground-mode': () => import('./underground-mode/index.ts'),
+  'urban-flood-risk': () => import('./urban-flood-risk/index.ts'),
   'vector-converter': () => import('./vector-converter/index.ts'),
   'vector-loader': () => import('./vector-loader/index.ts'),
   'video-feather': () => import('./video-feather/index.ts'),
@@ -574,6 +584,7 @@ export const demos: CaseMeta[] = [
   { id: "hydro-analysis-pro", title: "空间分析-水文分析(升级版)", category: "analysis", description: "在基础版水文分析之上迭代：地形采集支持按行列数或按间距(米)设置网格密度；逐步分析成果集中在页面左上方，栅格成果导出 GeoTIFF、矢量成果导出 GeoJSON 或 SHP(含属性)；每个步骤提供原理与实现说明的帮助图标", tag: "空间分析", icon: icon_hydro_analysis_pro, updatedAt: "2026-09-04", available: true },
   { id: "imagery-split", title: "卷帘分析-影像对比", category: "analysis", description: "左右加载不同影像地图并通过卷帘滑块进行对比", tag: "影像分析", icon: icon_imagery_split, updatedAt: "2026-08-23", available: true },
   { id: "integral-height-fog", title: "天气特效-浓度积分高度雾", category: "weather", description: "使用线性与指数浓度积分计算高度雾", tag: "天气系统", icon: icon_integral_height_fog, available: true },
+  { id: "land-use-suitability", title: "土地利用适宜性评价", category: "analysis", description: "基于 Cesium 真实地形采样或导入 DEM，在自绘多边形分析区内开展土地利用适宜性评价：选取坡度、高程、坡向与地形湿润指数四类因子，分别归一化为 0~1 适宜性得分，按可调权重加权叠加为 0~100 综合得分，并对超限坡度施加约束惩罚，分位数分级设色并提取适宜区等值线；支持真实地形采集/导入 DEM、区域绘制、参数提示、图例与结果说明、技术路线、在线报告与 PDF 导出，以及 GeoTIFF 栅格与 SHP/GeoJSON 矢量输出。", tag: "Cesium, 地形分析, 适宜性评价, 多因子加权, 坡度高程", icon: icon_land_use_suitability, updatedAt: "2026-09-19", available: true },
   { id: "landslide-cesium", title: "滑坡形成与运动演示", category: "analysis", description: "把滑坡发育过程移植到 Cesium 真实地形场景：基于解析式斜坡的高程网格、滑体沿弧形滑动面整体位移并在高速段解体、坡脚村庄掩埋与截排水沟/抗滑桩/抗滑挡墙等防治工程，配合 Bing 影像、阶段标注、降雨粒子与多机位预设，讲解滑坡从蠕动变形到减速堆积的四阶段", tag: "Cesium, 滑坡, 地质灾害, 三维场景", icon: icon_landslide_cesium, updatedAt: "2026-09-14", available: true },
   { id: "landslide-sim", title: "滑坡动态模拟", category: "analysis", description: "基于 Cesium World Terrain 真实高程与深度积分浅水波方程（SWE）的滑坡运动模拟：源区圈定、Voellmy 摩擦、方量守恒、影响范围提取与 GeoJSON/KML 导出", tag: "SWE, 滑坡", icon: icon_landslide_sim, updatedAt: "2026-09-10", available: true },
   { id: "landslide-three", title: "滑坡形成与运动 3D 演示", category: "three", description: "纯 Three.js 构建的滑坡发育过程演示：解析式斜坡地形与弧形滑动面、滑体沿滑面整体位移并在高速段解体为碎屑、坡脚村庄与道路受威胁、截排水沟与抗滑桩等防治工程实时生效，配合要素标注、降雨粒子与侧剖面视角，完整讲解滑坡从蠕动变形到减速堆积的四个阶段", tag: "Three.js, 滑坡, 地质灾害", icon: icon_landslide_three, updatedAt: "2026-09-15", available: true },
@@ -676,6 +687,9 @@ export const demos: CaseMeta[] = [
   { id: "terrain-height-pick", title: "空间分析-地形高度场·拾取深度反投影", category: "analysis", description: "复用拾取相机深度缓冲，顶视正交渲染后反投影高度，唯一包含建筑与 3D Tiles 的方案", tag: "空间分析", icon: icon_terrain_height_pick, available: true },
   { id: "terrain-height-sample", title: "空间分析-地形高度场·服务端采样", category: "analysis", description: "sampleTerrainMostDetailed 向地形服务采样规则网格高度场，作为五种方案的精度基准", tag: "空间分析", icon: icon_terrain_height_sample, available: true },
   { id: "terrain-height-shader", title: "空间分析-地形高度场·派生着色器", category: "analysis", description: "对 GLOBE pass 片元着色器做派生，正交相机顶视渲染到浮点 FBO，数百毫秒提取当前渲染 LOD", tag: "空间分析", icon: icon_terrain_height_shader, available: true },
+  { id: "terrain-roughness", title: "地形粗糙度分析", category: "analysis", description: "基于 Cesium 真实地形采样或导入 DEM，在自绘多边形分析区内计算地形粗糙度：可选焦点均值平滑后，用邻域极差法（窗口内 max−min）或表面积比值法（三角网三维表面积与投影面积之比）逐像元度量地表起伏与破碎程度，分位数分级设色并提取粗糙区等值线；支持真实地形采集/导入 DEM、区域绘制、参数提示、图例与结果说明、技术路线、在线报告与 PDF 导出，以及 GeoTIFF 栅格与 SHP/GeoJSON 矢量输出。", tag: "Cesium, 地形分析, 粗糙度, 邻域极差, 表面积比值", icon: icon_terrain_roughness, updatedAt: "2026-09-19", available: true },
+  { id: "terrain-ruggedness-index", title: "地形崎岖率（TRI）分析", category: "analysis", description: "基于 Cesium 真实地形采样或导入 DEM，在自绘多边形分析区内计算地形崎岖率 TRI：对每个像元统计与八邻域的高程差异，支持 Riley（平方和开方）与 Wilson（绝对差均值）两种口径，经可选平滑后分位数分级设色，并用 Marching Squares 提取崎岖区等值线；支持真实地形采集/导入 DEM、区域绘制、参数提示、图例与结果说明、技术路线、在线报告与 PDF 导出，以及 GeoTIFF 栅格与 SHP/GeoJSON 矢量输出。", tag: "Cesium, 地形分析, TRI, 崎岖率, 邻域高程差", icon: icon_terrain_ruggedness_index, updatedAt: "2026-09-19", available: true },
+  { id: "terrain-wetness-index", title: "地形湿润指数（TWI）分析", category: "analysis", description: "基于 Cesium 真实地形采样或导入 DEM，在自绘多边形分析区内计算地形湿润指数 TWI = ln(a / tanβ)：经洼地填充、D8 流向与汇流累积得到单宽汇水面积，结合坡度正切逐像元求解并分位数分级设色，同时用 Marching Squares 提取湿润区等值线；支持真实地形采集/导入 DEM、区域绘制、参数提示、图例与结果说明、技术路线、在线报告与 PDF 导出，以及 GeoTIFF 栅格与 SHP/GeoJSON 矢量输出。", tag: "Cesium, 地形分析, TWI, 汇流累积, 水分再分配", icon: icon_terrain_wetness_index, updatedAt: "2026-09-19", available: true },
   { id: "tiles-3d-dayanta", title: "3DTiles-大雁塔模型", category: "tiles", description: "本地内置西安大雁塔 3D Tiles 模型，支持高度/透明度/着色/精度等参数调整", tag: "模型加载", icon: icon_tiles_3d_dayanta, available: true },
   { id: "tiles-3d-flatten", title: "3DTiles模型压平", category: "tiles", description: "自定义着色器实现 3DTiles 倾斜摄影区域压平", tag: "模型处理", icon: icon_tiles_3d_flatten, updatedAt: "2026-08-26", available: true },
   { id: "tiles-3d-load", title: "3DTiles加载", category: "tiles", description: "加载远程倾斜摄影 3DTiles 模型并支持定位与阴影", tag: "模型加载", icon: icon_tiles_3d_load, updatedAt: "2026-08-26", available: true },
@@ -683,6 +697,7 @@ export const demos: CaseMeta[] = [
   { id: "triangle-measure", title: "空间测量-三角量测", category: "measure", description: "两点直角三角形水平/垂直距离与斜边夹角量测，含地形与三维模型", tag: "测量", icon: icon_triangle_measure, updatedAt: "2026-08-24", available: true },
   { id: "uav-test-field", title: "无人机试飞场 3D 演示", category: "three", description: "纯 Three.js 构建的无人机试飞场三维可视化：园区跑道、起降场、拱顶机库、通导监气反保障设备与围墙办公区完整建模，无人机沿闭环航线自动巡航并可切换手动操控，内置 GB 42590-2023 的 17 项强制安全测试科目，逐项演示电子围栏、应急处置、结构强度、抗风性、灯光等测试流程与实时结果", tag: "Three.js, 无人机, 试飞场, GB 42590", icon: icon_uav_test_field, updatedAt: "2026-09-18", available: true },
   { id: "underground-mode", title: "地下模式-地铁站", category: "scene", description: "地球半透明地下模式，查看埋设于地表下方的地铁站模型", tag: "地下可视化", icon: icon_underground_mode, updatedAt: "2026-09-06", available: true },
+  { id: "urban-flood-risk", title: "城市内涝风险评估（简版）", category: "analysis", description: "基于 Cesium 真实地形采样或导入 DEM，在自绘多边形分析区内开展城市内涝风险评估：对 DEM 填洼后计算 D8 汇流累积，结合地形位置指数（TPI）与坡度构建孕灾因子，叠加可调降雨强度加权得到 0~100 风险指数，分位数分级设色并提取高风险区等值线；支持真实地形采集/导入 DEM、区域绘制、参数提示、图例与结果说明、技术路线、在线报告与 PDF 导出，以及 GeoTIFF 栅格与 SHP/GeoJSON 矢量输出。", tag: "Cesium, 地形分析, 城市内涝, 汇流累积, TPI", icon: icon_urban_flood_risk, updatedAt: "2026-09-19", available: true },
   { id: "vector-converter", title: "数据转换-矢量数据转换", category: "data", description: "纯前端矢量数据格式互转工具：自动识别并解析 GeoJSON/TopoJSON、KML/KMZ、奥维 OVKML/OVKMZ/OVJSN/OVOBJ、GPX、WKT、CSV、Shapefile 等格式，统一为 WGS84 中间模型并在三维场景中预览，支持 WGS84/CGCS2000/GCJ02/BD09/Web墨卡托/高斯投影等坐标系互转，可导出为 GeoJSON/KML/KMZ/奥维/GPX/WKT/CSV/SHP，点位矢量可额外导出为 Excel 表格，内置功能实现说明", tag: "数据转换", icon: icon_vector_converter, available: true },
   { id: "vector-loader", title: "本地矢量数据加载", category: "tiles", description: "加载并展示 SHP / GeoJSON / KML 本地矢量数据", tag: "数据图层", icon: icon_vector_loader, available: true },
   { id: "video-feather", title: "数据可视化-视频融合(羽化)", category: "data", description: "视频叠加到地形后边缘以羽化渐变方式渐隐融合，支持羽化宽度、透明度、位置、尺寸实时调节，过渡自然柔和", tag: "视频羽化", icon: icon_video_feather, updatedAt: "2026-09-01", available: true },

@@ -162,6 +162,7 @@ import icon_radar_wave from './radar-wave/icon.webp'
 import icon_rectangle_depth_map from './rectangle-depth-map/icon.webp'
 import icon_regular_polygon from './regular-polygon/icon.webp'
 import icon_regular_polygon_edit from './regular-polygon-edit/icon.webp'
+import icon_ridge_valley_extraction from './ridge-valley-extraction/icon.webp'
 import icon_right_angle_arrow from './right-angle-arrow/icon.webp'
 import icon_right_angle_arrow_edit from './right-angle-arrow-edit/icon.webp'
 import icon_river_flowfield from './river-flowfield/icon.webp'
@@ -402,6 +403,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'rectangle-depth-map': () => import('./rectangle-depth-map/index.ts'),
   'regular-polygon': () => import('./regular-polygon/index.ts'),
   'regular-polygon-edit': () => import('./regular-polygon-edit/index.ts'),
+  'ridge-valley-extraction': () => import('./ridge-valley-extraction/index.ts'),
   'right-angle-arrow': () => import('./right-angle-arrow/index.ts'),
   'right-angle-arrow-edit': () => import('./right-angle-arrow-edit/index.ts'),
   'river-flowfield': () => import('./river-flowfield/index.ts'),
@@ -640,6 +642,7 @@ export const demos: CaseMeta[] = [
   { id: "rectangle-depth-map", title: "空间分析-深度图提取", category: "analysis", description: "支持输入四至经纬度或在地图上框选矩形区域，按分辨率或间距(米)采样地形高度，输出带 WGS84 地理坐标的 PNG 与 GeoTIFF 深度图", tag: "空间分析", icon: icon_rectangle_depth_map, updatedAt: "2026-08-25", available: true },
   { id: "regular-polygon", title: "正多边形-规则多边形面", category: "draw", description: "左键定位中心并拖拽决定外接半径，右键结束；边数（3~12）与颜色实时可调。", tag: "面绘制", icon: icon_regular_polygon, updatedAt: "2026-09-06", available: true },
   { id: "regular-polygon-edit", title: "正多边形-编辑版", category: "draw", description: "绘制正多边形后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_regular_polygon_edit, updatedAt: "2026-09-06", available: true },
+  { id: "ridge-valley-extraction", title: "山脊线与山谷线提取", category: "analysis", description: "基于 Cesium 真实地形的山脊线/山谷线自动提取：在地图上绘制分析区域后按米级间距采样全球地形生成 DEM，焦点统计区分正负地形，山脊沿原始 DEM、山谷沿反地形分别执行填洼、D8 流向与汇流累积，提取零汇流候选后经邻域统计与阈值筛选，最终用 Zhang-Suen 细化与折线矢量化输出结果；支持栅格图层化渲染与图例说明、晕渲与太阳光照调节、线要素样式定制、技术路线说明、耗时统计、分析报告在线预览与 PDF 导出，以及 GeoJSON / PNG 导出", tag: "Cesium, 水文分析, 山脊线, 山谷线, 矢量化", icon: icon_ridge_valley_extraction, updatedAt: "2026-09-19", available: true },
   { id: "right-angle-arrow", title: "直角箭头-折线转角箭头", category: "draw", description: "左键连续落点形成直角折线走向，右键结束生成直角箭头；颜色可调。", tag: "箭头", icon: icon_right_angle_arrow, updatedAt: "2026-09-06", available: true },
   { id: "right-angle-arrow-edit", title: "直角箭头-编辑版", category: "draw", description: "绘制直角箭头后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_right_angle_arrow_edit, updatedAt: "2026-09-06", available: true },
   { id: "river-flowfield", title: "河道流场水面", category: "water", description: "以真实河道水面多边形与中心线烘焙流场贴图，GPU 着色器沿流场驱动波纹流动、泡沫聚集与岸线羽化，深浅双色、菲涅尔与屏幕空间高光抗锯齿一体成型，支持叠加流向箭头粒子并实时调节全套参数", tag: "河道水流", icon: icon_river_flowfield, updatedAt: "2026-09-04", available: true },

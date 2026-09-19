@@ -843,5 +843,6 @@ Entries discovered by the Agent during task execution should follow this format:
 - Category: Build Methods
 - Instructions:
   - 案例卡片 icon 统一规范：宽度 300px、高度等比（卡片实际展示尺寸，原始 ~1235px 宽的截图过大）；`src/cases/*/icon.*` 覆盖 webp/jpg/png 三种格式，重编码参数 webp/jpeg quality=82、png compressionLevel=9 + adaptiveFiltering。
-  - 本机默认无 cwebp/ImageMagick；批量处理用全局 `sharp`（`npm install -g sharp`），ESM 脚本内用 `createRequire(import.meta.url)` + `NODE_PATH=$(npm root -g)` 加载。
+  - 强制流程（2026-09-19 用户强调）：每次为案例设置/替换 icon 时，必须同步把上传原图压到 300px 宽再落入 `src/cases/<case>/icon.webp`，禁止直接提交原始大图；`land-use-suitability`、`terrain-roughness`、`terrain-ruggedness-index`、`terrain-wetness-index`、`urban-flood-risk` 曾因直接复制原图（~1236px、80-106KiB）返工。
+  - 本机默认无 cwebp/ImageMagick；批量处理用全局 `sharp`（`npm install -g sharp`），ESM 脚本内用 `createRequire(import.meta.url)` + `NODE_PATH=$(npm root -g)` 加载；若 sharp 不可用，可用系统 Python 的 Pillow（`PIL.Image`，LANCZOS 缩放到 300px 宽后 `save(..., 'WEBP', quality=82, method=6)`），已验证本机 `python3` 自带 Pillow 12。
   - 重编码前用 `sharp(p).metadata()` 检查 `pages>1`（动图跳过），仅当原宽 >300 才处理，且新文件更小才覆盖，避免误伤已优化文件。

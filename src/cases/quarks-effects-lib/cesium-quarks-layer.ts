@@ -27,7 +27,7 @@ export class CesiumQuarksLayer {
   private readonly viewer: Viewer
   private readonly container: HTMLElement
   private readonly renderer: THREE.WebGLRenderer
-  private readonly clock = new THREE.Clock()
+  private readonly timer = new THREE.Timer()
   private readonly observer: ResizeObserver
   private readonly removePostRender: () => void
   private readonly systems = new Set<ParticleSystem>()
@@ -69,6 +69,7 @@ export class CesiumQuarksLayer {
 
     this.setOrigin(origin)
     this.resize()
+    this.timer.connect(document)
 
     this.observer = new ResizeObserver(() => this.resize())
     this.observer.observe(container)
@@ -116,7 +117,8 @@ export class CesiumQuarksLayer {
   private render(): void {
     if (this.disposed || this.viewer.isDestroyed()) return
 
-    const delta = Math.min(0.1, this.clock.getDelta())
+    this.timer.update()
+    const delta = Math.min(0.1, this.timer.getDelta())
     this.onFrame?.(delta)
     this.batchRenderer.update(delta)
 
@@ -146,6 +148,7 @@ export class CesiumQuarksLayer {
     this.clearSystems()
     this.observer.disconnect()
     this.removePostRender()
+    this.timer.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
   }

@@ -20,6 +20,7 @@ const status = ref('初始化中…')
 const infoOpen = ref(false)
 
 let runner: QuarksEffectRunner | null = null
+let previous: ParamValues = { ...values }
 
 function config(): QuarksEffectConfig {
   return {
@@ -79,7 +80,13 @@ onBeforeUnmount(() => {
 watch(
   values,
   () => {
-    runner?.rebuild({ ...values })
+    if (!runner) return
+    const changed: string[] = []
+    for (const key of Object.keys(values)) {
+      if (values[key] !== previous[key]) changed.push(key)
+    }
+    previous = { ...values }
+    runner.setValues({ ...values }, changed)
   },
   { deep: true }
 )

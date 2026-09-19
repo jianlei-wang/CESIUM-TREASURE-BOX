@@ -5,8 +5,8 @@ import QuarksEffectDemo from '../quarks-effects-lib/QuarksEffectDemo.vue'
 <template>
   <QuarksEffectDemo
     effect="fireworks"
-    :camera-distance="300"
-    :camera-pitch="-24"
+    :camera-distance="150"
+    :camera-pitch="-20"
     :camera-heading="0"
     :target-height="45"
   />

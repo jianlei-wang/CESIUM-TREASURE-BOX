@@ -3,6 +3,7 @@ import {
   buildEffect,
   defaultParamValues,
   EFFECT_META,
+  isRebuildKey,
   type EffectId,
   type ParamValues,
   type BuiltEffect
@@ -58,12 +59,26 @@ export class QuarksEffectRunner {
     this.viewer.camera.lookAtTransform(Matrix4.IDENTITY)
   }
 
+  /** 首次构建或结构性参数变化后的整系统重建（带防抖） */
   rebuild(values: ParamValues): void {
     if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer)
     this.rebuildTimer = window.setTimeout(() => {
       this.rebuildTimer = null
       this.apply(values)
-    }, 120)
+    }, 100)
+  }
+
+  /**
+   * 参数变化入口：非结构性参数直接就地更新，立即生效，无卡顿；
+   * 结构性参数（如烟花配色）触发重建。
+   */
+  setValues(values: ParamValues, changedKeys: string[]): void {
+    const needsRebuild = changedKeys.some((key) => isRebuildKey(this.config.effect, key))
+    if (!needsRebuild && this.built?.update) {
+      this.built.update(values)
+      return
+    }
+    this.rebuild(values)
   }
 
   private apply(values: ParamValues): void {

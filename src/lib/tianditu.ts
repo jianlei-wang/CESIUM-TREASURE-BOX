@@ -1,6 +1,6 @@
 import { Credit, UrlTemplateImageryProvider } from 'cesium'
 
-export const TIANDITU_TOKEN = '0a94f560c3f216b0047de09d2861ed12'
+export const TIANDITU_TOKEN = 'c1a0fd03f9b5f36e67b5c58ac5008d56'
 
 const TIANDITU_SUBDOMAINS = ['0', '1', '2', '3', '4', '5', '6', '7']
 

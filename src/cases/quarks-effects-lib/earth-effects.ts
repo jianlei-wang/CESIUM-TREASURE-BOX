@@ -1,15 +1,17 @@
 import * as THREE from 'three'
 import {
   ApplyForce,
+  AxisAngleGenerator,
   ColorOverLife,
   ColorRange,
   ConstantValue,
   ConeEmitter,
   IntervalValue,
   ParticleSystem,
+  RandomQuatGenerator,
   RectangleEmitter,
   RenderMode,
-  RotationOverLife,
+  Rotation3DOverLife,
   TurbulenceField,
   Vector3 as QVector3
 } from 'three.quarks'
@@ -21,6 +23,7 @@ import {
   normalBlend,
   num,
   q3,
+  setParticleOpacity,
   sizeCurve,
   str,
   whiteAlpha,
@@ -32,22 +35,11 @@ import {
 
 export type EarthEffectId = 'aurora' | 'urban-fire' | 'wind-field' | 'flock' | 'snow'
 
-function createRadialDiscTexture(): THREE.CanvasTexture {
-  const size = 128
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
-  grad.addColorStop(0, 'rgba(255,255,255,0.95)')
-  grad.addColorStop(0.55, 'rgba(255,255,255,0.55)')
-  grad.addColorStop(1, 'rgba(255,255,255,0)')
-  ctx.fillStyle = grad
-  ctx.fillRect(0, 0, size, size)
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  return texture
-}
+/**
+ * prewarm 打开时 quarks 会以 60fps 逐帧模拟 duration 秒，全部在打开瞬间同步执行。
+ * duration 每增加 1 秒就多 60 次全粒子 update，因此预热的系统必须把 duration 压到很小。
+ */
+const PREWARM_DURATION = 4
 
 /* ------------------------------------------------------------------ */
 /* 06 极光                                                              */
@@ -211,7 +203,7 @@ function buildUrbanFire(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
   const burnDuration = num(values, 'burnDuration', 22)
   const wind = num(values, 'wind', 8)
   const windDir = num(values, 'windDir', 60)
-  const smokeOpacity = num(values, 'smokeOpacity', 0.45)
+  const smokeOpacity = num(values, 'smokeOpacity', 0.9)
   const glow = num(values, 'glow', 1)
 
   const spacing = 26
@@ -278,10 +270,10 @@ function buildUrbanFire(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
       })
       fire.emitter.position.set(x, h, z)
       fire.emitter.rotation.x = -Math.PI / 2
-      fire.material.opacity = Math.min(1, glow)
+      setParticleOpacity(fire, Math.min(1, glow))
 
       const smokeRate = new ConstantValue(0)
-      const smokeLife = new IntervalValue(7, 14)
+      const smokeLife = new IntervalValue(5, 9)
       const smokeSpeed = new IntervalValue(1.5, 4)
       const smokeSize = new IntervalValue(3, 6.5)
       const smokeRise = new ConstantValue(2.4)
@@ -317,7 +309,7 @@ function buildUrbanFire(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
               1
             )
           ),
-          new TurbulenceField(q3(3, 3, 3), 2, q3(0.7, 0.5, 0.7), q3(0.25, 0.25, 0.25))
+          new TurbulenceField(q3(3, 3, 3), 1, q3(0.7, 0.5, 0.7), q3(0.25, 0.25, 0.25))
         ],
         renderMode: RenderMode.BillBoard,
         material: normalBlend(ctx.textures.smoke, smokeOpacity),
@@ -325,6 +317,7 @@ function buildUrbanFire(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
       })
       smoke.emitter.position.set(x, h, z)
       smoke.emitter.rotation.x = -Math.PI / 2
+      setParticleOpacity(smoke, smokeOpacity)
 
       cells.push({
         ix,
@@ -362,6 +355,13 @@ function buildUrbanFire(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
   let spreadTimer = 0
   let resetTimer = 0
   let time = 0
+
+  // 粒子预算：火焰/烟雾总量按当前燃烧单元数均摊，火势蔓延时单栋发射量自动下调，
+  // 使场景总粒子数始终有界，避免蔓延到整片街区后 FPS 崩塌。
+  const FIRE_BUDGET = 2200
+  const SMOKE_BUDGET = 7000
+  const FIRE_LIFE_AVG = 0.95
+  const SMOKE_LIFE_AVG = 7
 
   const ignite = (cell: FireCell): void => {
     cell.state = 1
@@ -429,12 +429,19 @@ function buildUrbanFire(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
 
     let burning = 0
     for (const cell of cells) {
+      if (cell.state === 1) burning += 1
+    }
+    const fireCap = burning > 0 ? FIRE_BUDGET / burning / FIRE_LIFE_AVG : 0
+    const smokeCap = burning > 0 ? SMOKE_BUDGET / burning / SMOKE_LIFE_AVG : 0
+    const fireRatePerCell = Math.min(cfg.fireRate, fireCap)
+    const smokeRatePerCell = Math.min(cfg.smokeRate, smokeCap)
+
+    for (const cell of cells) {
       if (cell.state !== 1) continue
-      burning += 1
       cell.age += delta
       const flicker = 0.82 + 0.18 * Math.sin(time * 8 + cell.phase)
-      cell.fireRate.value = cfg.fireRate * flicker
-      cell.smokeRate.value = cfg.smokeRate
+      cell.fireRate.value = fireRatePerCell * flicker
+      cell.smokeRate.value = smokeRatePerCell
       if (cell.age >= cfg.burnDuration) extinguish(cell)
     }
 
@@ -461,15 +468,11 @@ function buildUrbanFire(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
     smokeWindMag.value = cfg.wind * 0.55
 
     const fz = num(v, 'fireSize', 1.8)
-    const so = num(v, 'smokeOpacity', 0.45)
+    const so = num(v, 'smokeOpacity', 0.9)
     const fireOpacity = Math.min(1, cfg.glow)
     for (const cell of cells) {
-      if (cell.state === 1) {
-        cell.fireRate.value = cfg.fireRate
-        cell.smokeRate.value = cfg.smokeRate
-      }
-      cell.fire.material.opacity = fireOpacity
-      cell.smoke.material.opacity = so
+      setParticleOpacity(cell.fire, fireOpacity)
+      setParticleOpacity(cell.smoke, so)
       cell.fireSizeGen.a = fz * 0.5
       cell.fireSizeGen.b = fz
     }
@@ -491,14 +494,19 @@ interface WindParticle {
   x: number
   y: number
   z: number
-  prevX: number
-  prevZ: number
+  tx: number
+  tz: number
   age: number
   life: number
 }
 
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0 || 1)))
+  return t * t * (3 - 2 * t)
+}
+
 function buildWindField(values: ParamValues, _ctx: EffectBuildContext): BuiltEffect {
-  const count = Math.max(200, Math.round(num(values, 'count', 7000)))
+  const count = Math.max(200, Math.round(num(values, 'count', 4500)))
   const area = num(values, 'area', 26000)
   const speed = num(values, 'speed', 140)
   const turbulence = num(values, 'turbulence', 0.8)
@@ -511,29 +519,31 @@ function buildWindField(values: ParamValues, _ctx: EffectBuildContext): BuiltEff
   const brightness = num(values, 'brightness', 0.9)
 
   const positions = new Float32Array(count * 6)
-  const colors = new Float32Array(count * 6)
+  const colors = new Float32Array(count * 8)
   const half = area / 2
+  const halfRef = { value: half }
 
   const particles: WindParticle[] = []
   const spawn = (p: WindParticle): void => {
-    p.x = (Math.random() * 2 - 1) * half
-    p.z = (Math.random() * 2 - 1) * half
+    const h = halfRef.value
+    p.x = (Math.random() * 2 - 1) * h
+    p.z = (Math.random() * 2 - 1) * h
     p.y = altitude + (Math.random() * 2 - 1) * thickness
-    p.prevX = p.x
-    p.prevZ = p.z
+    p.tx = p.x
+    p.tz = p.z
     p.age = Math.random() * life
-    p.life = life * (0.6 + Math.random() * 0.8)
+    p.life = life * (0.65 + Math.random() * 0.7)
   }
 
   for (let i = 0; i < count; i += 1) {
-    const particle: WindParticle = { x: 0, y: 0, z: 0, prevX: 0, prevZ: 0, age: 0, life }
+    const particle: WindParticle = { x: 0, y: 0, z: 0, tx: 0, tz: 0, age: 0, life }
     spawn(particle)
     particles.push(particle)
   }
 
   const geometry = new THREE.BufferGeometry()
   const positionAttr = new THREE.BufferAttribute(positions, 3)
-  const colorAttr = new THREE.BufferAttribute(colors, 3)
+  const colorAttr = new THREE.BufferAttribute(colors, 4)
   geometry.setAttribute('position', positionAttr)
   geometry.setAttribute('color', colorAttr)
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), area)
@@ -561,77 +571,187 @@ function buildWindField(values: ParamValues, _ctx: EffectBuildContext): BuiltEff
     thickness,
     brightness
   }
-  const halfRef = { value: half }
   let time = 0
 
-  const color = new THREE.Color()
-
-  const field = (x: number, z: number, out: { x: number; z: number }): void => {
-    const s = 0.00035
-    const t = time
-    let vx =
-      Math.sin(z * s + t * 0.11) +
-      0.55 * Math.sin((x + z) * s * 2.3 - t * 0.16) +
-      0.35 * Math.sin((x * 0.7 - z) * s * 3.1 + t * 0.23)
-    let vz =
-      Math.cos(x * s - t * 0.13) +
-      0.55 * Math.cos((x - z) * s * 1.9 + t * 0.19) +
-      0.35 * Math.cos((x + z * 0.6) * s * 2.7 - t * 0.27)
-    vx += cfg.turbulence * 0.7 * Math.sin(z * s * 9 + t * 0.9)
-    vz += cfg.turbulence * 0.7 * Math.cos(x * s * 9 - t * 0.8)
-    const r2 = x * x + z * z
-    const e = cfg.eye * Math.exp(-r2 / (2 * cfg.eyeRadius * cfg.eyeRadius))
-    vx += -z * 0.00035 * e
-    vz += x * 0.00035 * e
-    out.x = vx
-    out.z = vz
+  // 速度→颜色查找表：预计算 64 级 RGB，避免逐粒子反复 setHex/lerp。
+  const PALETTE_STEPS = 64
+  const paletteLut = new Float32Array(PALETTE_STEPS * 3)
+  {
+    const palette = [0x1f3bff, 0x1fb6ff, 0x2be08a, 0xf2d24a, 0xff7a26, 0xff2f2f]
+    const ca = new THREE.Color()
+    const cb = new THREE.Color()
+    for (let i = 0; i < PALETTE_STEPS; i += 1) {
+      const t = (i / (PALETTE_STEPS - 1)) * (palette.length - 1)
+      const idx = Math.min(palette.length - 2, Math.floor(t))
+      const frac = t - idx
+      ca.setHex(palette[idx])
+      cb.setHex(palette[idx + 1])
+      ca.lerp(cb, frac)
+      paletteLut[i * 3 + 0] = ca.r
+      paletteLut[i * 3 + 1] = ca.g
+      paletteLut[i * 3 + 2] = ca.b
+    }
   }
 
-  const sample = { x: 0, z: 0 }
+  interface FlowSample {
+    x: number
+    z: number
+  }
+
+  /**
+   * 无散度矢量风场：以流函数 ψ 叠加多个尺度涡旋（u=∂ψ/∂z, w=-∂ψ/∂x），
+   * 再叠加纬向急流带与近似 Rankine 涡旋的切向风。涡旋项按 1/k 归一化，
+   * 使各分量量级可比、输出稳定在单位量级。
+   */
+  const field = (x: number, z: number, out: FlowSample): void => {
+    const length = Math.max(1200, cfg.area * 0.55)
+    const k = (Math.PI * 2) / length
+    let u = 0
+    let w = 0
+
+    const eddy = (scale: number, amp: number, spin: number, phase: number): void => {
+      const kk = k / scale
+      const a = amp / kk
+      const argX = kk * x + time * spin + phase
+      const argZ = kk * z - time * spin * 0.7 + phase * 1.7
+      u += -a * kk * Math.sin(argX) * Math.sin(argZ)
+      w += -a * kk * Math.cos(argX) * Math.cos(argZ)
+    }
+
+    eddy(1, 1.05, 0.05, 0)
+    eddy(0.55, 0.72, -0.08, 2.1)
+    eddy(0.3, 0.5, 0.13, 4.3)
+    eddy(0.14, cfg.turbulence * 0.55, 0.5, 1.2)
+    eddy(0.08, cfg.turbulence * 0.42, -0.8, 3.4)
+
+    const bandPhase = (z / Math.max(1, cfg.area)) * Math.PI * 1.6 + time * 0.02
+    u += 0.6 + 0.4 * Math.cos(bandPhase)
+
+    const radius = Math.max(1, Math.hypot(x, z))
+    const rn = radius / Math.max(1, cfg.eyeRadius)
+    const tangential = cfg.eye * 2.2 * rn * Math.exp(1 - rn)
+    const nx = -z / radius
+    const nz = x / radius
+    u += nx * tangential - (x / radius) * tangential * 0.16
+    w += nz * tangential - (z / radius) * tangential * 0.16
+
+    out.x = u
+    out.z = w
+  }
+
+  // 风场在粗网格上采样，粒子用双线性插值读取，避免逐粒子做大量三角函数。
+  const GRID_N = 48
+  const grid = new Float32Array(GRID_N * GRID_N * 2)
+  const gridHalf = { value: half }
+  const gridStep = { value: (2 * half) / (GRID_N - 1) }
+  const gridTmp: FlowSample = { x: 0, z: 0 }
+
+  const rebuildGrid = (): void => {
+    const h = gridHalf.value
+    const step = gridStep.value
+    let idx = 0
+    for (let ix = 0; ix < GRID_N; ix += 1) {
+      const x = -h + ix * step
+      for (let iz = 0; iz < GRID_N; iz += 1) {
+        field(x, -h + iz * step, gridTmp)
+        grid[idx] = gridTmp.x
+        grid[idx + 1] = gridTmp.z
+        idx += 2
+      }
+    }
+  }
+
+  const sampleField = (x: number, z: number, out: FlowSample): void => {
+    const h = gridHalf.value
+    const step = gridStep.value
+    let gx = (x + h) / step
+    let gz = (z + h) / step
+    if (gx < 0) gx = 0
+    else if (gx > GRID_N - 1) gx = GRID_N - 1
+    if (gz < 0) gz = 0
+    else if (gz > GRID_N - 1) gz = GRID_N - 1
+    const ix = Math.min(GRID_N - 2, gx | 0)
+    const iz = Math.min(GRID_N - 2, gz | 0)
+    const fx = gx - ix
+    const fz = gz - iz
+    const row0 = ix * GRID_N * 2
+    const row1 = (ix + 1) * GRID_N * 2
+    const c0 = iz * 2
+    const c1 = (iz + 1) * 2
+    const i00 = row0 + c0
+    const i10 = row1 + c0
+    const i01 = row0 + c1
+    const i11 = row1 + c1
+    const w00 = (1 - fx) * (1 - fz)
+    const w10 = fx * (1 - fz)
+    const w01 = (1 - fx) * fz
+    const w11 = fx * fz
+    out.x = grid[i00] * w00 + grid[i10] * w10 + grid[i01] * w01 + grid[i11] * w11
+    out.z = grid[i00 + 1] * w00 + grid[i10 + 1] * w10 + grid[i01 + 1] * w01 + grid[i11 + 1] * w11
+  }
+
+  const first: FlowSample = { x: 0, z: 0 }
+  const second: FlowSample = { x: 0, z: 0 }
 
   const tick = (delta: number): void => {
     time += delta
-    const step = cfg.speed * delta
     const halfNow = halfRef.value
-    const trailSq = cfg.trail * cfg.trail
+    const maxLag = 1.6
+    const speedRef = Math.max(1, cfg.speed)
+    const altLow = cfg.altitude - cfg.thickness
+    const altSpan = Math.max(1, cfg.thickness * 2)
+    rebuildGrid()
 
     for (let i = 0; i < count; i += 1) {
       const p = particles[i]
       p.age += delta
-      field(p.x, p.z, sample)
-      const magnitude = Math.hypot(sample.x, sample.z)
-      p.x += sample.x * step
-      p.z += sample.z * step
 
-      const dx = p.x - p.prevX
-      const dz = p.z - p.prevZ
-      if (dx * dx + dz * dz > trailSq) {
-        p.prevX = p.x
-        p.prevZ = p.z
-      }
+      const altFactor = 0.7 + 0.6 * Math.min(1, Math.max(0, (p.y - altLow) / altSpan))
+      const step = cfg.speed * altFactor * delta
+      sampleField(p.x, p.z, first)
+      sampleField(p.x + first.x * step * 0.5, p.z + first.z * step * 0.5, second)
+      p.x += second.x * step
+      p.z += second.z * step
+
+      const magnitude = Math.max(0.12, Math.hypot(second.x, second.z))
+      const tau = Math.min(maxLag, cfg.trail / (speedRef * magnitude))
+      const k = 1 - Math.exp(-delta / tau)
+      p.tx += (p.x - p.tx) * k
+      p.tz += (p.z - p.tz) * k
 
       if (p.age > p.life || Math.abs(p.x) > halfNow || Math.abs(p.z) > halfNow) {
         spawn(p)
-        p.life = cfg.life * (0.6 + Math.random() * 0.8)
         p.age = 0
+        p.life = cfg.life * (0.65 + Math.random() * 0.7)
       }
 
-      const base = i * 6
-      positions[base + 0] = p.prevX
-      positions[base + 1] = p.y
-      positions[base + 2] = p.prevZ
-      positions[base + 3] = p.x
-      positions[base + 4] = p.y
-      positions[base + 5] = p.z
+      const age = p.age / Math.max(0.001, p.life)
+      const fade = smoothstep(0, 0.15, age) * (1 - smoothstep(0.68, 1, age))
+      const edge = 1 - smoothstep(0.82, 1, Math.max(Math.abs(p.x), Math.abs(p.z)) / halfNow)
+      const speedLevel = Math.min(1, Math.max(0, (magnitude - 0.55) / 2.6))
+      const alpha = fade * edge * (0.45 + 0.55 * speedLevel)
 
-      const speedLevel = Math.min(1, Math.max(0, (magnitude - 0.7) / 2.4))
-      color.setHSL(0.62 - 0.62 * speedLevel, 1, 0.5 + 0.12 * speedLevel)
-      colors[base + 0] = color.r
-      colors[base + 1] = color.g
-      colors[base + 2] = color.b
-      colors[base + 3] = color.r
-      colors[base + 4] = color.g
-      colors[base + 5] = color.b
+      const pb = i * 6
+      positions[pb + 0] = p.tx
+      positions[pb + 1] = p.y
+      positions[pb + 2] = p.tz
+      positions[pb + 3] = p.x
+      positions[pb + 4] = p.y
+      positions[pb + 5] = p.z
+
+      const li = ((speedLevel * (PALETTE_STEPS - 1)) | 0) * 3
+      const r = paletteLut[li]
+      const g = paletteLut[li + 1]
+      const b = paletteLut[li + 2]
+      const cb = i * 8
+      colors[cb + 0] = r
+      colors[cb + 1] = g
+      colors[cb + 2] = b
+      colors[cb + 3] = alpha * 0.1
+      colors[cb + 4] = r
+      colors[cb + 5] = g
+      colors[cb + 6] = b
+      colors[cb + 7] = alpha
     }
 
     positionAttr.needsUpdate = true
@@ -651,6 +771,8 @@ function buildWindField(values: ParamValues, _ctx: EffectBuildContext): BuiltEff
     const nextArea = num(v, 'area', 26000)
     cfg.area = nextArea
     halfRef.value = nextArea / 2
+    gridHalf.value = nextArea / 2
+    gridStep.value = (2 * gridHalf.value) / (GRID_N - 1)
     material.opacity = cfg.brightness
     geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), nextArea)
   }
@@ -1022,20 +1144,22 @@ function buildFlock(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
 /* ------------------------------------------------------------------ */
 
 function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
-  const count = num(values, 'count', 4200)
-  const flakeCount = num(values, 'flakeCount', 700)
+  const count = num(values, 'count', 3200)
+  const flakeCount = num(values, 'flakeCount', 550)
+  const bokehCount = num(values, 'bokeh', 220)
   const size = num(values, 'size', 0.5)
   const fallSpeed = num(values, 'fallSpeed', 6)
   const area = num(values, 'area', 260)
-  const height = num(values, 'height', 150)
+  const height = num(values, 'height', 130)
   const wind = num(values, 'wind', 6)
   const windDir = num(values, 'windDir', 35)
   const sway = num(values, 'sway', 1.2)
-  const blow = num(values, 'blow', 1200)
+  const blow = num(values, 'blow', 900)
   const blowSpeed = num(values, 'blowSpeed', 14)
   const accumulation = num(values, 'accumulation', 0.6)
   const opacity = num(values, 'opacity', 0.85)
   const spin = num(values, 'spin', 1.2)
+  const gust = num(values, 'gust', 0.45)
 
   const windVec = new QVector3(Math.cos(windDir * DEG), 0, Math.sin(windDir * DEG))
   const windMag = new ConstantValue(wind * 0.6)
@@ -1050,7 +1174,7 @@ function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
   const fineGravity = new ConstantValue(fallSpeed)
   const fineEmitter = new RectangleEmitter({ width: area, height: area, thickness: 1 })
   const fine = new ParticleSystem({
-    duration: 400,
+    duration: PREWARM_DURATION,
     looping: true,
     prewarm: true,
     worldSpace: true,
@@ -1058,17 +1182,17 @@ function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
     startLife: fineLife,
     startSpeed: fineSpeed,
     startSize: fineSize,
-    startColor: new ColorRange(hexToQ4('#ffffff'), hexToQ4('#dbe9f7')),
+    startColor: new ColorRange(hexToQ4('#ffffff'), hexToQ4('#e6f0fb')),
     emissionOverTime: fineRate,
     behaviors: [
       new ApplyForce(q3(0, -1, 0), fineGravity),
       new ApplyForce(windVec, windMag),
       sizeCurve(0.7, 1, 1, 0.7),
-      new ColorOverLife(whiteAlpha([[0, 0], [0.85, 0.15], [0.7, 0.8], [0, 1]], 1)),
+      new ColorOverLife(whiteAlpha([[0, 0], [0.85, 0.15], [0.72, 0.8], [0, 1]], 1)),
       new TurbulenceField(q3(2, 2, 2), 2, q3(sway * 0.5, sway * 0.15, sway * 0.5), q3(0.4, 0.4, 0.4))
     ],
     renderMode: RenderMode.BillBoard,
-    material: normalBlend(ctx.textures.soft, opacity),
+    material: normalBlend(ctx.textures.soft, opacity * 0.9),
     rendererEmitterSettings: {}
   })
   fine.emitter.position.set(0, height, 0)
@@ -1076,12 +1200,13 @@ function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
 
   const flakeRate = new ConstantValue((flakeCount / fallTime) * 1.6)
   const flakeLife = new IntervalValue(fallTime * 0.8, fallTime * 1.3)
-  const flakeSize = new IntervalValue(size * 1.8, size * 3.4)
+  const flakeSize = new IntervalValue(size * 1.9, size * 3.8)
   const flakeSpinGen = new IntervalValue(-spin, spin)
-  const flakeGravity = new ConstantValue(fallSpeed * 0.75)
+  const flakeGravity = new ConstantValue(fallSpeed * 0.78)
   const flakeEmitter = new RectangleEmitter({ width: area * 0.9, height: area * 0.9, thickness: 1 })
+  const flakeRotation = new AxisAngleGenerator(q3(0, 0, 1), flakeSpinGen)
   const flakes = new ParticleSystem({
-    duration: 400,
+    duration: PREWARM_DURATION,
     looping: true,
     prewarm: true,
     worldSpace: true,
@@ -1089,21 +1214,22 @@ function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
     startLife: flakeLife,
     startSpeed: fineSpeed,
     startSize: flakeSize,
-    startColor: new ColorRange(hexToQ4('#ffffff'), hexToQ4('#cfe2f5')),
+    startColor: new ColorRange(hexToQ4('#ffffff'), hexToQ4('#d8e8f8')),
+    startRotation: new RandomQuatGenerator(),
     emissionOverTime: flakeRate,
     behaviors: [
       new ApplyForce(q3(0, -1, 0), flakeGravity),
       new ApplyForce(windVec, windMag),
-      new RotationOverLife(flakeSpinGen),
+      new Rotation3DOverLife(flakeRotation),
       sizeCurve(0.8, 1, 0.9, 0.6),
-      new ColorOverLife(whiteAlpha([[0, 0], [0.9, 0.12], [0.75, 0.75], [0, 1]], 1)),
+      new ColorOverLife(whiteAlpha([[0, 0], [0.9, 0.12], [0.78, 0.75], [0, 1]], 1)),
       new TurbulenceField(q3(2.5, 2.5, 2.5), 2, q3(sway * 0.8, sway * 0.3, sway * 0.8), q3(0.5, 0.5, 0.5))
     ],
     renderMode: RenderMode.BillBoard,
-    material: additive(ctx.textures.glow, opacity * 0.7),
+    material: normalBlend(ctx.textures.snowflake, opacity * 0.95),
     rendererEmitterSettings: {}
   })
-  flakes.emitter.position.set(0, height * 0.8, 0)
+  flakes.emitter.position.set(0, height * 0.82, 0)
   flakes.emitter.rotation.x = Math.PI / 2
 
   const blowRate = new ConstantValue((blow / Math.max(1, blowSpeed)) * 6)
@@ -1111,7 +1237,7 @@ function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
   const blowSize = new IntervalValue(size * 0.4, size * 0.9)
   const blowEmitter = new RectangleEmitter({ width: area * 0.8, height: area * 0.8, thickness: 3 })
   const blowing = new ParticleSystem({
-    duration: 300,
+    duration: PREWARM_DURATION,
     looping: true,
     prewarm: true,
     worldSpace: true,
@@ -1135,25 +1261,130 @@ function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
   blowing.emitter.position.set(0, 2.5, 0)
   blowing.emitter.rotation.x = Math.PI / 2
 
-  const groundTexture = createRadialDiscTexture()
+  const bokehRate = new ConstantValue((bokehCount / fallTime) * 1.4)
+  const bokehLife = new IntervalValue(fallTime * 0.65, fallTime * 1.05)
+  const bokehSize = new IntervalValue(size * 8, size * 20)
+  const bokehGravity = new ConstantValue(fallSpeed * 1.15)
+  const bokehEmitter = new RectangleEmitter({ width: area * 0.7, height: area * 0.7, thickness: 1 })
+  const bokeh = new ParticleSystem({
+    duration: PREWARM_DURATION,
+    looping: true,
+    prewarm: true,
+    worldSpace: true,
+    shape: bokehEmitter,
+    startLife: bokehLife,
+    startSpeed: fineSpeed,
+    startSize: bokehSize,
+    startColor: new ColorRange(hexToQ4('#ffffff'), hexToQ4('#eef6ff')),
+    emissionOverTime: bokehRate,
+    behaviors: [
+      new ApplyForce(q3(0, -1, 0), bokehGravity),
+      new ApplyForce(windVec, windMag),
+      sizeCurve(0.5, 1, 1.1, 0.6),
+      new ColorOverLife(whiteAlpha([[0, 0], [0.7, 0.2], [0.55, 0.8], [0, 1]], 1)),
+      new TurbulenceField(q3(1.5, 1.5, 1.5), 2, q3(sway * 0.4, sway * 0.2, sway * 0.4), q3(0.3, 0.3, 0.3))
+    ],
+    renderMode: RenderMode.BillBoard,
+    material: normalBlend(ctx.textures.soft, opacity * 0.22),
+    rendererEmitterSettings: {}
+  })
+  bokeh.emitter.position.set(0, height * 0.55, 0)
+  bokeh.emitter.rotation.x = Math.PI / 2
+
+  setParticleOpacity(fine, opacity)
+  setParticleOpacity(flakes, opacity)
+  setParticleOpacity(blowing, opacity)
+  setParticleOpacity(bokeh, opacity * 0.5)
+
+  const moundHeight = (x: number, y: number, side: number): number => {
+    const halfSide = side / 2
+    const r = Math.hypot(x, y) / halfSide
+    const falloff = 1 - smoothstep(0.4, 1, r)
+    const waves =
+      0.55 +
+      0.3 * Math.sin(x * 0.045 + 0.7) * Math.cos(y * 0.05 - 1.1) +
+      0.18 * Math.sin(x * 0.12 + y * 0.09 + 2.3) +
+      0.1 * Math.sin(x * 0.31 - y * 0.27)
+    return Math.max(4, side * 0.06) * falloff * Math.max(0.05, waves)
+  }
+
+  const buildMound = (side: number): THREE.BufferGeometry => {
+    const segments = 72
+    const geometry = new THREE.PlaneGeometry(side, side, segments, segments)
+    const position = geometry.attributes.position as THREE.BufferAttribute
+    for (let i = 0; i < position.count; i += 1) {
+      position.setZ(i, moundHeight(position.getX(i), position.getY(i), side))
+    }
+    geometry.computeVertexNormals()
+    const normal = geometry.attributes.normal as THREE.BufferAttribute
+    const colors = new Float32Array(position.count * 3)
+    const base = new THREE.Color('#eef4fb')
+    const shade = new THREE.Color('#b9cfe6')
+    const light = new THREE.Vector3(0.3, 0.35, 0.9).normalize()
+    const scratch = new THREE.Vector3()
+    const tint = new THREE.Color()
+    for (let i = 0; i < position.count; i += 1) {
+      scratch.set(normal.getX(i), normal.getY(i), normal.getZ(i))
+      const lambert = Math.max(0, scratch.dot(light))
+      tint.copy(base).lerp(shade, 1 - (0.3 + 0.7 * lambert))
+      colors[i * 3 + 0] = tint.r
+      colors[i * 3 + 1] = tint.g
+      colors[i * 3 + 2] = tint.b
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    return geometry
+  }
+
+  const buildSparkles = (side: number): THREE.BufferGeometry => {
+    const sparkleCount = 460
+    const positions = new Float32Array(sparkleCount * 3)
+    const halfSide = side / 2
+    for (let i = 0; i < sparkleCount; i += 1) {
+      const angle = Math.random() * Math.PI * 2
+      const radius = Math.sqrt(Math.random()) * halfSide * 0.88
+      const x = Math.cos(angle) * radius
+      const y = Math.sin(angle) * radius
+      positions[i * 3 + 0] = x
+      positions[i * 3 + 1] = y
+      positions[i * 3 + 2] = moundHeight(x, y, side) + 1
+    }
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    return geometry
+  }
+
   const groundMaterial = new THREE.MeshBasicMaterial({
-    map: groundTexture,
-    color: new THREE.Color('#f4f8fd'),
+    vertexColors: true,
     transparent: true,
     opacity: 0,
     depthWrite: false,
     side: THREE.DoubleSide,
     toneMapped: false
   })
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(area * 1.4, area * 1.4), groundMaterial)
+  const ground = new THREE.Mesh(buildMound(area * 1.5), groundMaterial)
   ground.rotation.x = -Math.PI / 2
-  ground.position.y = 0.05
+  ground.position.y = 0.02
+
+  const sparkleMaterial = new THREE.PointsMaterial({
+    map: ctx.textures.spark,
+    size: Math.max(0.8, size * 1.6),
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true,
+    toneMapped: false
+  })
+  const sparkles = new THREE.Points(buildSparkles(area * 1.5), sparkleMaterial)
+  sparkles.rotation.x = -Math.PI / 2
+  sparkles.position.y = 0.02
 
   const cfg = {
     fallSpeed,
     wind,
     windDir,
     blowSpeed,
+    gust,
     accumulation,
     opacity,
     spin,
@@ -1161,31 +1392,45 @@ function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
     height,
     depth: 0
   }
+  let time = 0
 
   const tick = (delta: number): void => {
+    time += delta
     cfg.depth += (cfg.accumulation - cfg.depth) * Math.min(1, delta * 0.5)
-    groundMaterial.opacity = cfg.depth * 0.6
+
+    const gustPhase = Math.sin(time * 0.45) * 0.6 + Math.sin(time * 1.63 + 1.2) * 0.4
+    const windScale = 1 + cfg.gust * gustPhase
+    windMag.value = cfg.wind * 0.6 * windScale
+    blowMag.value = cfg.blowSpeed * (1 + cfg.gust * 0.5 * gustPhase)
+
+    const spread = 0.62 + 0.38 * Math.min(1, cfg.depth / 0.6)
+    ground.scale.set(spread, spread, 0.2 + 0.8 * cfg.depth)
+    groundMaterial.opacity = cfg.depth * 0.92
+    sparkleMaterial.opacity = cfg.depth * (0.3 + 0.28 * (0.5 + 0.5 * Math.sin(time * 1.7)))
   }
 
   const update = (v: ParamValues): void => {
-    const c = num(v, 'count', 4200)
-    const fc = num(v, 'flakeCount', 700)
+    const c = num(v, 'count', 3200)
+    const fc = num(v, 'flakeCount', 550)
+    const bc = num(v, 'bokeh', 220)
     const sz = num(v, 'size', 0.5)
     const fs = num(v, 'fallSpeed', 6)
     const ar = num(v, 'area', 260)
-    const h = num(v, 'height', 150)
+    const h = num(v, 'height', 130)
     const wd = num(v, 'wind', 6)
     const dir = num(v, 'windDir', 35)
     const sw = num(v, 'sway', 1.2)
-    const bl = num(v, 'blow', 1200)
+    const bl = num(v, 'blow', 900)
     const bs = num(v, 'blowSpeed', 14)
     const op = num(v, 'opacity', 0.85)
     const sp = num(v, 'spin', 1.2)
+    const gu = num(v, 'gust', 0.45)
 
     cfg.fallSpeed = fs
     cfg.wind = wd
     cfg.windDir = dir
     cfg.blowSpeed = bs
+    cfg.gust = gu
     cfg.accumulation = num(v, 'accumulation', 0.6)
     cfg.opacity = op
     cfg.spin = sp
@@ -1203,25 +1448,36 @@ function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
     fineEmitter.width = ar
     fineEmitter.height = ar
     fine.emitter.position.set(0, h, 0)
-    fine.material.opacity = op
+    setParticleOpacity(fine, op)
 
     flakeRate.value = (fc / nextFall) * 1.6
     flakeLife.a = nextFall * 0.8
     flakeLife.b = nextFall * 1.3
-    flakeSize.a = sz * 1.8
-    flakeSize.b = sz * 3.4
+    flakeSize.a = sz * 1.9
+    flakeSize.b = sz * 3.8
     flakeSpinGen.a = -sp
     flakeSpinGen.b = sp
-    flakeGravity.value = fs * 0.75
+    flakeGravity.value = fs * 0.78
     flakeEmitter.width = ar * 0.9
     flakeEmitter.height = ar * 0.9
-    flakes.emitter.position.set(0, h * 0.8, 0)
-    flakes.material.opacity = op * 0.7
+    flakes.emitter.position.set(0, h * 0.82, 0)
+    setParticleOpacity(flakes, op)
 
     blowRate.value = (bl / Math.max(1, bs)) * 6
     blowEmitter.width = ar * 0.8
     blowEmitter.height = ar * 0.8
-    blowing.material.opacity = op * 0.5
+    setParticleOpacity(blowing, op)
+
+    bokehRate.value = (bc / nextFall) * 1.4
+    bokehLife.a = nextFall * 0.65
+    bokehLife.b = nextFall * 1.05
+    bokehSize.a = sz * 8
+    bokehSize.b = sz * 20
+    bokehGravity.value = fs * 1.15
+    bokehEmitter.width = ar * 0.7
+    bokehEmitter.height = ar * 0.7
+    bokeh.emitter.position.set(0, h * 0.55, 0)
+    setParticleOpacity(bokeh, op * 0.5)
 
     const rad = dir * DEG
     windVec.set(Math.cos(rad), 0, Math.sin(rad))
@@ -1230,11 +1486,14 @@ function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
 
     if (areaChanged) {
       ground.geometry.dispose()
-      ground.geometry = new THREE.PlaneGeometry(ar * 1.4, ar * 1.4)
+      ground.geometry = buildMound(ar * 1.5)
+      sparkles.geometry.dispose()
+      sparkles.geometry = buildSparkles(ar * 1.5)
     }
+    sparkleMaterial.size = Math.max(0.8, sz * 1.6)
   }
 
-  return { systems: [fine, flakes, blowing], objects: [ground], tick, update }
+  return { systems: [fine, flakes, blowing, bokeh], objects: [ground, sparkles], tick, update }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1244,10 +1503,10 @@ function buildSnow(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
 export const EARTH_META: Record<EarthEffectId, EffectMeta> = {
   aurora: {
     id: 'aurora',
-    title: 'Three.Quarks 极光',
+    title: 'VFX 极光',
     subtitle: '带状帘幕 + 射线结构',
     description:
-      '参考“极光”方案：以少量超大带状帘幕替代海量粒子，顶点着色器用多层正弦叠加调制褶皱与底部锐利边界，片元着色器叠加垂直射线并做上红下绿的高度分层着色，整体做缓慢东西向漂移与亮度脉动。帘幕数量、宽高、距离、亮度、相位速度、褶皱幅度与频率、上下颜色均可调整。',
+      '以少量超大带状帘幕替代海量粒子，顶点着色器用多层正弦叠加调制褶皱与底部锐利边界，片元着色器叠加垂直射线并做上红下绿的高度分层着色，整体做缓慢东西向漂移与亮度脉动。帘幕数量、宽高、距离、亮度、相位速度、褶皱幅度与频率、上下颜色均可调整。',
     params: [
       { key: 'curtainCount', label: '帘幕数量', kind: 'number', min: 4, max: 28, step: 1, unit: '条', default: 14 },
       { key: 'width', label: '帘幕宽度', kind: 'number', min: 800, max: 5000, step: 100, default: 2600 },
@@ -1264,10 +1523,10 @@ export const EARTH_META: Record<EarthEffectId, EffectMeta> = {
   },
   'urban-fire': {
     id: 'urban-fire',
-    title: 'Three.Quarks 城市火灾蔓延',
+    title: 'VFX 城市火灾蔓延',
     subtitle: '多火点 + 风场蔓延状态机',
     description:
-      '参考“城市火灾蔓延”方案：街区建筑网格中每个着火单元挂一组火焰与烟羽发射器，轻量状态机按“未燃→燃烧→熄灭”推进，并按风向对下风侧邻栋提高引燃概率。建筑体色随状态在正常、燃烧、焦黑间切换，火势受风驱动弯曲。网格规模、火焰/烟雾量、蔓延概率与间隔、燃烧时长、风向风速、烟雾浓度与亮度均可调整。',
+      '街区建筑网格中每个着火单元挂一组火焰与烟羽发射器，轻量状态机按“未燃→燃烧→熄灭”推进，并按风向对下风侧邻栋提高引燃概率。建筑体色随状态在正常、燃烧、焦黑间切换，火势受风驱动弯曲。场景粒子总量按当前燃烧单元数自动均摊，蔓延到整片街区时单栋发射量下调以稳定帧率。网格规模、火焰/烟雾量、蔓延概率与间隔、燃烧时长、风向风速、烟雾浓度与亮度均可调整。',
     params: [
       { key: 'gridSize', label: '街区网格', kind: 'number', min: 2, max: 5, step: 1, unit: '×N', default: 4 },
       { key: 'fireRate', label: '火焰量', kind: 'number', min: 100, max: 1200, step: 50, unit: '个/秒', default: 520 },
@@ -1278,19 +1537,19 @@ export const EARTH_META: Record<EarthEffectId, EffectMeta> = {
       { key: 'burnDuration', label: '燃烧时长', kind: 'number', min: 5, max: 45, step: 1, unit: '秒', default: 22 },
       { key: 'wind', label: '风速', kind: 'number', min: 0, max: 25, step: 0.5, default: 8 },
       { key: 'windDir', label: '风向', kind: 'number', min: 0, max: 360, step: 5, unit: '°', default: 60 },
-      { key: 'smokeOpacity', label: '烟雾浓度', kind: 'number', min: 0.1, max: 0.8, step: 0.05, default: 0.45 },
-      { key: 'glow', label: '火光强度', kind: 'number', min: 0.3, max: 2, step: 0.1, default: 1 }
+      { key: 'smokeOpacity', label: '烟雾浓度', kind: 'number', min: 0.1, max: 1, step: 0.05, default: 0.9 },
+      { key: 'glow', label: '火光强度', kind: 'number', min: 0.2, max: 1, step: 0.05, default: 1 }
     ],
     rebuildKeys: ['gridSize']
   },
   'wind-field': {
     id: 'wind-field',
-    title: 'Three.Quarks 全球风场可视化',
-    subtitle: '风之河 + 短拖尾平流',
+    title: 'VFX 全球风场可视化',
+    subtitle: '无散度流函数风场 + 急流与气旋',
     description:
-      '参考“全球风场可视化”方案：海量短拖尾粒子在程序化矢量风场中平流，寿命到期后原地重生以保持总数恒定，形成流动的“风之河”；矢量场叠加多层低频风带、高频湍流与台风式涡旋，速度映射到蓝→绿→黄→红的色带。粒子数、区域范围、风速、湍流、寿命、拖尾长度、涡旋强度/半径、高度与厚度、亮度均可调整。',
+      '海量短拖尾粒子在无散度矢量风场中平流，寿命到期后原地重生以保持总数恒定，形成流动的“风之河”。风场由多尺度流函数涡旋（u=∂ψ/∂z、w=-∂ψ/∂x，保证不可压）叠加纬向急流带与近似 Rankine 气旋切向风构成，并按高度施加风速切变；粒子采用中点积分保证轨迹平滑，拖尾用时间常数连续逼近，速度映射到深蓝→青→绿→黄→橙→红的色带。风场在粗网格上采样、粒子经双线性插值读取，逐粒子开销大幅降低。粒子数、区域范围、风速、湍流、寿命、拖尾长度、气旋强度/半径、高度与厚度、亮度均可调整。',
     params: [
-      { key: 'count', label: '粒子数量', kind: 'number', min: 1000, max: 20000, step: 500, unit: '个', default: 7000 },
+      { key: 'count', label: '粒子数量', kind: 'number', min: 1000, max: 20000, step: 500, unit: '个', default: 4500 },
       { key: 'area', label: '区域范围', kind: 'number', min: 4000, max: 60000, step: 1000, default: 26000 },
       { key: 'speed', label: '风速', kind: 'number', min: 20, max: 400, step: 10, default: 140 },
       { key: 'turbulence', label: '湍流强度', kind: 'number', min: 0, max: 3, step: 0.1, default: 0.8 },
@@ -1306,10 +1565,10 @@ export const EARTH_META: Record<EarthEffectId, EffectMeta> = {
   },
   flock: {
     id: 'flock',
-    title: 'Three.Quarks 群体编队',
+    title: 'VFX 群体编队',
     subtitle: 'Boids 鸟群 / 萤火虫 / 无人机灯光秀',
     description:
-      '参考“鸟群 / 萤火虫 / 无人机编队灯光秀”方案：鸟群模式用 boids 分离/对齐/凝聚三规则配合空间哈希网格做邻域加速，并追随缓慢巡游的目标点；萤火虫模式以相位噪声随机游走并做亮度脉动；编队模式改为球面、平面、螺旋、波浪等确定性图案并用缓动插值完成队形变换。个体数、尺寸、速度、活动范围、感知半径、三项权重、队形、色相与亮度均可调整。',
+      '鸟群模式用 boids 分离/对齐/凝聚三规则配合空间哈希网格做邻域加速，并追随缓慢巡游的目标点；萤火虫模式以相位噪声随机游走并做亮度脉动；编队模式改为球面、平面、螺旋、波浪等确定性图案并用缓动插值完成队形变换。个体数、尺寸、速度、活动范围、感知半径、三项权重、队形、色相与亮度均可调整。',
     params: [
       {
         key: 'mode',
@@ -1349,21 +1608,23 @@ export const EARTH_META: Record<EarthEffectId, EffectMeta> = {
   },
   snow: {
     id: 'snow',
-    title: 'Three.Quarks 雪 / 风吹雪 / 积雪',
-    subtitle: '三类雪花 + 风驱动吹雪 + 地面积雪',
+    title: 'VFX 雪 / 风吹雪 / 积雪',
+    subtitle: '树状雪花 + 近景散景 + 风阵吹雪 + 积雪堆积',
     description:
-      '参考“雪 + 风吹雪 + 积雪累积”方案：细雪、片状雪花、湿雪三类发射器以不同终端速度与摆动噪声制造视差，飘落阶段受统一风向拖曳；近地表另设吹雪层，密度随风速放大；地表叠加一张随累积参数渐显的径向积雪面。粒子数、雪花数、尺寸、下落速度、范围、高度、风向风速、摆动、吹雪量/速度、积雪厚度与整体不透明度、自旋速度均可调整。',
+      '分层还原真实降雪：细雪为柔和小点，片状雪花使用程序化六重枝晶纹理并带随机初始姿态与三维翻滚，近景再叠加一层放大虚化散景以制造景深视差。飘落阶段受统一风向与周期性阵风拖曳，贴地吹雪用拉伸拖尾沿风向外扫。地表为噪声起伏的积雪堆，随累积参数由中心向外铺展、抬升并逐渐亮起；表面散布闪烁雪晶。细雪/片状/散景数量、雪花尺寸、下落速度、范围高度、风向风速、阵风、摆动、吹雪量/速度、积雪厚度、自旋与整体不透明度均可调整。',
     params: [
-      { key: 'count', label: '细雪数量', kind: 'number', min: 500, max: 9000, step: 250, unit: '个', default: 4200 },
-      { key: 'flakeCount', label: '片状雪花', kind: 'number', min: 0, max: 3000, step: 100, unit: '个', default: 700 },
+      { key: 'count', label: '细雪数量', kind: 'number', min: 500, max: 9000, step: 250, unit: '个', default: 3200 },
+      { key: 'flakeCount', label: '片状雪花', kind: 'number', min: 0, max: 3000, step: 100, unit: '个', default: 550 },
+      { key: 'bokeh', label: '近景散景', kind: 'number', min: 0, max: 1500, step: 50, unit: '个', default: 220 },
       { key: 'size', label: '雪花尺寸', kind: 'number', min: 0.1, max: 3, step: 0.05, default: 0.5 },
       { key: 'fallSpeed', label: '下落速度', kind: 'number', min: 2, max: 20, step: 0.5, default: 6 },
       { key: 'area', label: '降雪范围', kind: 'number', min: 60, max: 800, step: 20, default: 260 },
-      { key: 'height', label: '降雪高度', kind: 'number', min: 40, max: 400, step: 10, default: 150 },
+      { key: 'height', label: '降雪高度', kind: 'number', min: 40, max: 400, step: 10, default: 130 },
       { key: 'wind', label: '风速', kind: 'number', min: 0, max: 25, step: 0.5, default: 6 },
       { key: 'windDir', label: '风向', kind: 'number', min: 0, max: 360, step: 5, unit: '°', default: 35 },
+      { key: 'gust', label: '阵风强度', kind: 'number', min: 0, max: 1, step: 0.05, default: 0.45 },
       { key: 'sway', label: '摆动强度', kind: 'number', min: 0, max: 4, step: 0.1, default: 1.2 },
-      { key: 'blow', label: '吹雪浓度', kind: 'number', min: 0, max: 3000, step: 50, default: 1200 },
+      { key: 'blow', label: '吹雪浓度', kind: 'number', min: 0, max: 3000, step: 50, default: 900 },
       { key: 'blowSpeed', label: '吹雪速度', kind: 'number', min: 4, max: 30, step: 0.5, default: 14 },
       { key: 'accumulation', label: '积雪厚度', kind: 'number', min: 0, max: 1, step: 0.05, default: 0.6 },
       { key: 'opacity', label: '整体不透明度', kind: 'number', min: 0.2, max: 1, step: 0.05, default: 0.85 },

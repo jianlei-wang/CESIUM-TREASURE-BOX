@@ -11,6 +11,17 @@ import {
 import { CesiumQuarksLayer } from './cesium-quarks-layer'
 import { createMapScene, destroyScene, loadBingImagery } from '../../lib/cesium-scene'
 import { Cartesian3, HeadingPitchRange, Matrix4, Math as CesiumMath, type Viewer } from 'cesium'
+import type { Material, Mesh, Object3D } from 'three'
+
+function disposeObject(object: Object3D): void {
+  object.traverse((node) => {
+    const mesh = node as Mesh
+    mesh.geometry?.dispose?.()
+    const material = mesh.material as Material | Material[] | undefined
+    if (Array.isArray(material)) material.forEach((item) => item.dispose())
+    else material?.dispose?.()
+  })
+}
 
 export interface QuarksEffectConfig {
   effect: EffectId
@@ -85,10 +96,15 @@ export class QuarksEffectRunner {
     this.layer.onFrame = null
     if (this.built) {
       for (const system of this.built.systems) this.layer.removeSystem(system)
+      for (const object of this.built.objects ?? []) {
+        this.layer.removeObject(object)
+        disposeObject(object)
+      }
       this.built = null
     }
     this.built = buildEffect(this.config.effect, values, { textures: this.textures })
     for (const system of this.built.systems) this.layer.addSystem(system)
+    for (const object of this.built.objects ?? []) this.layer.addObject(object)
     this.layer.onFrame = this.built.tick ?? null
   }
 

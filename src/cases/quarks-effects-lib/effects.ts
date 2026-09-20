@@ -1,4 +1,3 @@
-import * as THREE from 'three'
 import {
   ApplyForce,
   Bezier,
@@ -6,7 +5,6 @@ import {
   ColorRange,
   ConstantValue,
   ConeEmitter,
-  Gradient,
   IntervalValue,
   ParticleSystem,
   PiecewiseBezier,
@@ -14,123 +12,39 @@ import {
   RotationOverLife,
   SizeOverLife,
   SphereEmitter,
-  TurbulenceField,
-  Vector3 as QVector3,
-  Vector4 as QVector4
+  TurbulenceField
 } from 'three.quarks'
-import type { EffectTextures } from './textures'
+import {
+  DEG,
+  additive,
+  gradientFromHex,
+  hexToQ3,
+  hexToQ4,
+  normalBlend,
+  num,
+  q3,
+  sizeCurve,
+  str,
+  whiteAlpha,
+  type BuiltEffect,
+  type EffectBuildContext,
+  type EffectMeta,
+  type ParamValues
+} from './effect-kit'
+import { STORM_META, STORM_EFFECT_IDS, buildStormEffect, type StormEffectId } from './storm-effects'
+import { EARTH_META, EARTH_EFFECT_IDS, buildEarthEffect, type EarthEffectId } from './earth-effects'
 
-export type EffectId = 'fountain' | 'flame' | 'smoke' | 'fireworks'
-export type ParamKind = 'number' | 'color' | 'boolean' | 'select'
+export type {
+  ParamDef,
+  ParamKind,
+  ParamValue,
+  ParamValues,
+  EffectBuildContext,
+  BuiltEffect
+} from './effect-kit'
 
-export interface ParamDef {
-  key: string
-  label: string
-  kind: ParamKind
-  min?: number
-  max?: number
-  step?: number
-  unit?: string
-  default: number | string | boolean
-  options?: Array<{ label: string; value: string }>
-}
-
-export interface EffectMeta {
-  id: EffectId
-  title: string
-  subtitle: string
-  description: string
-  params: ParamDef[]
-  /** 这些参数变化会导致粒子系统结构变化，需要整体重建；其余参数支持实时更新 */
-  rebuildKeys?: string[]
-}
-
-export type ParamValue = number | string | boolean
-export type ParamValues = Record<string, ParamValue>
-
-export interface EffectBuildContext {
-  textures: EffectTextures
-}
-
-export interface BuiltEffect {
-  systems: ParticleSystem[]
-  tick?: (delta: number) => void
-  update?: (values: ParamValues) => void
-}
-
-const DEG = Math.PI / 180
-
-function q3(x: number, y: number, z: number): QVector3 {
-  return new QVector3(x, y, z)
-}
-
-function hexToQ3(hex: string): QVector3 {
-  const color = new THREE.Color(hex)
-  return new QVector3(color.r, color.g, color.b)
-}
-
-function hexToQ4(hex: string, alpha = 1): QVector4 {
-  const color = new THREE.Color(hex)
-  return new QVector4(color.r, color.g, color.b, alpha)
-}
-
-function num(values: ParamValues, key: string, fallback: number): number {
-  const value = values[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
-}
-
-function str(values: ParamValues, key: string, fallback: string): string {
-  const value = values[key]
-  return typeof value === 'string' ? value : fallback
-}
-
-function additive(map: THREE.Texture, opacity = 1): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
-    map,
-    transparent: true,
-    opacity,
-    depthWrite: false,
-    depthTest: true,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    toneMapped: false
-  })
-}
-
-function normalBlend(map: THREE.Texture, opacity = 1): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
-    map,
-    transparent: true,
-    opacity,
-    depthWrite: false,
-    depthTest: true,
-    blending: THREE.NormalBlending,
-    side: THREE.DoubleSide,
-    toneMapped: false
-  })
-}
-
-function whiteAlpha(alphaStops: Array<[number, number]>, opacity: number): Gradient {
-  const rgb = hexToQ3('#ffffff')
-  return new Gradient(
-    [
-      [rgb, 0],
-      [rgb, 1]
-    ],
-    alphaStops.map(([a, t]) => [a * opacity, t] as [number, number])
-  )
-}
-
-function gradientFromHex(stops: Array<[string, number]>, alpha: Array<[number, number]>, opacity: number): Gradient {
-  return new Gradient(
-    stops.map(([hex, t]) => [hexToQ3(hex), t] as [QVector3, number]),
-    alpha.map(([a, t]) => [a * opacity, t] as [number, number])
-  )
-}
-
-function sizeCurve(p1: number, p2: number, p3: number, p4: number): SizeOverLife {
-  return new SizeOverLife(new PiecewiseBezier([[new Bezier(p1, p2, p3, p4), 0]]))
-}
+export type BasicEffectId = 'fountain' | 'flame' | 'smoke' | 'fireworks'
+export type EffectId = BasicEffectId | StormEffectId | EarthEffectId
 
 /* ------------------------------------------------------------------ */
 /* Fountain                                                            */
@@ -640,7 +554,7 @@ function buildFireworks(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
 /* Registry                                                            */
 /* ------------------------------------------------------------------ */
 
-export const EFFECT_META: Record<EffectId, EffectMeta> = {
+const BASIC_META: Record<BasicEffectId, EffectMeta> = {
   fountain: {
     id: 'fountain',
     title: 'Three.Quarks 喷泉',
@@ -726,6 +640,12 @@ export const EFFECT_META: Record<EffectId, EffectMeta> = {
   }
 }
 
+export const EFFECT_META: Record<EffectId, EffectMeta> = {
+  ...BASIC_META,
+  ...STORM_META,
+  ...EARTH_META
+}
+
 export function defaultParamValues(id: EffectId): ParamValues {
   const values: ParamValues = {}
   for (const param of EFFECT_META[id].params) values[param.key] = param.default
@@ -742,14 +662,17 @@ export function buildEffect(id: EffectId, values: ParamValues, ctx: EffectBuildC
       return buildSmoke(values, ctx)
     case 'fireworks':
       return buildFireworks(values, ctx)
-    default: {
-      const exhaustive: never = id
-      return exhaustive
-    }
+    default:
+      if ((STORM_EFFECT_IDS as string[]).includes(id)) return buildStormEffect(id as StormEffectId, values, ctx)
+      return buildEarthEffect(id as EarthEffectId, values, ctx)
   }
 }
 
-export const QUARKS_EFFECT_IDS: EffectId[] = ['fountain', 'flame', 'smoke', 'fireworks']
+export const QUARKS_EFFECT_IDS: EffectId[] = [
+  ...(Object.keys(BASIC_META) as BasicEffectId[]),
+  ...STORM_EFFECT_IDS,
+  ...EARTH_EFFECT_IDS
+]
 
 export function isRebuildKey(id: EffectId, key: string): boolean {
   return (EFFECT_META[id].rebuildKeys ?? []).includes(key)

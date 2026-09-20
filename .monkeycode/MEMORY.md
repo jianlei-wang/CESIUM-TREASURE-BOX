@@ -846,3 +846,11 @@ Entries discovered by the Agent during task execution should follow this format:
   - 强制流程（2026-09-19 用户强调）：每次为案例设置/替换 icon 时，必须同步把上传原图压到 300px 宽再落入 `src/cases/<case>/icon.webp`，禁止直接提交原始大图；`land-use-suitability`、`terrain-roughness`、`terrain-ruggedness-index`、`terrain-wetness-index`、`urban-flood-risk` 曾因直接复制原图（~1236px、80-106KiB）返工。
   - 本机默认无 cwebp/ImageMagick；批量处理用全局 `sharp`（`npm install -g sharp`），ESM 脚本内用 `createRequire(import.meta.url)` + `NODE_PATH=$(npm root -g)` 加载；若 sharp 不可用，可用系统 Python 的 Pillow（`PIL.Image`，LANCZOS 缩放到 300px 宽后 `save(..., 'WEBP', quality=82, method=6)`），已验证本机 `python3` 自带 Pillow 12。
   - 重编码前用 `sharp(p).metadata()` 检查 `pages>1`（动图跳过），仅当原宽 >300 才处理，且新文件更小才覆盖，避免误伤已优化文件。
+
+[Project Knowledge Summary]
+- Date: 2026-09-19
+- Context: Discovered by Agent while fixing three.quarks particle orientation over Cesium
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **Cesium.Matrix4 构造函数参数为行优先**（前 4 个参数是第 0 行），但其内部数组存储为列优先；手写 ENU/ECEF 变换矩阵时必须按行优先填写，否则会得到转置矩阵（本项目 three.quarks 粒子整体朝向上下颠倒的根因）。
+  - three(x,y,z) -> ENU(x,-z,y)（three +y 向上、+z 指向 ENU 东/北）的行优先矩阵为 `new Cesium.Matrix4(1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1)`；可用模拟投影脚本断言本地 up 方向投影后 ndc.y>0 做数值验证。

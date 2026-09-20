@@ -5,9 +5,9 @@ import QuarksEffectDemo from '../quarks-effects-lib/QuarksEffectDemo.vue'
 <template>
   <QuarksEffectDemo
     effect="meteor"
-    :camera-distance="1500"
-    :camera-pitch="6"
+    :camera-distance="2000"
+    :camera-pitch="10"
     :camera-heading="0"
-    :target-height="900"
+    :target-height="700"
   />
 </template>

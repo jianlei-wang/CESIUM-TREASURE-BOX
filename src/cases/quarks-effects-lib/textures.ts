@@ -5,6 +5,7 @@ export interface EffectTextures {
   glow: THREE.Texture
   spark: THREE.Texture
   smoke: THREE.Texture
+  snowflake: THREE.Texture
 }
 
 function createCanvas(size: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
@@ -99,6 +100,70 @@ function seeded(seed: number): () => number {
   }
 }
 
+function drawSnowflake(ctx: CanvasRenderingContext2D, size: number): void {
+  const rand = seeded(773451)
+  const center = size / 2
+  const radius = size * 0.44
+  const arms = 6
+
+  ctx.save()
+  ctx.translate(center, center)
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.lineCap = 'round'
+  ctx.strokeStyle = 'rgba(255,255,255,0.92)'
+  ctx.shadowColor = 'rgba(255,255,255,0.85)'
+  ctx.shadowBlur = size * 0.035
+
+  for (let a = 0; a < arms; a += 1) {
+    ctx.save()
+    ctx.rotate((a / arms) * Math.PI * 2 + (rand() - 0.5) * 0.05)
+    ctx.lineWidth = size * 0.03
+    ctx.beginPath()
+    ctx.moveTo(0, 0)
+    ctx.lineTo(0, -radius)
+    ctx.stroke()
+
+    const branches = 4
+    for (let b = 1; b <= branches; b += 1) {
+      const t = b / (branches + 1)
+      const y = -radius * t
+      const len = radius * 0.3 * (1 - t * 0.55)
+      ctx.lineWidth = size * 0.02 * (1 - t * 0.4)
+      for (const side of [-1, 1]) {
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(side * len, y - len * 0.85)
+        ctx.stroke()
+      }
+    }
+    ctx.restore()
+  }
+
+  ctx.beginPath()
+  const hex = radius * 0.16
+  for (let i = 0; i <= 6; i += 1) {
+    const angle = (i / 6) * Math.PI * 2
+    const x = Math.cos(angle) * hex
+    const y = Math.sin(angle) * hex
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  ctx.closePath()
+  ctx.fillStyle = 'rgba(255,255,255,0.9)'
+  ctx.fill()
+  ctx.restore()
+
+  ctx.save()
+  ctx.globalCompositeOperation = 'destination-in'
+  radial(ctx, center, center, center * 0.98, [
+    [0, 'rgba(255,255,255,1)'],
+    [0.72, 'rgba(255,255,255,1)'],
+    [0.92, 'rgba(255,255,255,0.35)'],
+    [1, 'rgba(255,255,255,0)']
+  ])
+  ctx.restore()
+}
+
 function drawSmoke(ctx: CanvasRenderingContext2D, size: number): void {
   const rand = seeded(20260919)
   ctx.save()
@@ -148,11 +213,15 @@ export function createEffectTextures(): EffectTextures {
   const smoke = createCanvas(size)
   drawSmoke(smoke.ctx, size)
 
+  const snowflake = createCanvas(size)
+  drawSnowflake(snowflake.ctx, size)
+
   return {
     soft: toTexture(soft.canvas),
     glow: toTexture(glow.canvas),
     spark: toTexture(spark.canvas),
-    smoke: toTexture(smoke.canvas)
+    smoke: toTexture(smoke.canvas),
+    snowflake: toTexture(snowflake.canvas)
   }
 }
 
@@ -161,4 +230,5 @@ export function disposeEffectTextures(textures: EffectTextures): void {
   textures.glow.dispose()
   textures.spark.dispose()
   textures.smoke.dispose()
+  textures.snowflake.dispose()
 }

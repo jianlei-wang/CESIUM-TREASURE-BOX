@@ -854,3 +854,12 @@ Entries discovered by the Agent during task execution should follow this format:
 - Instructions:
   - **Cesium.Matrix4 构造函数参数为行优先**（前 4 个参数是第 0 行），但其内部数组存储为列优先；手写 ENU/ECEF 变换矩阵时必须按行优先填写，否则会得到转置矩阵（本项目 three.quarks 粒子整体朝向上下颠倒的根因）。
   - three(x,y,z) -> ENU(x,-z,y)（three +y 向上、+z 指向 ENU 东/北）的行优先矩阵为 `new Cesium.Matrix4(1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1)`；可用模拟投影脚本断言本地 up 方向投影后 ndc.y>0 做数值验证。
+
+[Project Knowledge Summary]
+- Date: 2026-09-20
+- Context: Discovered by Agent while fixing quarks effect cases freezing on open
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **three.quarks `prewarm: true` 会同步阻塞**：`ParticleSystem.update()` 首次执行时按 `PREWARM_FPS = 60` 循环 `duration * 60` 次调用自身（`node_modules/three.quarks/dist/three.quarks.esm.js` 中 `if (this.looping && this.prewarm && !this.prewarmed)`），全部在主线程一次性完成。duration 设 300~400 时是 18000~24000 次全粒子 update，案例一打开即卡死。
+  - 约定：`duration` 对预热的连续发射系统只影响「loop 周期」与「预热模拟时长」，与视觉寿命无关；需预热时 `duration` 必须压到个位数（本项目统一常量 `PREWARM_DURATION = 4`，见 `src/cases/quarks-effects-lib/{storm,earth}-effects.ts`），loop 重置只清 burst 索引与 behavior 状态、不会杀死已存在粒子。
+  - 另需控制默认粒子数：预热成本 ≈ `duration*60 * 粒子数`，粒数过大即使 duration 小也可能明显卡顿；评估性能时按该公式估算。

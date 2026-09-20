@@ -6,7 +6,7 @@ const FireworksThreeDemo = defineAsyncComponent(() => import('./FireworksThreeDe
 
 const fireworksThreeCase: DemoCard = {
   id: 'fireworks-three',
-  title: 'Three.Quarks 烟花粒子',
+  title: 'VFX 烟花粒子',
   category: 'particles',
   icon,
   description:

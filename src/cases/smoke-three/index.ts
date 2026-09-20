@@ -6,7 +6,7 @@ const SmokeThreeDemo = defineAsyncComponent(() => import('./SmokeThreeDemo.vue')
 
 const smokeThreeCase: DemoCard = {
   id: 'smoke-three',
-  title: 'Three.Quarks 烟雾粒子',
+  title: 'VFX 烟雾粒子',
   category: 'particles',
   icon,
   description:

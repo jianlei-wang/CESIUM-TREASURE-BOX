@@ -557,7 +557,7 @@ function buildFireworks(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
 const BASIC_META: Record<BasicEffectId, EffectMeta> = {
   fountain: {
     id: 'fountain',
-    title: 'Three.Quarks 喷泉',
+    title: 'VFX 喷泉',
     subtitle: 'GPU 粒子水景',
     description:
       '基于 three.quarks 的 GPU 粒子喷泉，叠加在 Cesium 地球上，实时呈现水流、水雾与重力回落。所有参数支持实时生效，无需重建粒子系统。',
@@ -575,7 +575,7 @@ const BASIC_META: Record<BasicEffectId, EffectMeta> = {
   },
   flame: {
     id: 'flame',
-    title: 'Three.Quarks 火焰',
+    title: 'VFX 火焰',
     subtitle: 'GPU 粒子火焰',
     description:
       '基于 three.quarks 的 GPU 粒子火焰：亮黄色的火焰核心自地面向上浮升，随生命周期逐渐转为橙红并收束消散，周围飞溅高速火星。所有参数支持实时生效。',
@@ -592,7 +592,7 @@ const BASIC_META: Record<BasicEffectId, EffectMeta> = {
   },
   smoke: {
     id: 'smoke',
-    title: 'Three.Quarks 烟雾',
+    title: 'VFX 烟雾',
     subtitle: 'GPU 粒子烟雾',
     description:
       '基于 three.quarks 的 GPU 粒子烟雾，通过湍流场与风向力驱动烟雾上升扩散，叠加在 Cesium 地球上。所有参数支持实时生效，无需重建粒子系统。',
@@ -610,7 +610,7 @@ const BASIC_META: Record<BasicEffectId, EffectMeta> = {
   },
   fireworks: {
     id: 'fireworks',
-    title: 'Three.Quarks 烟花',
+    title: 'VFX 烟花',
     subtitle: 'GPU 粒子烟花',
     description:
       '基于 three.quarks 的 GPU 粒子烟花，多层爆裂球壳与拖尾火星在 Cesium 地球上空随机绽放。数量、速度、尺寸、寿命、重力、爆裂半径、发射间隔均支持实时生效，配色方案切换会重建粒子系统。',

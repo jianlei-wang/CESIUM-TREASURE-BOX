@@ -6,7 +6,7 @@ const FountainThreeDemo = defineAsyncComponent(() => import('./FountainThreeDemo
 
 const fountainThreeCase: DemoCard = {
   id: 'fountain-three',
-  title: 'Three.Quarks 喷泉粒子',
+  title: 'VFX 喷泉粒子',
   category: 'particles',
   icon,
   description:

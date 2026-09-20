@@ -31,6 +31,7 @@ export class CesiumQuarksLayer {
   private readonly observer: ResizeObserver
   private readonly removePostRender: () => void
   private readonly systems = new Set<ParticleSystem>()
+  private readonly objects = new Set<THREE.Object3D>()
 
   // three.js(x,y,z) -> ENU(x, -z, y)：three +y 向上、+z 向 (ENU 东=x/北=y/上=z)。
   // 注意 Cesium.Matrix4 构造函数参数为“行优先”，前四个参数是第 0 行。
@@ -109,6 +110,23 @@ export class CesiumQuarksLayer {
     for (const system of Array.from(this.systems)) this.removeSystem(system)
   }
 
+  /** 挂载非粒子自定义对象（闪电折线、极光帘幕、积雪面等） */
+  addObject(object: THREE.Object3D): void {
+    if (this.objects.has(object)) return
+    this.objects.add(object)
+    this.scene.add(object)
+  }
+
+  removeObject(object: THREE.Object3D): void {
+    if (!this.objects.has(object)) return
+    this.objects.delete(object)
+    this.scene.remove(object)
+  }
+
+  clearObjects(): void {
+    for (const object of Array.from(this.objects)) this.removeObject(object)
+  }
+
   private resize(): void {
     if (this.disposed) return
     const width = Math.max(1, this.container.clientWidth)
@@ -148,6 +166,7 @@ export class CesiumQuarksLayer {
     if (this.disposed) return
     this.disposed = true
     this.clearSystems()
+    this.clearObjects()
     this.observer.disconnect()
     this.removePostRender()
     this.timer.dispose()

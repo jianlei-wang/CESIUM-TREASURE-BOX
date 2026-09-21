@@ -10,6 +10,9 @@ const props = defineProps<{
   cameraPitch?: number
   cameraHeading?: number
   targetHeight?: number
+  originLon?: number
+  originLat?: number
+  nightGround?: boolean
 }>()
 
 const host = ref<HTMLElement | null>(null)
@@ -25,12 +28,13 @@ let previous: ParamValues = { ...values }
 function config(): QuarksEffectConfig {
   return {
     effect: props.effect,
-    lon: QUARKS_DEFAULT_ORIGIN.lon,
-    lat: QUARKS_DEFAULT_ORIGIN.lat,
+    lon: props.originLon ?? QUARKS_DEFAULT_ORIGIN.lon,
+    lat: props.originLat ?? QUARKS_DEFAULT_ORIGIN.lat,
     cameraDistance: props.cameraDistance ?? 120,
     cameraPitch: props.cameraPitch ?? -20,
     cameraHeading: props.cameraHeading ?? 0,
-    targetHeight: props.targetHeight ?? 6
+    targetHeight: props.targetHeight ?? 6,
+    nightGround: props.nightGround ?? false
   }
 }
 
@@ -108,7 +112,13 @@ watch(
       <div class="section-title">参数调整</div>
       <div v-for="param in meta.params" :key="param.key" class="param-row">
         <div class="param-head">
-          <span class="param-label">{{ param.label }}</span>
+          <span class="param-label-wrap">
+            <span class="param-label">{{ param.label }}</span>
+            <span v-if="param.tip" class="param-tip">
+              <span class="param-tip-icon">?</span>
+              <span class="param-tip-bubble">{{ param.tip }}</span>
+            </span>
+          </span>
           <span v-if="param.kind === 'number'" class="param-value">
             {{ asNumber(values[param.key]).toFixed(param.step && param.step < 1 ? 2 : 0) }}{{ param.unit ?? '' }}
           </span>
@@ -194,8 +204,15 @@ watch(
 
 .param-row { display: flex; flex-direction: column; gap: 2px; }
 .param-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.param-label-wrap { position: relative; display: inline-flex; align-items: center; gap: 4px; }
 .param-label { color: #c7dce8; }
 .param-value { color: #9fd6ef; font-variant-numeric: tabular-nums; }
+
+.param-tip { position: relative; display: inline-flex; align-items: center; }
+.param-tip-icon { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; border: 1px solid rgba(127, 208, 230, 0.6); border-radius: 50%; color: #7fd0e6; font-size: 9px; line-height: 1; cursor: help; }
+.param-tip:hover .param-tip-icon { background: rgba(127, 208, 230, 0.22); color: #c8f0fb; }
+.param-tip-bubble { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; display: none; width: 244px; padding: 7px 9px; box-sizing: border-box; border: 1px solid rgba(137, 210, 233, 0.42); border-radius: 6px; background: rgba(6, 20, 36, 0.98); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); color: #cfe6f2; font-size: 10px; font-weight: 400; line-height: 1.65; white-space: normal; }
+.param-tip:hover .param-tip-bubble { display: block; }
 
 .qx-range { width: 100%; height: 4px; margin: 3px 0 5px; -webkit-appearance: none; appearance: none; border-radius: 3px; background: #1e2d3a; outline: none; cursor: pointer; }
 .qx-range::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border: 2px solid #0d2233; border-radius: 50%; background: #4fb3d9; cursor: pointer; }

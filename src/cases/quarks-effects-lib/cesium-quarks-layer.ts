@@ -47,7 +47,8 @@ export class CesiumQuarksLayer {
     this.viewer = viewer
     this.container = container
 
-    const pixelRatio = Math.min(2, window.devicePixelRatio || 1)
+    // 限制 three 图层分辨率：additive 特效的填充率是主要瓶颈，1.5x 相比 2x 可显著降低 overdraw 成本且肉眼差异很小
+    const pixelRatio = Math.min(1.5, window.devicePixelRatio || 1)
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
     this.renderer.setPixelRatio(pixelRatio)
     this.renderer.setClearColor(0x000000, 0)

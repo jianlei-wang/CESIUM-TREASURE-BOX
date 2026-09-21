@@ -33,6 +33,9 @@ import {
 } from './effect-kit'
 import { STORM_META, STORM_EFFECT_IDS, buildStormEffect, type StormEffectId } from './storm-effects'
 import { EARTH_META, EARTH_EFFECT_IDS, buildEarthEffect, type EarthEffectId } from './earth-effects'
+import { DISASTER_META, DISASTER_EFFECT_IDS, buildDisasterEffect, type DisasterEffectId } from './disaster-effects'
+import { SHOWCASE_META, SHOWCASE_EFFECT_IDS, buildShowcaseEffect, type ShowcaseEffectId } from './showcase-effects'
+import { COSMIC_META, COSMIC_EFFECT_IDS, buildCosmicEffect, type CosmicEffectId } from './cosmic-effects'
 
 export type {
   ParamDef,
@@ -44,7 +47,7 @@ export type {
 } from './effect-kit'
 
 export type BasicEffectId = 'fountain' | 'flame' | 'smoke' | 'fireworks'
-export type EffectId = BasicEffectId | StormEffectId | EarthEffectId
+export type EffectId = BasicEffectId | StormEffectId | EarthEffectId | DisasterEffectId | ShowcaseEffectId | CosmicEffectId
 
 /* ------------------------------------------------------------------ */
 /* Fountain                                                            */
@@ -643,7 +646,10 @@ const BASIC_META: Record<BasicEffectId, EffectMeta> = {
 export const EFFECT_META: Record<EffectId, EffectMeta> = {
   ...BASIC_META,
   ...STORM_META,
-  ...EARTH_META
+  ...EARTH_META,
+  ...DISASTER_META,
+  ...SHOWCASE_META,
+  ...COSMIC_META
 }
 
 export function defaultParamValues(id: EffectId): ParamValues {
@@ -664,6 +670,9 @@ export function buildEffect(id: EffectId, values: ParamValues, ctx: EffectBuildC
       return buildFireworks(values, ctx)
     default:
       if ((STORM_EFFECT_IDS as string[]).includes(id)) return buildStormEffect(id as StormEffectId, values, ctx)
+      if ((DISASTER_EFFECT_IDS as string[]).includes(id)) return buildDisasterEffect(id as DisasterEffectId, values, ctx)
+      if ((SHOWCASE_EFFECT_IDS as string[]).includes(id)) return buildShowcaseEffect(id as ShowcaseEffectId, values, ctx)
+      if ((COSMIC_EFFECT_IDS as string[]).includes(id)) return buildCosmicEffect(id as CosmicEffectId, values, ctx)
       return buildEarthEffect(id as EarthEffectId, values, ctx)
   }
 }
@@ -671,7 +680,10 @@ export function buildEffect(id: EffectId, values: ParamValues, ctx: EffectBuildC
 export const QUARKS_EFFECT_IDS: EffectId[] = [
   ...(Object.keys(BASIC_META) as BasicEffectId[]),
   ...STORM_EFFECT_IDS,
-  ...EARTH_EFFECT_IDS
+  ...EARTH_EFFECT_IDS,
+  ...DISASTER_EFFECT_IDS,
+  ...SHOWCASE_EFFECT_IDS,
+  ...COSMIC_EFFECT_IDS
 ]
 
 export function isRebuildKey(id: EffectId, key: string): boolean {

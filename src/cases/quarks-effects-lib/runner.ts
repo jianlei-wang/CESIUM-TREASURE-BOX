@@ -31,6 +31,8 @@ export interface QuarksEffectConfig {
   cameraPitch: number
   cameraHeading: number
   targetHeight: number
+  /** 星轨等夜景效果：压暗 Bing 影像，让真实地球以夜间剪影/地貌呈现 */
+  nightGround?: boolean
 }
 
 export const QUARKS_DEFAULT_ORIGIN = { lon: 116.3912, lat: 39.9075, height: 0 }
@@ -46,7 +48,13 @@ export class QuarksEffectRunner {
   constructor(container: HTMLElement, config: QuarksEffectConfig) {
     this.config = config
     this.viewer = createMapScene(container)
-    loadBingImagery(this.viewer)
+    loadBingImagery(this.viewer, {}, (layer) => {
+      if (config.nightGround) {
+        layer.brightness = 0.3
+        layer.saturation = 0.3
+        layer.contrast = 1.12
+      }
+    })
     this.orient()
 
     this.textures = createEffectTextures()

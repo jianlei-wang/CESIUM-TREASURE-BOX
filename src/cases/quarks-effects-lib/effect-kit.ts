@@ -23,6 +23,8 @@ export interface ParamDef {
   unit?: string
   default: number | string | boolean
   options?: Array<{ label: string; value: string }>
+  /** 参数说明与作用提示，悬停参数名旁的问号图标时显示 */
+  tip?: string
 }
 
 export interface EffectMeta {
@@ -145,12 +147,25 @@ export function mixHex(a: string, b: string, t: number): string {
   return `#${ca.getHexString()}`
 }
 
+/** 确定性伪随机（mulberry32），用于生成可复现的布局与初始速度。 */
+export function seededRandom(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
 /**
  * 就地改写 Gradient 的颜色关键帧，保持 alpha 与对象引用不变，
  * 以便在 update 中实时换色而无需重建粒子系统。
  */
-export function setGradientColors(gradient: Gradient, hexes: string[]): void {
-  const keys = gradient.color.keys
+export function setGradientColors(gradient: unknown, hexes: string[]): void {
+  const keys = (gradient as { color?: { keys?: Array<[THREE.Vector3, number]> } }).color?.keys
+  if (!Array.isArray(keys)) return
   const count = Math.min(keys.length, hexes.length)
   for (let i = 0; i < count; i += 1) {
     const color = new THREE.Color(hexes[i])

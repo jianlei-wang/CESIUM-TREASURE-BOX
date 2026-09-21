@@ -32,6 +32,13 @@ import icon_city_point_light from './city-point-light/icon.webp'
 import icon_city_shader from './city-shader/icon.webp'
 import icon_city_style_shader from './city-style-shader/icon.webp'
 import icon_city_white_model from './city-white-model/icon.webp'
+import icon_collapse_three from './collapse-three/icon.webp'
+import icon_cosmic_blackhole from './cosmic-blackhole/icon.webp'
+import icon_cosmic_pointcloud from './cosmic-pointcloud/icon.webp'
+import icon_cosmic_seismic from './cosmic-seismic/icon.webp'
+import icon_cosmic_solar_wind from './cosmic-solar-wind/icon.webp'
+import icon_cosmic_sonar from './cosmic-sonar/icon.webp'
+import icon_cosmic_startrails from './cosmic-startrails/icon.webp'
 import icon_curve from './curve/icon.webp'
 import icon_curve_edit from './curve-edit/icon.webp'
 import icon_curve_line_arrow from './curve-line-arrow/icon.webp'
@@ -90,6 +97,7 @@ import icon_geological_voxel from './geological-voxel/icon.png'
 import icon_geoserver_layer from './geoserver-layer/icon.webp'
 import icon_geoserver_loader from './geoserver-loader/icon.webp'
 import icon_gltf_viewer from './gltf-viewer/icon.webp'
+import icon_godray_three from './godray-three/icon.webp'
 import icon_heatmap_3d from './heatmap-3d/icon.webp'
 import icon_heatmap_canvas from './heatmap-canvas/icon.webp'
 import icon_height_measure from './height-measure/icon.webp'
@@ -140,6 +148,7 @@ import icon_mass_text from './mass-text/icon.webp'
 import icon_meteor_three from './meteor-three/icon.webp'
 import icon_mouse_info from './mouse-info/icon.webp'
 import icon_mouse_tip from './mouse-tip/icon.webp'
+import icon_nuke_three from './nuke-three/icon.webp'
 import icon_openness_analysis from './openness-analysis/icon.webp'
 import icon_perspective_analysis from './perspective-analysis/icon.webp'
 import icon_pincer_arrow from './pincer-arrow/icon.webp'
@@ -174,6 +183,7 @@ import icon_right_angle_arrow from './right-angle-arrow/icon.webp'
 import icon_right_angle_arrow_edit from './right-angle-arrow-edit/icon.webp'
 import icon_river_flowfield from './river-flowfield/icon.webp'
 import icon_rocket_launching from './rocket-launching/icon.webp'
+import icon_rocket_three from './rocket-three/icon.webp'
 import icon_rotation from './rotation/icon.webp'
 import icon_round_rectangle from './round-rectangle/icon.webp'
 import icon_round_rectangle_edit from './round-rectangle-edit/icon.webp'
@@ -181,6 +191,7 @@ import icon_sandstorm_three from './sandstorm-three/icon.webp'
 import icon_sector from './sector/icon.webp'
 import icon_sector_edit from './sector-edit/icon.webp'
 import icon_shadow_analysis from './shadow-analysis/icon.webp'
+import icon_shield_three from './shield-three/icon.webp'
 import icon_shuttle_line from './shuttle-line/icon.webp'
 import icon_situation_plotting from './situation-plotting/icon.webp'
 import icon_skyline_analysis from './skyline-analysis/icon.webp'
@@ -215,6 +226,7 @@ import icon_tiles_3d_flatten from './tiles-3d-flatten/icon.webp'
 import icon_tiles_3d_load from './tiles-3d-load/icon.webp'
 import icon_tiles_3d_local from './tiles-3d-local/icon.webp'
 import icon_triangle_measure from './triangle-measure/icon.webp'
+import icon_tsunami_three from './tsunami-three/icon.webp'
 import icon_uav_test_field from './uav-test-field/icon.webp'
 import icon_underground_mode from './underground-mode/icon.webp'
 import icon_urban_fire_three from './urban-fire-three/icon.webp'
@@ -292,6 +304,13 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'city-shader': () => import('./city-shader/index.ts'),
   'city-style-shader': () => import('./city-style-shader/index.ts'),
   'city-white-model': () => import('./city-white-model/index.ts'),
+  'collapse-three': () => import('./collapse-three/index.ts'),
+  'cosmic-blackhole': () => import('./cosmic-blackhole/index.ts'),
+  'cosmic-pointcloud': () => import('./cosmic-pointcloud/index.ts'),
+  'cosmic-seismic': () => import('./cosmic-seismic/index.ts'),
+  'cosmic-solar-wind': () => import('./cosmic-solar-wind/index.ts'),
+  'cosmic-sonar': () => import('./cosmic-sonar/index.ts'),
+  'cosmic-startrails': () => import('./cosmic-startrails/index.ts'),
   'curve': () => import('./curve/index.ts'),
   'curve-edit': () => import('./curve-edit/index.ts'),
   'curve-line-arrow': () => import('./curve-line-arrow/index.ts'),
@@ -350,6 +369,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'geoserver-layer': () => import('./geoserver-layer/index.ts'),
   'geoserver-loader': () => import('./geoserver-loader/index.ts'),
   'gltf-viewer': () => import('./gltf-viewer/index.ts'),
+  'godray-three': () => import('./godray-three/index.ts'),
   'heatmap-3d': () => import('./heatmap-3d/index.ts'),
   'heatmap-canvas': () => import('./heatmap-canvas/index.ts'),
   'height-measure': () => import('./height-measure/index.ts'),
@@ -400,6 +420,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'meteor-three': () => import('./meteor-three/index.ts'),
   'mouse-info': () => import('./mouse-info/index.ts'),
   'mouse-tip': () => import('./mouse-tip/index.ts'),
+  'nuke-three': () => import('./nuke-three/index.ts'),
   'openness-analysis': () => import('./openness-analysis/index.ts'),
   'perspective-analysis': () => import('./perspective-analysis/index.ts'),
   'pincer-arrow': () => import('./pincer-arrow/index.ts'),
@@ -434,6 +455,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'right-angle-arrow-edit': () => import('./right-angle-arrow-edit/index.ts'),
   'river-flowfield': () => import('./river-flowfield/index.ts'),
   'rocket-launching': () => import('./rocket-launching/index.ts'),
+  'rocket-three': () => import('./rocket-three/index.ts'),
   'rotation': () => import('./rotation/index.ts'),
   'round-rectangle': () => import('./round-rectangle/index.ts'),
   'round-rectangle-edit': () => import('./round-rectangle-edit/index.ts'),
@@ -441,6 +463,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'sector': () => import('./sector/index.ts'),
   'sector-edit': () => import('./sector-edit/index.ts'),
   'shadow-analysis': () => import('./shadow-analysis/index.ts'),
+  'shield-three': () => import('./shield-three/index.ts'),
   'shuttle-line': () => import('./shuttle-line/index.ts'),
   'situation-plotting': () => import('./situation-plotting/index.ts'),
   'skyline-analysis': () => import('./skyline-analysis/index.ts'),
@@ -475,6 +498,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'tiles-3d-load': () => import('./tiles-3d-load/index.ts'),
   'tiles-3d-local': () => import('./tiles-3d-local/index.ts'),
   'triangle-measure': () => import('./triangle-measure/index.ts'),
+  'tsunami-three': () => import('./tsunami-three/index.ts'),
   'uav-test-field': () => import('./uav-test-field/index.ts'),
   'underground-mode': () => import('./underground-mode/index.ts'),
   'urban-fire-three': () => import('./urban-fire-three/index.ts'),
@@ -550,6 +574,13 @@ export const demos: CaseMeta[] = [
   { id: "city-shader", title: "三维数据加载-城市建筑白模自定义着色器", category: "effects", description: "通过 CustomShader 片元着色器实现建筑高度渐变与动态扫描光带效果，参数实时可调", tag: "自定义着色器", icon: icon_city_shader, updatedAt: "2026-09-01", available: true },
   { id: "city-style-shader", title: "三维数据加载-城市建筑白模样式+着色器", category: "effects", description: "Cesium3DTileStyle 按建筑体量分级设色，叠加 CustomShader 边缘光与高度渐变亮度", tag: "样式着色", icon: icon_city_style_shader, updatedAt: "2026-09-01", available: true },
   { id: "city-white-model", title: "三维数据加载-城市建筑白模", category: "effects", description: "加载荷兰全境建筑白模 3D Tiles 数据，支持 LOD 精度切换与渲染、性能参数实时调节", tag: "城市白模", icon: icon_city_white_model, updatedAt: "2026-09-01", available: true },
+  { id: "collapse-three", title: "VFX 建筑碎裂坍塌", category: "particles", description: "建筑自底部失稳后整体倾斜下沉，触地瞬间由完整楼体切换为碎块群：碎块按抛物线飞散、翻滚并落地堆存，地面冲击尘环向外扩张，尘云持续抬升扩散并随风漂移。楼层数、碎块数、坍塌时长与保持时长、起爆力、尘环半径/速度、尘云量/尺寸/寿命/风向风速与尘云颜色、不透明度均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 灾害", icon: icon_collapse_three, updatedAt: "2026-09-20", available: true },
+  { id: "cosmic-blackhole", title: "VFX 黑洞吸积盘与相对论喷流", category: "particles", description: "以真实地球为基底的宏大天体场景：巨大黑洞悬停在地球上空约 1.4 Re 处，真实地球作为前景/基底出现在画面下方；开普勒剪切粒子盘自动生成旋臂与缠绕结构，盘面按有效温度做黑体着色，approaching 侧多普勒增亮偏蓝、receding 侧偏暗偏红；中心为黑洞剪影、边缘细亮光子环，上方叠加被引力弯折的次级成像弧；两极相对论性喷流带螺旋磁场结构与周期性激波亮结。尺度以地球半径 Re 为基准（盘面约 1 Re、喷流约 1 Re），盘内外半径、自转速度、亮度、多普勒强度、喷流功率/长度/亮结数、整体倾角与冷热颜色均可调整", tag: "Three.js, three.quarks, 天体物理, 相对论", icon: icon_cosmic_blackhole, updatedAt: "2026-09-21", available: true },
+  { id: "cosmic-pointcloud", title: "VFX 点云地球转场", category: "particles", description: "同一批点在三种语义状态间连续形变：从城市楼宇立面点云浮升汇聚成地球态（噪声陆海掩膜使大陆清晰可辨、海洋点下沉留空），再解体为对数螺旋臂的星云态，循环往复。着色器按逐点随机延迟做缓动插值，过渡中段向外球面外推并放大尺寸，形成解体—重组感。点数、地球半径、城市范围/高度、螺旋臂数与张角、星云半径、点尺寸、循环周期、亮度与配色均可调整", tag: "Three.js, GPU 点云, 形变转场", icon: icon_cosmic_pointcloud, updatedAt: "2026-09-21", available: true },
+  { id: "cosmic-seismic", title: "VFX 地震波传播环", category: "particles", description: "以贴地同心环带还原地震波传播：蓝白 P 波最快、橙黄 S 波次之、红色面波最慢且振幅最大并多次尾波回绕，环带振幅随球面几何扩散与介质衰减变化；震中持续发光，周围建筑按波到时间产生水平摆动，近震中与软土场地响应更大。震级、P/S/面波速度、环带宽度、衰减长度、亮度、建筑数量与摆动幅度、三类波的着色均可实时调整", tag: "Three.js, 科学可视化, 地震学", icon: icon_cosmic_seismic, updatedAt: "2026-09-21", available: true },
+  { id: "cosmic-solar-wind", title: "VFX 行星级太阳风与磁层", category: "particles", description: "以真实地球为基底的行星尺度效果：外层弓激波、内层磁层顶构成双层半透明泪滴状空腔包裹地球，随太阳风动压与南向 Bz 收缩，太阳风粒子自日侧涌入、沿腔体外滑入磁尾；太阳风暴来袭时 CME 高密度壳层撞入，磁层被压缩、极区极光卵骤然增强。尺度以地球半径 Re 为基准，磁层顶约 10 Re、磁尾延伸数十 Re，相机位于数 Re 高度可见整个地球。太阳风速度/密度、Bz、Kp、磁层顶距离与磁尾长度、CME 强度/间隔、极光亮度与颜色均可实时调整", tag: "Three.js, three.quarks, 空间天气, 行星尺度", icon: icon_cosmic_solar_wind, updatedAt: "2026-09-21", available: true },
+  { id: "cosmic-sonar", title: "VFX 声呐扫描波", category: "particles", description: "以深水介质与海底散射噪声构成水下空间，主动声呐以锥形脉冲向外推进、前沿最亮、后方按双程衰减留余辉；波前扫过海底时留下扇形多波束覆盖条带，命中目标时产生随距离衰减的回波闪亮，并有大量悬浮的海洋雪缓缓下沉。脉冲间隔/推进速度、波束张角、水体浑浊度、海雪密度、回波强度、目标距离、海底深度与颜色均可实时调整", tag: "Three.js, three.quarks, 水下探测, 声呐", icon: icon_cosmic_sonar, updatedAt: "2026-09-21", available: true },
+  { id: "cosmic-startrails", title: "VFX 银河星轨延时", category: "particles", description: "以真实地球为观测基底的夜景长曝光：观测锚点落在真实地表，天极方向由观测纬度决定，星点绕天极轴旋转并在曝光时长内拖出同心圆弧轨迹，天极高度严格等于当地纬度；天顶半径约 0.05 Re 的天球仅保留地平线以上半球，地平以下由压暗后的真实地球影像作为夜间地景与剪影，星轨被真实地平线正确截断，地平附近受大气消光偏红偏暗。画面叠加银河、城市光污染穹顶与偶尔划过的流星，曝光周期循环时星轨从无到有生长。曝光时长、观测纬度、星数、星轨亮度、星点尺寸、循环周期、流星频率、城市辉光与天空配色均可实时调整", tag: "Three.js, 天文坐标, 长曝光模拟", icon: icon_cosmic_startrails, updatedAt: "2026-09-21", available: true },
   { id: "curve", title: "曲线-平滑贝塞尔曲线", category: "draw", description: "左键逐点采样、右键结束，自动生成平滑曲线；支持颜色、线宽与不透明度实时调整。", tag: "线绘制", icon: icon_curve, updatedAt: "2026-09-06", available: true },
   { id: "curve-edit", title: "曲线-编辑版", category: "draw", description: "绘制曲线后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_curve_edit, updatedAt: "2026-09-06", available: true },
   { id: "curve-line-arrow", title: "曲线箭头-贝塞尔曲箭头", category: "draw", description: "左键逐点确定曲线路径、右键结束，生成沿曲线前进的箭头；线宽与颜色可调。", tag: "箭头", icon: icon_curve_line_arrow, updatedAt: "2026-09-06", available: true },
@@ -608,6 +639,7 @@ export const demos: CaseMeta[] = [
   { id: "geoserver-layer", title: "GeoServer 指定图层", category: "tiles", description: "直接加载指定的 WMS / WFS / WMTS 图层服务", tag: "地图服务", icon: icon_geoserver_layer, available: true },
   { id: "geoserver-loader", title: "GeoServer 服务加载", category: "tiles", description: "加载 WMS / WFS / WMTS 地图服务并管理图层", tag: "地图服务", icon: icon_geoserver_loader, available: true },
   { id: "gltf-viewer", title: "glTF/GLB 模型查看器", category: "tiles", description: "加载远程或本地 glTF/GLB 模型，支持位置、旋转、缩放、外观与相机控制", tag: "模型加载", icon: icon_gltf_viewer, updatedAt: "2026-09-06", available: true },
+  { id: "godray-three", title: "VFX 丁达尔光柱", category: "particles", description: "以三片交叉的渐变光幕与太阳辉光构成晨昏光柱，光幕内部带流动的絮状噪声结构，配合缓慢摆动的整体姿态模拟大气折射；光柱体内散布大量缓慢浮沉、明暗闪烁的尘埃微粒，让空气具有可见的介质感。光柱高度/宽度、亮度/不透明度、噪声强度、尘埃数量/尺寸/不透明度、太阳高度角与光柱上下颜色均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 大气", icon: icon_godray_three, updatedAt: "2026-09-20", available: true },
   { id: "heatmap-3d", title: "数据分析-三维热力图", category: "data", description: "通过数据采样构建的三维热力网格与面状地形", tag: "三维数据", icon: icon_heatmap_3d, updatedAt: "2026-08-27", available: true },
   { id: "heatmap-canvas", title: "数据分析-热力图", category: "data", description: "数据驱动的 Canvas 密度热力图动态渲染", tag: "数据可视化", icon: icon_heatmap_canvas, updatedAt: "2026-08-27", available: true },
   { id: "height-measure", title: "空间测量-高度量测", category: "measure", description: "两点高度与高差量测，含地形与三维模型，实时鼠标提示", tag: "测量", icon: icon_height_measure, updatedAt: "2026-08-24", available: true },
@@ -658,6 +690,7 @@ export const demos: CaseMeta[] = [
   { id: "meteor-three", title: "VFX 流星雨 / 再入火球", category: "particles", description: "沿预计算的下行弹道驱动移动发射器，粒子在静止世界坐标中遗留下拉长的发光尾迹，头部明亮、尾部淡青，并伴随反向后抛的烧蚀火花。并发流星数、间隔、再入速度、寿命、尺寸、尾迹长度、散布与重力均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 天文", icon: icon_meteor_three, updatedAt: "2026-09-20", available: true },
   { id: "mouse-info", title: "鼠标位置-坐标与比例尺", category: "scene", description: "实时显示鼠标位置经纬度、海拔、缩放层级与比例尺", tag: "场景工具", icon: icon_mouse_info, updatedAt: "2026-08-23", available: true },
   { id: "mouse-tip", title: "鼠标移动提示", category: "scene", description: "跟随鼠标实时显示点位经纬度与高度", tag: "场景工具", icon: icon_mouse_tip, updatedAt: "2026-08-24", available: true },
+  { id: "nuke-three", title: "VFX 核爆蘑菇云", category: "particles", description: "以艺术标定的视觉仿真还原经典蘑菇云五阶段：火球半球膨胀并由白炽转橙红，随后被抬升的尘柱托起；帽部在目标高度由环状发射器配合绕竖直轴涡环力场与湍流完成翻卷，帽檐另有一层反向小涡制造向下翻卷层次；地面冲击波环与高空凝结云盘向外扩张，帽顶颗粒转入重力沉降形成随风长尾落尘。火球、尘柱、帽部、涡环转速、冲击波、落尘、风速与烟雾/辉光颜色均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 灾害", icon: icon_nuke_three, updatedAt: "2026-09-20", available: true },
   { id: "openness-analysis", title: "空间分析-开敞度分析", category: "analysis", description: "以 Fibonacci 球面采样向周围空间发射射线，逐方向进行建筑/地形遮挡判定，计算正开敞度、负开敞度、天空可视因子与三维全向开敞度；支持采样数、分析半径、分析点高度、半球/全球模式、地形叠加、分析球体与采样点显隐等参数，输出方向分布图与指标读数，内置功能实现说明", tag: "空间分析", icon: icon_openness_analysis, available: true },
   { id: "perspective-analysis", title: "空间分析-通视分析", category: "analysis", description: "分段比较实际高程与理论高程，判定观测点与被观测点之间是否通视", tag: "空间分析", icon: icon_perspective_analysis, available: true },
   { id: "pincer-arrow", title: "钳击箭头-双头钳形箭头", category: "draw", description: "多个控制点生成两端带箭头、中间内收的钳击(双箭头)标绘；颜色可调。", tag: "箭头", icon: icon_pincer_arrow, updatedAt: "2026-09-06", available: true },
@@ -692,6 +725,7 @@ export const demos: CaseMeta[] = [
   { id: "right-angle-arrow-edit", title: "直角箭头-编辑版", category: "draw", description: "绘制直角箭头后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_right_angle_arrow_edit, updatedAt: "2026-09-06", available: true },
   { id: "river-flowfield", title: "河道流场水面", category: "water", description: "以真实河道水面多边形与中心线烘焙流场贴图，GPU 着色器沿流场驱动波纹流动、泡沫聚集与岸线羽化，深浅双色、菲涅尔与屏幕空间高光抗锯齿一体成型，支持叠加流向箭头粒子并实时调节全套参数", tag: "河道水流", icon: icon_river_flowfield, updatedAt: "2026-09-04", available: true },
   { id: "rocket-launching", title: "运载火箭发射", category: "scene", description: "基于 CZML 逐秒轨迹数据模拟运载火箭发射到入轨全过程", tag: "CZML 轨迹", icon: icon_rocket_launching, updatedAt: "2026-09-06", available: true },
+  { id: "rocket-three", title: "VFX 火箭发射", category: "particles", description: "以可循环的时序编排还原火箭发射：点火阶段尾焰由弱到强、导流槽高压水雾向上翻涌，离架后箭体沿加速曲线爬升，跨音速窗口在箭体尾部闪烁马赫盘钻石激波，达到分离高度后助推器抛离并触发分离闪光，随后回落复位进入下一轮。推力、尾焰尺寸/颜色、导流水雾量/张角、火星量、爬升加速度、最大高度、循环周期与风速均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 航天", icon: icon_rocket_three, updatedAt: "2026-09-20", available: true },
   { id: "rotation", title: "常用工具-初始化自转", category: "scene", description: "地图加载后相机自动旋转浏览，支持自转开关、角速度与 X/Y/Z 旋转轴实时调节", tag: "自转", icon: icon_rotation, updatedAt: "2026-08-27", available: true },
   { id: "round-rectangle", title: "圆角矩形-圆角区域框", category: "draw", description: "左键确定一角并拖拽成形、右键结束，生成圆角矩形区域；颜色可调。", tag: "形状", icon: icon_round_rectangle, updatedAt: "2026-09-06", available: true },
   { id: "round-rectangle-edit", title: "圆角矩形-编辑版", category: "draw", description: "绘制圆角矩形后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_round_rectangle_edit, updatedAt: "2026-09-06", available: true },
@@ -699,6 +733,7 @@ export const demos: CaseMeta[] = [
   { id: "sector", title: "扇形-扇形作用区域", category: "draw", description: "左键定位圆心与半径方向并拖拽扫出扇角，右键结束；颜色可调。", tag: "形状", icon: icon_sector, updatedAt: "2026-09-06", available: true },
   { id: "sector-edit", title: "扇形-编辑版", category: "draw", description: "绘制扇形后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_sector_edit, updatedAt: "2026-09-06", available: true },
   { id: "shadow-analysis", title: "空间分析-阴影分析", category: "analysis", description: "启用级联阴影映射叠加地面阴影方向指示，按规划街区参数化白模实时渲染任意时刻太阳光照下的建筑阴影，阴影随时刻连续扫动；支持日期、时间轴播放与变速、阴影分辨率、最大计算距离、暗度、软阴影等参数，并支持设定采样分析高度区间，输出对应采样高度的结果图，或输出区间内的空间网格/空间点集阴影率分析结果（平均/最大阴影率、高阴影占比），支持 PDF/Word 分析报告输出，内置功能实现说明", tag: "空间分析", icon: icon_shadow_analysis, available: true },
+  { id: "shield-three", title: "VFX 能量护盾", category: "particles", description: "半球护盾以自定义着色器绘制滚动网格与菲涅尔边缘辉光，命中点在球面触发扩散涟漪并抛射电弧火花，涟漪以环状网格向外扩张；球面持续有能量微粒上升，营造电离气体流动感。半径、网格密度/滚动速度、辉光强度/不透明度、命中间隔与强度、电弧火花数/尺寸、能量微粒量、护盾颜色均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 科幻", icon: icon_shield_three, updatedAt: "2026-09-20", available: true },
   { id: "shuttle-line", title: "穿梭流光道路线", category: "effects", description: "GeoJSON 路网加载穿梭流光材质，亮带沿道路方向持续流动", tag: "流光线", icon: icon_shuttle_line, updatedAt: "2026-09-06", available: true },
   { id: "situation-plotting", title: "综合态势标绘控件", category: "widgets", description: "集成 21 种军事标绘几何绘制与文本、图片、模型三类点标注，点选后可移动/旋转/缩放并修改属性，支持 WGS84、Web墨卡托、北京54、西安80 等坐标系下的 GeoJSON / SHP 标准导出。", tag: "标绘标注导出", icon: icon_situation_plotting, updatedAt: "2026-09-07", available: true },
   { id: "skyline-analysis", title: "空间分析-天际线分析", category: "analysis", description: "从观测点沿水平方位角发射射线，求解各方向最高遮挡点并构建三维天际线、射线束与扇形可见天空面；支持观测点高度、方位角范围与采样间隔、自适应细分、最大分析半径、地形叠加、天际线配色等参数，提供极坐标天际线图与量化读数，内置功能实现说明", tag: "空间分析", icon: icon_skyline_analysis, available: true },
@@ -733,6 +768,7 @@ export const demos: CaseMeta[] = [
   { id: "tiles-3d-load", title: "3DTiles加载", category: "tiles", description: "加载远程倾斜摄影 3DTiles 模型并支持定位与阴影", tag: "模型加载", icon: icon_tiles_3d_load, updatedAt: "2026-08-26", available: true },
   { id: "tiles-3d-local", title: "本地 3DTiles 查看器", category: "tiles", description: "加载本地（拖拽/选择文件夹）或远程 3DTiles，支持屏幕空间误差、包围盒、线框与裁剪平面等参数调整", tag: "模型加载", icon: icon_tiles_3d_local, updatedAt: "2026-09-09", available: true },
   { id: "triangle-measure", title: "空间测量-三角量测", category: "measure", description: "两点直角三角形水平/垂直距离与斜边夹角量测，含地形与三维模型", tag: "测量", icon: icon_triangle_measure, updatedAt: "2026-08-24", available: true },
+  { id: "tsunami-three", title: "VFX 海啸推进", category: "particles", description: "以三维高度场浪面还原海啸推进：水面在锋面处陡直抬升、向后方缓慢回落形成有体积感的浪墙，浪面叠加逐像素法线光照、菲涅尔反射与高频碎浪扰动，前缘由泡沫、飞沫与浑浊泥沙共同构成白水线。浪头沿推进方向逐栋淹没沿岸建筑并使其颜色转暗。浪面宽度、推进距离、浪高、浪背长度、碎浪扰动、波速、泡沫/飞沫/泥沙量与建筑数量/高度、水体与泥沙颜色、不透明度均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 灾害", icon: icon_tsunami_three, updatedAt: "2026-09-20", available: true },
   { id: "uav-test-field", title: "无人机试飞场 3D 演示", category: "three", description: "纯 Three.js 构建的无人机试飞场三维可视化：园区跑道、起降场、拱顶机库、通导监气反保障设备与围墙办公区完整建模，无人机沿闭环航线自动巡航并可切换手动操控，内置 GB 42590-2023 的 17 项强制安全测试科目，逐项演示电子围栏、应急处置、结构强度、抗风性、灯光等测试流程与实时结果", tag: "Three.js, 无人机, 试飞场, GB 42590", icon: icon_uav_test_field, updatedAt: "2026-09-18", available: true },
   { id: "underground-mode", title: "地下模式-地铁站", category: "scene", description: "地球半透明地下模式，查看埋设于地表下方的地铁站模型", tag: "地下可视化", icon: icon_underground_mode, updatedAt: "2026-09-06", available: true },
   { id: "urban-fire-three", title: "VFX 城市火灾蔓延", category: "particles", description: "街区建筑网格中每个着火单元挂一组火焰与烟羽发射器，轻量状态机按“未燃→燃烧→熄灭”推进，并按风向对下风侧邻栋提高引燃概率。建筑体色随状态在正常、燃烧、焦黑间切换，火势受风驱动弯曲。场景粒子总量按当前燃烧单元数自动均摊，蔓延到整片街区时单栋发射量下调以稳定帧率。网格规模、火焰/烟雾量、蔓延概率与间隔、燃烧时长、风向风速、烟雾浓度与亮度均可调整", tag: "Three.js, three.quarks, 粒子特效, 应急", icon: icon_urban_fire_three, updatedAt: "2026-09-20", available: true },

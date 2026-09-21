@@ -328,7 +328,7 @@ function buildThunderstorm(values: ParamValues, ctx: EffectBuildContext): BuiltE
 /* ------------------------------------------------------------------ */
 
 function buildSandstorm(values: ParamValues, ctx: EffectBuildContext): BuiltEffect {
-  const count = num(values, 'count', 2800)
+  const count = num(values, 'count', 1800)
   const size = num(values, 'size', 0.3)
   const speed = num(values, 'speed', 20)
   const life = num(values, 'life', 4.5)
@@ -338,7 +338,7 @@ function buildSandstorm(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
   const vortexRadius = num(values, 'vortexRadius', 14)
   const vortexSpin = num(values, 'vortexSpin', 2.6)
   const vortexUp = num(values, 'vortexUp', 5)
-  const vortexRateValue = num(values, 'vortexRate', 500)
+  const vortexRateValue = num(values, 'vortexRate', 280)
   const haze = num(values, 'haze', 0.35)
 
   const sandRate = new ConstantValue(count / Math.max(1, life) * 1.4)
@@ -347,7 +347,7 @@ function buildSandstorm(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
   const sandWind = new ConstantValue(speed)
   const sandRise = new ConstantValue(rise)
   const sandEmitter = new SphereEmitter({ radius: area * 0.5, thickness: 1 })
-  const sandTurb = new TurbulenceField(q3(4, 2, 4), 2, q3(turbulence, turbulence * 0.5, turbulence), q3(0.35, 0.35, 0.35))
+  const sandTurb = new TurbulenceField(q3(4, 2, 4), 1, q3(turbulence, turbulence * 0.5, turbulence), q3(0.35, 0.35, 0.35))
   const sandMaterial = normalBlend(ctx.textures.smoke, haze)
   const baseSand = str(values, 'sandColor', '#d9b578')
   const sandStartRange = new ColorRange(hexToQ4(mixHex(baseSand, '#ffffff', 0.34)), hexToQ4(mixHex(baseSand, '#000000', 0.5)))
@@ -429,7 +429,7 @@ function buildSandstorm(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
   applyVortexColor(baseSand)
   const vortexTurb = new TurbulenceField(
     q3(2, 3, 2),
-    2,
+    1,
     q3(turbulence * 0.6, turbulence * 0.8, turbulence * 0.6),
     q3(0.5, 0.5, 0.5)
   )
@@ -460,7 +460,7 @@ function buildSandstorm(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
   setParticleOpacity(vortex, haze)
 
   const update = (v: ParamValues): void => {
-    const c = num(v, 'count', 2800)
+    const c = num(v, 'count', 1800)
     const sz = num(v, 'size', 0.3)
     const sp = num(v, 'speed', 20)
     const lf = num(v, 'life', 4.5)
@@ -470,7 +470,7 @@ function buildSandstorm(values: ParamValues, ctx: EffectBuildContext): BuiltEffe
     const vr = num(v, 'vortexRadius', 14)
     const vs = num(v, 'vortexSpin', 2.6)
     const vu = num(v, 'vortexUp', 5)
-    const vrate = num(v, 'vortexRate', 500)
+    const vrate = num(v, 'vortexRate', 280)
     const hz = num(v, 'haze', 0.35)
     const sc = str(v, 'sandColor', '#d9b578')
     applySandColor(sc)
@@ -1347,17 +1347,17 @@ export const STORM_META: Record<StormEffectId, EffectMeta> = {
     description:
       '贴地沙粒沿风向高速平流并受多层湍流扰动，形成流动沙幕；尘卷风用环形发射器叠加绕竖直轴的涡旋场与向上抽吸，塑造螺旋上升的漏斗。沙粒颜色可整体切换（浅色可模拟扬尘、深色可模拟矿砂），沙粒数、风速、湍流、涡旋半径/转速/抽吸与整体沙尘浓度均可实时调整。',
     params: [
-      { key: 'count', label: '沙粒数量', kind: 'number', min: 500, max: 9000, step: 250, unit: '个', default: 2800 },
+      { key: 'count', label: '沙粒数量', kind: 'number', min: 500, max: 4000, step: 250, unit: '个', default: 1800 },
       { key: 'size', label: '沙粒尺寸', kind: 'number', min: 0.05, max: 1.2, step: 0.05, default: 0.3 },
       { key: 'speed', label: '风速', kind: 'number', min: 5, max: 45, step: 1, default: 20 },
-      { key: 'life', label: '沙粒寿命', kind: 'number', min: 2, max: 10, step: 0.5, unit: '秒', default: 4.5 },
+      { key: 'life', label: '沙粒寿命', kind: 'number', min: 2, max: 7, step: 0.5, unit: '秒', default: 4.5 },
       { key: 'rise', label: '抬升力', kind: 'number', min: 0, max: 8, step: 0.2, default: 1.2 },
       { key: 'turbulence', label: '湍流强度', kind: 'number', min: 0, max: 4, step: 0.1, default: 1.6 },
       { key: 'area', label: '沙暴范围', kind: 'number', min: 30, max: 300, step: 10, default: 140 },
       { key: 'vortexRadius', label: '涡旋半径', kind: 'number', min: 0, max: 40, step: 1, default: 14 },
       { key: 'vortexSpin', label: '涡旋角速度', kind: 'number', min: 0, max: 6, step: 0.1, default: 2.6 },
       { key: 'vortexUp', label: '涡旋抽吸', kind: 'number', min: 0, max: 15, step: 0.5, default: 5 },
-      { key: 'vortexRate', label: '涡旋浓度', kind: 'number', min: 0, max: 2000, step: 100, default: 500 },
+      { key: 'vortexRate', label: '涡旋浓度', kind: 'number', min: 0, max: 900, step: 50, default: 280 },
       { key: 'haze', label: '沙尘浓度', kind: 'number', min: 0.05, max: 1, step: 0.05, default: 0.9 },
       { key: 'sandColor', label: '沙粒颜色', kind: 'color', default: '#d9b578' }
     ]

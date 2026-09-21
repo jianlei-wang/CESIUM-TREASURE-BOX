@@ -863,3 +863,29 @@ Entries discovered by the Agent during task execution should follow this format:
   - **three.quarks `prewarm: true` 会同步阻塞**：`ParticleSystem.update()` 首次执行时按 `PREWARM_FPS = 60` 循环 `duration * 60` 次调用自身（`node_modules/three.quarks/dist/three.quarks.esm.js` 中 `if (this.looping && this.prewarm && !this.prewarmed)`），全部在主线程一次性完成。duration 设 300~400 时是 18000~24000 次全粒子 update，案例一打开即卡死。
   - 约定：`duration` 对预热的连续发射系统只影响「loop 周期」与「预热模拟时长」，与视觉寿命无关；需预热时 `duration` 必须压到个位数（本项目统一常量 `PREWARM_DURATION = 4`，见 `src/cases/quarks-effects-lib/{storm,earth}-effects.ts`），loop 重置只清 burst 索引与 behavior 状态、不会杀死已存在粒子。
   - 另需控制默认粒子数：预热成本 ≈ `duration*60 * 粒子数`，粒数过大即使 duration 小也可能明显卡顿；评估性能时按该公式估算。
+
+[User Instruction Summary]
+- Date: 2026-09-20
+- Context: 用户提交案例代码后明确要求
+- Instructions:
+  - 除用户明确指令「推送到仓库」外，一律不执行 `git push`，改动仅保留在本地；`git commit` 也仅在用户明确要求提交时执行。
+
+[Project Knowledge Summary]
+- Date: 2026-09-21
+- Context: Discovered by Agent while fixing 火箭尾焰贯穿箭体 / 火箭朝向异常（showcase-effects.ts buildRocket）
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **three.quarks `RenderMode.StretchedBillBoard` 的拉伸长度 = `speedFactor * |velocity| * avgSize`，方向是粒子速度的反方向**：`stretched_bb_particle_vert.glsl`（源码 `node_modules/three.quarks/src/shaders/stretched_bb_particle_vert.glsl.ts`）非 skew 分支为 `mvPosition.xyz -= (position.x+0.5)*viewVelocity*(1+lengthFactor/vlength)*avgSize`，`viewVelocity` 已乘 `speedFactor`（`SpriteBatch.ts` 打包 velocityBuffer），且**未归一化**。`speedFactor` 默认须慎用 1：速度 30~70、尺寸 5~10 时单条 streak 可达 150~700 单位，远超箭体（90 单位），表现为「火焰在火箭上方/贯穿箭体、看起来火箭倒置」。修复：把火焰/火花 `rendererEmitterSettings.speedFactor` 调到 0.07~0.1（按「目标尾长 ≈ speedFactor*|v|*size」估算），`lengthFactor` 影响很小（`1+lengthFactor/vlength`≈1）。
+  - 火箭朝向本身无需修复：经真实渲染探针测量（`rocket-probe` + `Object3D.project`）确认 nose ndc.y > base ndc.y，箭体一直朝上；「朝向异常」是巨大尾焰 streak 覆盖箭体造成的视觉误判。真实渲染还发现发射台（不透明圆柱）会遮挡其下方的尾焰，故把 `padHeight` 7→4、pad 半径 34/40→26/30、火焰发射点 `baseY-3.5`→`baseY-1`，尾焰才能在点火阶段露出。
+
+[Project Knowledge Summary]
+- Date: 2026-09-21
+- Context: Discovered by Agent while building headless visual probes for QuarksEffectDemo on Cesium
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 无头渲染验证本项目的 quarks 案例：dev 模式下 `cesium` 被 `vite.config.ts` 的 `cesiumDevGlobal` 插件改写为全局 shim（`const Cesium = window.Cesium`），而 `index.html` 不含 Cesium.js 标签——`window.Cesium` 由 `App.vue` 在运行时动态 `document.createElement('script').src='cesium/Cesium.js'` 注入。自建探针页面必须①先注入 `/cesium/Cesium.js`（绝对路径，避免子目录页解析成相对路径 404）、②用动态 `import()` 再加载 runner（静态 import 会在 Cesium 就绪前触发 shim 报 `Cannot read properties of undefined (reading 'Appearance')`）。
+  - chromium headless + SwiftShader 可在本环境渲染 WebGL2：apt 安装 `libglib2.0-0 libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 libx11-6 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxrandr2 libgbm1 libdrm2 libxcb1 libxkbcommon0 libasound2`，启动参数 `--no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader`（`--use-gl=angle --use-angle=swiftshader` 组合在本机反而 Page crashed）。探针脚本可放 `/workspace/.monkeycode-tmp-files/*.html|.ts`（Vite 直接服务，gitignore 覆盖），页面阻塞 Bing/Cesium 影像请求减负。
+  - 探针页可直接 `new QuarksEffectRunner(...)` 并把实例挂到 `window`（TS private 字段运行时仍是普通属性），再在 Playwright 内读 `runner.layer.camera.matrixWorld`、`runner.built.systems[i].particles[j].position/velocity` 做数值断言与 `Object3D.project` 投影验证——比截图肉眼判断可靠。
+  - 更省事的集成截图探针（无需自建页面）：`npm install -g playwright` 后直接驱动已装好的 chromium（`executablePath: '/root/.cache/ms-playwright/chromium-1148/chrome-linux/chrome'`，避免版本匹配），`page.goto('http://localhost:5173')` → `fill('input[type="search"]', '<案例名>')` → `click('.demo-card')` → 等待 10~25s → `page.screenshot()`。首次启动会因缺库报 `error while loading shared libraries`，除上面那批还需补 `libcups2 libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libatk1.0-0 libatk-bridge2.0-0`；headless 无 CJK 字体，中文显示为方块属正常。SwiftShader 下 FPS 只有 1~3，不能用来判断真机性能，只能验证「无 pageerror / shader 正常编译 / 画面构图正确」。
+  - 探针里真实地球（Cesium globe + Bing 影像）是否出现不稳定：控制台出现 Bing `403` 时整块 globe 瓦片可能一张都不渲染，画面背景为纯黑（连 `globe.baseColor #152b4c` 都没有，因为是按 tile 渲染，无 tile 即无面）；同一批探针里近地视角（星轨、点云地球态）常能正常显示，而高空/远景（黑洞、星云态）易全黑。因此**不能据探针黑背景判定「真实地球缺失」**，应以相机几何是否把地球纳入视锥来推理，或用真实浏览器复验。
+

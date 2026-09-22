@@ -794,6 +794,8 @@ Entries discovered by the Agent during task execution should follow this format:
   - Cesium 模型 PBR 片元管线顺序（定位依据）：`defaultModelMaterial()`（diffuse=0）→ `materialStage()`（写 `baseColor`/`diffuse`/`specular`）→ `customShaderStage()`（`fragmentMain`）→ `lightingStage()`（`color = directColor + material.emissive`，`out_FragColor` 最终取 `material.diffuse`）。
   - 判定「参数无感」是通道失效还是输入为 0 的诊断法（常量替代法）：在页面里基于 `tileset.customShader.fragmentShaderText` 做字符串替换构造变体 —— 把可疑表达式换成常量（`ambient` → `vec3(0.5)`、`base` → `vec3(1.0)`、`emissive` → `vec3(0.5)`），若换常量后画面变化而原表达式无变化，即可断定该输入恒为 0 而非通道无效；每次变体后读 `scene.context.shaderCache.numberOfShaders` 确认新着色器已编译。注意逐段替换后原 shader 末尾的赋值会覆盖前置插入语句。
   - `npm run build`（vite build）在本机 2 核/8 GiB 环境会触发 node 默认堆上限 OOM（`FATAL ERROR: Reached heap limit`，约 1.4 GB）；改用 `NODE_OPTIONS=--max-old-space-size=3072 npm run build` 可成功（约 1m50s）。构建须用 background terminal 并设置 cpu/memory 限制。
+  - 复核（2026-09-22，V6 系统DEMO）：以 `background_terminal_create` 设 `cpu_percent=200`、`memory_percent=55`（memory.max 4.28 GiB，叠加运行中的 dev server 峰值 1.13 GiB 仍在总内存 85% 预算内）执行原生 `npm run build` 连续两次成功，实测 vue-tsc + vite 整链路峰值约 2.52 GiB、耗时约 1m45s，无需 NODE_OPTIONS。故优先直接用受限后台终端跑 `npm run build`，仅在出现 `FATAL ERROR: Reached heap limit` 时才加 `--max-old-space-size=3072`。
+  - 只想单独做 TS 门禁（不跑 vite）时，可临时建 `.tsconfig.firecheck.json`（`extends: ./tsconfig.app.json` + `include: ["src/cases/<case>/**/*.ts"]`）后 `npx tsc -p .tsconfig.firecheck.json`；因 tsc 不识别 `.vue`，index.ts 里 `import('./XxxDemo.vue')` 的 TS2307 属预期噪音，最终门禁仍以 `npm run build`（vue-tsc）为准。
 
 [Project Knowledge Summary]
 - Date: 2026-09-17
@@ -819,7 +821,7 @@ Entries discovered by the Agent during task execution should follow this format:
 - Context: Discovered by Agent while adding the six terrain height-field extraction cases (V6.47)
 - Category: Environment Configuration
 - Instructions:
-  - dev 模式的 cesium 全局 shim（`vite.config.ts` 的 `CESIUM_SYMBOLS`）不仅需补公开 API，也需补 Cesium 内部类：本批新增的 `OrthographicFrustum`、`PassState`、`Renderbuffer`、`RenderbufferFormat` 都必须加入白名单，否则 dev 下报 `does not provide an export named 'XXX'` 且整个案例模块加载失败（vue-tsc/build 均正常）。这些内部类在 `window.Cesium`（Build/CesiumUnminified）上确实存在。
+  - dev 模式的 cesium 全局 shim（`vite.config.ts` 的 `CESIUM_SYMBOLS`）不仅需补公开 API，也需补 Cesium 内部类：本批新增的 `OrthographicFrustum`、`PassState`、`Renderbuffer`、`RenderbufferFormat` 都必须加入白名单，否则 dev 下报 `does not provide an export named 'XXX'` 且整个案例模块加载失败（vue-tsc/build 均正常）。这些内部类在 `window.Cesium`（Build/CesiumUnminified）上确实存在。后续批次（V6 系统DEMO 林火案例）又补齐了 `GeographicTilingScheme`（栅格专题贴合地形的 tiling scheme）与 `ReferenceFrame`（`CallbackPositionProperty` 的参考系参数）。定位方法：dev 页面只报 module does not provide an export named 'X'，用错误里的符号名逐个补白名单即可，新增案例用到的每个 cesium 值导入都要对照 `CESIUM_SYMBOLS` 检查（`type` 导入会被擦除、不受影响）。
   - 访问未在 cesium 类型声明中导出的内部 API 的稳定写法：`import * as CesiumNamespace from 'cesium'`，再 `const X = (CesiumNamespace as unknown as Record<string, unknown>).X`；对实例方法可用 `(Cls as unknown as { method: (...) => T }).method(...)`。避免 `import { PassState } from 'cesium'`（build 期因无该导出而报错）。
   - `Cartesian3` 没有实例方法 `copy`（只有静态 `clone`/`clone(value, result)` 与 `fromRadians(..., result)`）；写成 `scratch.copy(vec)` 会在运行时抛 `copy is not a function`，`vue-tsc` 也会报 `Property 'copy' does not exist`。
   - 本项目统一的地形高度场契约（`src/cases/terrain-height-lib/grid.ts`）：`heights[row*N+col]`，row0=北、col0=西、取格子中心，无数据填 `NaN`；GPU 读回（FBO / pick 深度）得到的像素原点在左下，必须翻转行序后再写入。
@@ -888,4 +890,12 @@ Entries discovered by the Agent during task execution should follow this format:
   - 探针页可直接 `new QuarksEffectRunner(...)` 并把实例挂到 `window`（TS private 字段运行时仍是普通属性），再在 Playwright 内读 `runner.layer.camera.matrixWorld`、`runner.built.systems[i].particles[j].position/velocity` 做数值断言与 `Object3D.project` 投影验证——比截图肉眼判断可靠。
   - 更省事的集成截图探针（无需自建页面）：`npm install -g playwright` 后直接驱动已装好的 chromium（`executablePath: '/root/.cache/ms-playwright/chromium-1148/chrome-linux/chrome'`，避免版本匹配），`page.goto('http://localhost:5173')` → `fill('input[type="search"]', '<案例名>')` → `click('.demo-card')` → 等待 10~25s → `page.screenshot()`。首次启动会因缺库报 `error while loading shared libraries`，除上面那批还需补 `libcups2 libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libatk1.0-0 libatk-bridge2.0-0`；headless 无 CJK 字体，中文显示为方块属正常。SwiftShader 下 FPS 只有 1~3，不能用来判断真机性能，只能验证「无 pageerror / shader 正常编译 / 画面构图正确」。
   - 探针里真实地球（Cesium globe + Bing 影像）是否出现不稳定：控制台出现 Bing `403` 时整块 globe 瓦片可能一张都不渲染，画面背景为纯黑（连 `globe.baseColor #152b4c` 都没有，因为是按 tile 渲染，无 tile 即无面）；同一批探针里近地视角（星轨、点云地球态）常能正常显示，而高空/远景（黑洞、星云态）易全黑。因此**不能据探针黑背景判定「真实地球缺失」**，应以相机几何是否把地球纳入视锥来推理，或用真实浏览器复验。
+
+[User Instruction Summary]
+- Date: 2026-09-22
+- Context: 用户指出系统DEMO 模块的案例界面布局与其他模块不一致，要求按完整系统规范重做
+- Instructions:
+  - 「系统DEMO」分类下的案例必须呈现为**完整业务系统**形态，页面布局符合常规系统规范：自带系统标题栏（系统名/运行状态/工具按钮）、左侧参数与图层侧栏、中间地图主视图、右侧指标与图例面板、底部状态栏（时间轴/播放控制/状态文本），不使用其他模块的「标题区 + 圆角外框 + 悬浮弹窗面板」形式。
+  - 实现约定（已落地）：`App.vue` 在案例 `category === 'system'` 时给 `.case-page` 加 `is-system`，由 `src/style.css` 的 `.case-page.is-system *` 规则隐藏 `.case-heading`、把 `.case-content/.case-stage` 改为满屏无内边距无圆角，并在案例页顶栏为系统案例提供「返回案例库」按钮；系统案例组件自身负责铺满舞台并渲染上述系统级区域。非 system 分类案例的原有布局必须保持不变。
+  - 后续新增系统DEMO 案例时沿用同一套系统外壳（顶部标题栏 + 左右侧栏 + 底部状态栏）与配色语言，保持模块内视觉一致。
 

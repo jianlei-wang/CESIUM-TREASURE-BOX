@@ -68,6 +68,7 @@ button { border: 0; cursor: pointer; }
 .metric.bad { color: #ff7b7b; }
 .case-back-button { display: inline-flex; align-items: center; gap: 7px; padding: 9px 13px; border: 1px solid rgba(157,188,224,.28); border-radius: 7px; color: #c4d3e8; background: transparent; font-size: 12px; }
 .case-back-button:hover { color: #fff; border-color: #5eacf5; background: rgba(75,145,220,.14); }
+.case-topbar-exit { flex: 0 0 auto; margin-left: 14px; padding: 7px 12px; }
 .case-content { flex: 1; min-height: 0; display: flex; flex-direction: column; width: min(1280px, calc(100% - 32px)); margin: 0 auto; padding: 22px 0 22px; }
 .case-heading { flex: 0 0 auto; display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
 .case-heading h1 { margin: 0; font-size: 28px; letter-spacing: -.04em; }
@@ -79,6 +80,12 @@ button { border: 0; cursor: pointer; }
 .case-loading-spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(150, 200, 255, .25); border-top-color: #62b4ff; animation: case-spin .8s linear infinite; }
 @keyframes case-spin { to { transform: rotate(360deg); } }
 .case-coming-soon { min-height: 300px; display: grid; place-items: center; color: #9bb0c9; }
+/* 系统DEMO：模块内案例以完整业务系统形态铺满页面，不使用通用案例的标题区与圆角弹窗式外框 */
+.case-page.is-system { background: #08111f; }
+.case-page.is-system .case-content { width: 100%; margin: 0; padding: 0; }
+.case-page.is-system .case-heading { display: none; }
+.case-page.is-system .case-stage { padding: 0; border: 0; border-radius: 0; background: #08111f; box-shadow: none; }
+.case-page.is-system .case-loading { border-radius: 0; background: rgba(6, 14, 26, .78); }
 .content-header { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 28px; }
 .breadcrumb { gap: 9px; color: #9aa8ba; font-size: 11px; margin-bottom: 11px; }
 .breadcrumb i { font-style: normal; color: #c3ccd8; }

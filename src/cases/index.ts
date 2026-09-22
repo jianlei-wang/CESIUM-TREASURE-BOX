@@ -8,6 +8,7 @@ import {
   Grid,
   Location,
   MagicStick,
+  Monitor,
   PartlyCloudy,
   ScaleToOriginal,
   Setting,
@@ -23,6 +24,7 @@ export { caseLoaders, demos, type CaseMeta } from './manifest'
 export type { CaseCategory, DemoCard } from './types'
 
 export const categories: CaseCategory[] = [
+  { id: 'system', label: '系统DEMO', icon: Monitor },
   { id: 'effects', label: '三维特效', icon: TrendCharts },
   { id: 'weather', label: '天气特效', icon: PartlyCloudy },
   { id: 'particles', label: '粒子特效', icon: Star },

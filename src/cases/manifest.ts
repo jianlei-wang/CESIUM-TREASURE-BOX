@@ -66,6 +66,7 @@ import icon_elec_sphere from './elec-sphere/icon.webp'
 import icon_explosion_boom from './explosion-boom/icon.webp'
 import icon_explosion_particles from './explosion-particles/icon.webp'
 import icon_fire_particles from './fire-particles/icon.webp'
+import icon_fire_spread from './fire-spread/icon.webp'
 import icon_fireworks_three from './fireworks-three/icon.webp'
 import icon_flag_curve from './flag-curve/icon.webp'
 import icon_flag_curve_edit from './flag-curve-edit/icon.webp'
@@ -338,6 +339,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'explosion-boom': () => import('./explosion-boom/index.ts'),
   'explosion-particles': () => import('./explosion-particles/index.ts'),
   'fire-particles': () => import('./fire-particles/index.ts'),
+  'fire-spread': () => import('./fire-spread/index.ts'),
   'fireworks-three': () => import('./fireworks-three/index.ts'),
   'flag-curve': () => import('./flag-curve/index.ts'),
   'flag-curve-edit': () => import('./flag-curve-edit/index.ts'),
@@ -453,6 +455,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'ridge-valley-extraction': () => import('./ridge-valley-extraction/index.ts'),
   'right-angle-arrow': () => import('./right-angle-arrow/index.ts'),
   'right-angle-arrow-edit': () => import('./right-angle-arrow-edit/index.ts'),
+  'river-channel': () => import('./river-channel/index.ts'),
   'river-flowfield': () => import('./river-flowfield/index.ts'),
   'rocket-launching': () => import('./rocket-launching/index.ts'),
   'rocket-three': () => import('./rocket-three/index.ts'),
@@ -608,6 +611,7 @@ export const demos: CaseMeta[] = [
   { id: "explosion-boom", title: "爆炸特效-噪声云团", category: "particles", description: "屏幕空间 fbm 噪声云团爆炸与色彩渐变", tag: "着色器特效", icon: icon_explosion_boom, updatedAt: "2026-08-24", available: true },
   { id: "explosion-particles", title: "爆炸粒子-GPU计算", category: "particles", description: "GPU 粒子系统实时模拟爆炸冲击飞散", tag: "粒子系统", icon: icon_explosion_particles, updatedAt: "2026-08-23", available: true },
   { id: "fire-particles", title: "火焰粒子-GPU计算", category: "particles", description: "GPU 粒子系统实时模拟火焰喷射", tag: "粒子系统", icon: icon_fire_particles, updatedAt: "2026-08-23", available: true },
+  { id: "fire-spread", title: "林火蔓延渲染分析", category: "system", description: "完整复刻 Cesium 林火蔓延渲染分析技术路线：在木里高山峡谷林区采样世界地形构建 160×160 模拟网格（失败自动回退程序化地形），叠加河道下切、道路与五类可燃物分布；蔓延求解采用 Rothermel 简化式，逐格计算基准速率、含水率阻尼、风速顺风对齐与坡度上坡对齐修正，再以到达时间场加优先级松弛（类 Dijkstra）一次性求出全域火场，因此显示时刻与求解完全解耦，可任意拖动时间轴回看；栅格专题以影像图层贴合地形，支持专题配色、到达时间场、蔓延强度场、可燃物类型四种着色，并叠加烧毁区填充、火线描边、外发光；火线由二值掩膜边界追踪提取闭合环并做 Douglas–Peucker 抽稀，用带流动噪声的自定义材质渲染火光，向前逐帧推进；火焰与烟雾由多发射器粒子池按在燃区域最远点采样分簇发射，覆盖全部在燃火线；三维风场以近地粒子沿风场平流并保留发光拖尾，风速/风向/粒子密度/拖尾长度/线宽/流动速度/湍流强度/亮度均可实时调整；专题配色、火线宽度、光晕强度、图层开关（栅格专题/烧毁边界/火线/火焰/烟雾/起火点/水系/道路）均可实时调整；面板同步输出过火面积、火线周长、火头距离、平均与最大蔓延速率、火线平均海拔与坡度、过火区坡向、道路邻接率、陡坡侵蚀岸线长度与陡坡过火占比、主要可燃物等地理分析测算指标；单击地图可随时追加起火点并即时重新松弛到达时间场；推演完成后可一键生成分析报告，在线预览并导出 PDF/Word。", tag: "Cesium, 林火蔓延, Rothermel, 到达时间场, 元胞自动机, 地形贴合专题, 粒子系统, 地理测算", icon: icon_fire_spread, updatedAt: "2026-09-22", available: true },
   { id: "fireworks-three", title: "VFX 烟花粒子", category: "particles", description: "基于 three.quarks 粒子引擎与 Cesium 地球的烟花特效：球壳发射器定时爆裂，多层辉光球壳与拉伸拖尾火星同步绽放，重力与随机位置让烟花在地球上空连续随机升起，可选缤纷、金色、赤红、湛蓝、紫罗兰五种配色。爆裂粒子数、速度、尺寸、寿命、重力、爆裂半径、发射间隔均可实时调整并即时生效，切换配色方案会重建粒子系统", tag: "Three.js, three.quarks, 粒子特效", icon: icon_fireworks_three, updatedAt: "2026-09-19", available: true },
   { id: "flag-curve", title: "曲线旗标-曲边旗帜", category: "draw", description: "左键定起点拖至终点，右键完成生成飘动曲线旗标；颜色可调。", tag: "旗标", icon: icon_flag_curve, updatedAt: "2026-09-06", available: true },
   { id: "flag-curve-edit", title: "曲线旗标-编辑版", category: "draw", description: "绘制曲线旗标后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_flag_curve_edit, updatedAt: "2026-09-06", available: true },
@@ -723,6 +727,7 @@ export const demos: CaseMeta[] = [
   { id: "ridge-valley-extraction", title: "山脊线与山谷线提取", category: "analysis", description: "基于 Cesium 真实地形的山脊线/山谷线自动提取：在地图上绘制分析区域后按米级间距采样全球地形生成 DEM，焦点统计区分正负地形，山脊沿原始 DEM、山谷沿反地形分别执行填洼、D8 流向与汇流累积，提取零汇流候选后经邻域统计与阈值筛选，最终用 Zhang-Suen 细化与折线矢量化输出结果；支持栅格图层化渲染与图例说明、晕渲与太阳光照调节、线要素样式定制、技术路线说明、耗时统计、分析报告在线预览与 PDF 导出，以及 GeoJSON / PNG 导出", tag: "Cesium, 水文分析, 山脊线, 山谷线, 矢量化", icon: icon_ridge_valley_extraction, updatedAt: "2026-09-19", available: true },
   { id: "right-angle-arrow", title: "直角箭头-折线转角箭头", category: "draw", description: "左键连续落点形成直角折线走向，右键结束生成直角箭头；颜色可调。", tag: "箭头", icon: icon_right_angle_arrow, updatedAt: "2026-09-06", available: true },
   { id: "right-angle-arrow-edit", title: "直角箭头-编辑版", category: "draw", description: "绘制直角箭头后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_right_angle_arrow_edit, updatedAt: "2026-09-06", available: true },
+  { id: "river-channel", title: "真实河道水面仿真", category: "water", description: "在 Cesium 世界地形上还原真实河道水面：以黄河上游龙羊峡深切峡谷为锚点，按经纬度栅格采样真实地形高度，逐顶点计算「水面高程 − 河床高程」的水深并构建水平水面网格，地形高于水面处由着色器裁剪，河岸线因此沿真实等高线自然蜿蜒。水流方向不依赖人工指定：先用河道走廊掩膜的加权协方差（结构张量）求每个格点处的河道主轴作为流线切线，再由河床高程平滑势面的负梯度确定全局下游方向，从而统一流线的正负号，使水流始终沿河道走向并指向下游；流向以 GPU 动态箭头层连续滚动呈现，箭头方向实时贴合河道转弯，提供彗星/箭头/人字/短划/光点五种样式，密度、长度、宽度、速度、亮度与颜色均可实时调整。还可以在地图上直接手绘河道多边形来限定水面范围，水面与流场随即裁剪到该多边形内并按多边形内的地形重新估算水位。着色器按归一化水深在浅水区与深水区颜色/透明度间连续渐变，并以分形噪声导数构造切空间波法线叠加立体波纹，逐像素计算漫反射、镜面高光、太阳高光与菲涅尔反射；再以沿自动流向推进的分形噪声生成白浪，在浅滩与急流处聚集。水位、基础颜色/透明度、水深值、扭曲度、浅深水区颜色与透明度、菲涅尔反射色/系数、反射强度/混合度、水流速、流向偏转、白浪混合度/速度/缩放/强度、波高/振幅/密度/平滑/高光均可实时调整。", tag: "Cesium, 世界地形, 水面着色器, 真实河道, 自动流向", updatedAt: "2026-09-21", available: true },
   { id: "river-flowfield", title: "河道流场水面", category: "water", description: "以真实河道水面多边形与中心线烘焙流场贴图，GPU 着色器沿流场驱动波纹流动、泡沫聚集与岸线羽化，深浅双色、菲涅尔与屏幕空间高光抗锯齿一体成型，支持叠加流向箭头粒子并实时调节全套参数", tag: "河道水流", icon: icon_river_flowfield, updatedAt: "2026-09-04", available: true },
   { id: "rocket-launching", title: "运载火箭发射", category: "scene", description: "基于 CZML 逐秒轨迹数据模拟运载火箭发射到入轨全过程", tag: "CZML 轨迹", icon: icon_rocket_launching, updatedAt: "2026-09-06", available: true },
   { id: "rocket-three", title: "VFX 火箭发射", category: "particles", description: "以可循环的时序编排还原火箭发射：点火阶段尾焰由弱到强、导流槽高压水雾向上翻涌，离架后箭体沿加速曲线爬升，跨音速窗口在箭体尾部闪烁马赫盘钻石激波，达到分离高度后助推器抛离并触发分离闪光，随后回落复位进入下一轮。推力、尾焰尺寸/颜色、导流水雾量/张角、火星量、爬升加速度、最大高度、循环周期与风速均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 航天", icon: icon_rocket_three, updatedAt: "2026-09-20", available: true },

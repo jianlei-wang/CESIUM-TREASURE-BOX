@@ -7,6 +7,7 @@ import {
   CircleCheckFilled,
   Close,
   Clock,
+  Back,
   Document,
   Menu,
   Notebook,
@@ -309,7 +310,7 @@ onUnmounted(() => {
   <div class="page-root">
     <PerfChecklistDoc v-if="perfDocOpen" @close="perfDocOpen = false" />
 
-    <section v-if="fullCaseDemo" class="case-page">
+    <section v-if="fullCaseDemo" class="case-page" :class="{ 'is-system': fullCaseDemo.category === 'system' }">
       <header class="topbar case-topbar">
         <div class="brand-area">
            <div class="brand-mark"><img :src="systemLogo" alt="Cesium酱の百宝箱 Logo" /></div>
@@ -328,6 +329,10 @@ onUnmounted(() => {
           <span class="metric"><b>DOM</b>{{ domNodes.toLocaleString() }}</span>
           <span class="metric"><b>Req</b>{{ concurrentRequests }}</span>
         </div>
+        <button v-if="fullCaseDemo.category === 'system'" class="case-back-button case-topbar-exit" @click="closeCase">
+          <el-icon><Back /></el-icon>
+          返回案例库
+        </button>
       </header>
       <main class="case-content">
         <div class="case-heading">

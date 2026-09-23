@@ -8,8 +8,21 @@
 
 export type ReportKV = { label: string; value: string }
 export type ReportTable = { caption: string; head: string[]; body: (string | number)[][] }
-export type ReportSection = { title: string; kv?: ReportKV[]; lines?: string[]; table?: ReportTable }
-export type ReportModel = { generatedAt: string; intro: string; sections: ReportSection[] }
+export type ReportImage = { src: string; caption: string; note?: string }
+export type ReportSection = {
+  title: string
+  kv?: ReportKV[]
+  lines?: string[]
+  table?: ReportTable
+  images?: ReportImage[]
+}
+export type ReportModel = {
+  generatedAt: string
+  intro: string
+  sections: ReportSection[]
+  /** 封面信息（密级、编号、火情名称等），可选 */
+  cover?: { classification?: string; title?: string; subtitle?: string; meta?: ReportKV[] }
+}
 
 export type ReportExportOptions = {
   /** 报告标题，同时用于打印窗口标题与 Word 文档标题 */
@@ -62,7 +75,21 @@ export function buildReportStandaloneHtml(model: ReportModel, docTitle: string):
     if (section.lines && section.lines.length > 0) {
       for (const line of section.lines) sectionsHtml += `<p>${escapeHtml(line)}</p>`
     }
+    if (section.images && section.images.length > 0) {
+      for (const image of section.images) {
+        sectionsHtml += `<figure class="fig"><img src="${image.src}" alt="${escapeHtml(image.caption)}" /><figcaption>${escapeHtml(image.caption)}</figcaption>`
+        if (image.note) sectionsHtml += `<p class="fig-note">${escapeHtml(image.note)}</p>`
+        sectionsHtml += '</figure>'
+      }
+    }
   }
+  const cover = model.cover
+  const coverHtml = cover
+    ? `<p class="classification">${escapeHtml(cover.classification ?? '')}</p>
+    <h1 class="cover-title">${escapeHtml(cover.title ?? docTitle)}</h1>
+    <p class="cover-subtitle">${escapeHtml(cover.subtitle ?? '')}</p>
+    ${cover.meta ? `<table class="kv cover-meta">${cover.meta.map((pair) => `<tr><th>${escapeHtml(pair.label)}</th><td>${escapeHtml(pair.value)}</td></tr>`).join('')}</table>` : ''}`
+    : `<h1>${escapeHtml(docTitle)}</h1>`
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -73,6 +100,10 @@ export function buildReportStandaloneHtml(model: ReportModel, docTitle: string):
   body { margin: 0; padding: 0; font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; color: #1e2f3d; }
   .page { max-width: 780px; margin: 0 auto; padding: 20px 6px; }
   h1 { font-size: 20px; margin: 0 0 4px; color: #17324d; }
+  .classification { font-size: 12px; color: #b23a2e; font-weight: 700; letter-spacing: 2px; margin: 0 0 10px; }
+  .cover-title { font-size: 24px; text-align: center; margin: 18px 0 6px; color: #10314f; }
+  .cover-subtitle { font-size: 13px; text-align: center; color: #5b6b7a; margin: 0 0 14px; }
+  .cover-meta { max-width: 560px; margin: 0 auto 10px; }
   .meta { font-size: 11px; color: #6a7b8a; margin: 0 0 6px; }
   .intro { font-size: 12px; line-height: 1.7; color: #3b5061; margin: 0 0 6px; }
   h2 { font-size: 15px; color: #124c7d; margin: 16px 0 6px; padding-bottom: 3px; border-bottom: 1px solid #cfe0ec; page-break-after: avoid; }
@@ -82,12 +113,16 @@ export function buildReportStandaloneHtml(model: ReportModel, docTitle: string):
   table.kv th { width: 28%; background: #f2f7fb; }
   .caption { font-size: 11px; color: #5b6b7a; margin: 2px 0; }
   p { font-size: 12px; line-height: 1.7; }
+  .fig { margin: 8px 0 12px; text-align: center; page-break-inside: avoid; }
+  .fig img { max-width: 100%; border: 1px solid #c4d2de; border-radius: 4px; }
+  .fig figcaption { font-size: 11px; color: #3b5061; margin-top: 4px; font-weight: 600; }
+  .fig-note { font-size: 10.5px; color: #6a7b8a; margin: 2px 0 0; }
   @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style>
 </head>
 <body>
   <div class="page">
-    <h1>${escapeHtml(docTitle)}</h1>
+    ${coverHtml}
     <p class="meta">生成时间：${escapeHtml(model.generatedAt)}</p>
     <p class="intro">${escapeHtml(model.intro)}</p>
     ${sectionsHtml}
@@ -120,6 +155,7 @@ export async function exportReportDocx(model: ReportModel, options: ReportExport
     BorderStyle,
     Document,
     HeadingLevel,
+    ImageRun,
     Packer,
     Paragraph,
     Table,
@@ -128,6 +164,15 @@ export async function exportReportDocx(model: ReportModel, options: ReportExport
     TextRun,
     WidthType
   } = await import('docx')
+
+  const dataUrlToBytes = (dataUrl: string): Uint8Array => {
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  }
+  const imageType = (dataUrl: string): 'png' | 'jpg' => (dataUrl.startsWith('data:image/jpeg') ? 'jpg' : 'png')
 
   const cellBorders = {
     top: { style: BorderStyle.SINGLE, size: 4, color: 'B9C6D2' },
@@ -149,6 +194,64 @@ export async function exportReportDocx(model: ReportModel, options: ReportExport
     })
 
   const children: (InstanceType<typeof Paragraph> | InstanceType<typeof Table>)[] = []
+  if (model.cover) {
+    if (model.cover.classification) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: model.cover.classification, bold: true, color: 'B23A2E', size: 22 })],
+          spacing: { after: 120 }
+        })
+      )
+    }
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({
+            text: model.cover.title ?? options.docTitle,
+            bold: true,
+            size: 44,
+            font: { name: '等线', eastAsia: '等线', ascii: 'Arial', hAnsi: 'Arial' }
+          })
+        ],
+        spacing: { before: 240, after: 100 }
+      })
+    )
+    if (model.cover.subtitle) {
+      children.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: model.cover.subtitle, size: 22, color: '5B6B7A' })],
+          spacing: { after: 200 }
+        })
+      )
+    }
+    if (model.cover.meta && model.cover.meta.length > 0) {
+      children.push(
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: {
+            top: cellBorders.top,
+            bottom: cellBorders.bottom,
+            left: cellBorders.left,
+            right: cellBorders.right,
+            insideHorizontal: cellBorders.top,
+            insideVertical: cellBorders.left
+          },
+          rows: model.cover.meta.map(
+            (pair) =>
+              new TableRow({
+                children: [
+                  new TableCell({ width: { size: 30, type: WidthType.PERCENTAGE }, borders: cellBorders, children: [cellParagraph(pair.label, true)] }),
+                  new TableCell({ width: { size: 70, type: WidthType.PERCENTAGE }, borders: cellBorders, children: [cellParagraph(pair.value)] })
+                ]
+              })
+          )
+        })
+      )
+    }
+    children.push(new Paragraph({ children: [], pageBreakBefore: true }))
+  }
   children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -219,6 +322,41 @@ export async function exportReportDocx(model: ReportModel, options: ReportExport
     if (section.lines && section.lines.length > 0) {
       for (const line of section.lines) {
         children.push(new Paragraph({ children: [new TextRun({ text: line, size: 20 })], spacing: { after: 40 } }))
+      }
+    }
+    if (section.images && section.images.length > 0) {
+      for (const image of section.images) {
+        try {
+          children.push(
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [
+                new ImageRun({
+                  type: imageType(image.src),
+                  data: dataUrlToBytes(image.src),
+                  transformation: { width: 520, height: 300 }
+                })
+              ],
+              spacing: { before: 120, after: 40 }
+            }),
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: image.caption, size: 18, bold: true, color: '3B5061' })],
+              spacing: { after: image.note ? 20 : 120 }
+            })
+          )
+          if (image.note) {
+            children.push(
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: image.note, size: 16, color: '6A7B8A' })],
+                spacing: { after: 120 }
+              })
+            )
+          }
+        } catch {
+          // 图片数据异常时跳过该图，不阻断文档导出
+        }
       }
     }
   }

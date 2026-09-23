@@ -48,6 +48,11 @@ declare module 'jsts' {
           CAP_SQUARE: number
         }
       }
+      union: {
+        UnaryUnionOp: {
+          union(geometries: JtsGeometry[]): JtsGeometry
+        }
+      }
     }
   }
 

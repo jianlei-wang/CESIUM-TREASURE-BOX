@@ -9,13 +9,12 @@ export type FireOverlayStyle = {
   glowAlpha: number
 }
 
-export type FireOverlayModeValue = 'theme' | 'arrival' | 'intensity' | 'fuel'
+export type FireOverlayModeValue = 'theme' | 'arrival' | 'intensity'
 
 export const OVERLAY_MODES: Array<{ value: FireOverlayModeValue; label: string }> = [
   { value: 'theme', label: '专题配色' },
   { value: 'arrival', label: '到达时间场' },
-  { value: 'intensity', label: '蔓延强度场' },
-  { value: 'fuel', label: '可燃物类型' }
+  { value: 'intensity', label: '蔓延强度场' }
 ]
 
 function parseHex(hex: string): [number, number, number] {
@@ -140,35 +139,23 @@ export function paintFireOverlay(
         pixels[offset + 1] = rgb[1]
         pixels[offset + 2] = rgb[2]
         pixels[offset + 3] = reachable ? 52 : 18
-      } else if (mode === 'fuel') {
-        const rgb = FUEL_COLORS[sim.fuel.kind[i]] ?? FUEL_COLORS[0]
-        pixels[offset] = rgb[0]
-        pixels[offset + 1] = rgb[1]
-        pixels[offset + 2] = rgb[2]
-        pixels[offset + 3] = 118
       }
       continue
     }
 
     const burning = phase === 1
-    if (mode === 'theme' || mode === 'fuel') {
+    if (mode === 'theme') {
       if (burning) {
         pixels[offset] = border[0]
         pixels[offset + 1] = border[1]
         pixels[offset + 2] = border[2]
         pixels[offset + 3] = 255
-      } else if (mode === 'theme') {
+      } else {
         const flicker = 0.82 + 0.18 * Math.sin(i * 12.9898 + now * 0.6)
         pixels[offset] = Math.min(inner[0] * flicker, 255)
         pixels[offset + 1] = Math.min(inner[1] * flicker, 255)
         pixels[offset + 2] = Math.min(inner[2] * flicker, 255)
         pixels[offset + 3] = innerAlpha
-      } else {
-        const rgb = FUEL_COLORS[sim.fuel.kind[i]] ?? FUEL_COLORS[0]
-        pixels[offset] = rgb[0] * 0.42
-        pixels[offset + 1] = rgb[1] * 0.42
-        pixels[offset + 2] = rgb[2] * 0.42
-        pixels[offset + 3] = 168
       }
     } else if (mode === 'arrival') {
       const rgb = burning ? border : ramp(ARRIVAL_RAMP, sim.arrivalAt(i) / maxMinutes)
@@ -209,4 +196,30 @@ export function paintFireOverlay(
     ctx.drawImage(bundle.glow, 0, 0, canvas.width, canvas.height)
     ctx.restore()
   }
+}
+
+/**
+ * 将可燃物类型分类图绘制为独立栅格底图（下垫面/地表覆盖条件）。
+ * 与专题模式解耦，作为可开闭的地表覆盖图层，供火场专题叠加显示。
+ */
+export function paintFuelClassification(canvas: HTMLCanvasElement, sim: WildfireSimulation, alpha = 0.58): void {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  const { cols, rows } = sim.terrain
+  const bundle = getBundle(canvas, cols, rows)
+  const image = bundle.ctx.createImageData(cols, rows)
+  const pixels = image.data
+  const alphaByte = Math.round(Math.max(0, Math.min(1, alpha)) * 255)
+  for (let i = 0; i < cols * rows; i += 1) {
+    const rgb = FUEL_COLORS[sim.fuel.kind[i]] ?? FUEL_COLORS[0]
+    const offset = i * 4
+    pixels[offset] = rgb[0]
+    pixels[offset + 1] = rgb[1]
+    pixels[offset + 2] = rgb[2]
+    pixels[offset + 3] = alphaByte
+  }
+  bundle.ctx.putImageData(image, 0, 0)
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  ctx.imageSmoothingEnabled = true
+  ctx.drawImage(bundle.data, 0, 0, canvas.width, canvas.height)
 }

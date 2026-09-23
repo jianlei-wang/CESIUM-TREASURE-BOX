@@ -109,6 +109,155 @@ export function simplifyRing(ring: GridRing, tolerance: number): GridRing {
   return result
 }
 
+/**
+ * 射线法判断点是否在闭合环内部（环以格点坐标表示，可含亚格点值）。
+ * 用于等时线环的奇偶嵌套判定（外环 / 孔洞）。
+ */
+export function pointInRing(point: GridPoint, ring: GridRing): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const a = ring[i]
+    const b = ring[j]
+    if (a.y > point.y !== b.y > point.y) {
+      const t = (point.y - a.y) / (b.y - a.y)
+      if (point.x < a.x + t * (b.x - a.x)) inside = !inside
+    }
+  }
+  return inside
+}
+
+/** 环的有向面积（>0 逆时针，<0 顺时针），单位为平方格。 */
+export function ringSignedArea(ring: GridRing): number {
+  let area = 0
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    area += ring[j].x * ring[i].y - ring[i].x * ring[j].y
+  }
+  return area / 2
+}
+
+type IsoEdge = { a: GridPoint; b: GridPoint }
+
+/**
+ * Marching Squares 亚格点等值线：对连续标量场在 `level` 处提取闭合等值环。
+ * 采样点约定为格心，坐标为 (col + 0.5, row + 0.5)，与 ringToPositions 的贴图约定一致。
+ * 非有限值（Infinity/NaN，如不可燃格点或超出可达范围）按「远大于 level」处理，
+ * 使火线自然停在可燃物边界；边交点按端点序号规范化后缓存，保证相邻单元共边交点完全一致，
+ * 便于拓扑拼接为闭合环。相比逐格二值边界，可从根本上消除栅格锯齿。
+ */
+export function isoRings(field: Float32Array, cols: number, rows: number, level: number): GridRing[] {
+  if (cols < 2 || rows < 2) return []
+  const far = level + 1e7
+  const at = (col: number, row: number): number => {
+    const value = field[row * cols + col]
+    return Number.isFinite(value) ? value : far
+  }
+  const inside = (col: number, row: number): boolean => at(col, row) < level
+
+  const hCache = new Map<number, GridPoint | null>()
+  const vCache = new Map<number, GridPoint | null>()
+  // 水平边：(col,row)-(col+1,row)，交点在 x∈(col,col+1)、y=row+0.5
+  const hPoint = (col: number, row: number): GridPoint | null => {
+    const key = row * cols + col
+    const cached = hCache.get(key)
+    if (cached !== undefined) return cached
+    const v0 = at(col, row)
+    const v1 = at(col + 1, row)
+    let point: GridPoint | null = null
+    if ((v0 < level) !== (v1 < level)) {
+      const t = (level - v0) / (v1 - v0)
+      point = { x: col + 0.5 + t, y: row + 0.5 }
+    }
+    hCache.set(key, point)
+    return point
+  }
+  // 垂直边：(col,row)-(col,row+1)，交点在 x=col+0.5、y∈(row,row+1)
+  const vPoint = (col: number, row: number): GridPoint | null => {
+    const key = row * cols + col
+    const cached = vCache.get(key)
+    if (cached !== undefined) return cached
+    const v0 = at(col, row)
+    const v1 = at(col, row + 1)
+    let point: GridPoint | null = null
+    if ((v0 < level) !== (v1 < level)) {
+      const t = (level - v0) / (v1 - v0)
+      point = { x: col + 0.5, y: row + 0.5 + t }
+    }
+    vCache.set(key, point)
+    return point
+  }
+
+  const segments: IsoEdge[] = []
+  for (let row = 0; row < rows - 1; row += 1) {
+    for (let col = 0; col < cols - 1; col += 1) {
+      const tl = inside(col, row)
+      const tr = inside(col + 1, row)
+      const br = inside(col + 1, row + 1)
+      const bl = inside(col, row + 1)
+      const crossings: GridPoint[] = []
+      if (tl !== tr) {
+        const p = hPoint(col, row)
+        if (p) crossings.push(p)
+      }
+      if (tr !== br) {
+        const p = vPoint(col + 1, row)
+        if (p) crossings.push(p)
+      }
+      if (bl !== br) {
+        const p = hPoint(col, row + 1)
+        if (p) crossings.push(p)
+      }
+      if (tl !== bl) {
+        const p = vPoint(col, row)
+        if (p) crossings.push(p)
+      }
+      if (crossings.length === 2) {
+        segments.push({ a: crossings[0], b: crossings[1] })
+      } else if (crossings.length === 4) {
+        // 鞍点：按环绕顺序(T,R,B,L)相邻配对，保证不产生交叉
+        segments.push({ a: crossings[0], b: crossings[1] })
+        segments.push({ a: crossings[2], b: crossings[3] })
+      }
+    }
+  }
+  if (!segments.length) return []
+
+  const keyOf = (p: GridPoint): string => `${Math.round(p.x * 1e5)},${Math.round(p.y * 1e5)}`
+  const outgoing = new Map<string, IsoEdge[]>()
+  for (const seg of segments) {
+    const bucket = outgoing.get(keyOf(seg.a))
+    if (bucket) bucket.push(seg)
+    else outgoing.set(keyOf(seg.a), [seg])
+  }
+
+  const used = new Set<IsoEdge>()
+  const rings: GridRing[] = []
+  for (const seg of segments) {
+    if (used.has(seg)) continue
+    const ring: GridRing = []
+    let current: IsoEdge | undefined = seg
+    let guard = 0
+    while (current && guard < segments.length + 4) {
+      guard += 1
+      if (used.has(current)) break
+      used.add(current)
+      ring.push(current.a)
+      const bucket = outgoing.get(keyOf(current.b))
+      let next: IsoEdge | undefined
+      if (bucket) {
+        for (const candidate of bucket) {
+          if (!used.has(candidate)) {
+            next = candidate
+            break
+          }
+        }
+      }
+      current = next
+    }
+    if (ring.length >= 3) rings.push(ring)
+  }
+  return rings
+}
+
 export function ringPerimeterMeters(ring: GridRing, cellMeters: number): number {
   let total = 0
   for (let i = 0; i < ring.length; i += 1) {

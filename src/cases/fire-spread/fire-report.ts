@@ -8,7 +8,7 @@
 import { exportReportDocx, printReport, type ReportExportOptions, type ReportModel } from '../sunshine-lib/report'
 
 export { exportReportDocx, printReport }
-export type { ReportModel, ReportSection, ReportKV, ReportTable, ReportExportOptions } from '../sunshine-lib/report'
+export type { ReportModel, ReportSection, ReportKV, ReportTable, ReportImage, ReportExportOptions } from '../sunshine-lib/report'
 
 export function nowStamp(): string {
   const now = new Date()

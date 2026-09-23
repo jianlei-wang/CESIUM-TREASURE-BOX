@@ -20,6 +20,72 @@ export function buildRiverPath(bounds: AreaBounds, seed: number, samples = 48): 
   return points
 }
 
+/**
+ * 从高程网格中追踪一条自北向南的谷底线：以格点高程为代价做逐行动态规划，
+ * 横向跳跃附加线性惩罚以获得连续、平滑的河道走向。若网格退化则回退到合成河道。
+ */
+export function traceValleyPath(terrain: TerrainGrid, fallback: LonLat[], maxJump = 5, penalty = 28): LonLat[] {
+  const { cols, rows, elevation } = terrain
+  if (cols < 3 || rows < 3) return fallback
+
+  let cost = new Float64Array(cols)
+  for (let c = 0; c < cols; c += 1) cost[c] = elevation[c]
+  const back = new Int16Array(cols * rows)
+
+  for (let row = 1; row < rows; row += 1) {
+    const next = new Float64Array(cols)
+    for (let col = 0; col < cols; col += 1) {
+      const lo = Math.max(0, col - maxJump)
+      const hi = Math.min(cols - 1, col + maxJump)
+      let best = Infinity
+      let bestPrev = col
+      for (let prev = lo; prev <= hi; prev += 1) {
+        const value = cost[prev] + penalty * Math.abs(prev - col)
+        if (value < best) {
+          best = value
+          bestPrev = prev
+        }
+      }
+      next[col] = best + elevation[row * cols + col]
+      back[row * cols + col] = bestPrev
+    }
+    cost = next
+  }
+
+  let col = 0
+  for (let c = 1; c < cols; c += 1) if (cost[c] < cost[col]) col = c
+
+  // 回溯出逐行河道列号，再做滑动平均平滑掉逐格跳动造成的折角。
+  const track = new Float64Array(rows)
+  for (let row = rows - 1; row >= 0; row -= 1) {
+    track[row] = col
+    if (row > 0) col = back[row * cols + col]
+  }
+  const smoothed = new Float64Array(rows)
+  const half = 4
+  for (let row = 0; row < rows; row += 1) {
+    let sum = 0
+    let count = 0
+    for (let d = -half; d <= half; d += 1) {
+      const r = row + d
+      if (r < 0 || r >= rows) continue
+      sum += track[r]
+      count += 1
+    }
+    smoothed[row] = sum / count
+  }
+
+  const path: LonLat[] = []
+  for (let row = 0; row < rows; row += 1) {
+    const colFloat = Math.max(0, Math.min(cols - 1, smoothed[row]))
+    path.push({
+      lon: terrain.west + (colFloat + 0.5) * terrain.dLon,
+      lat: terrain.north - (row + 0.5) * terrain.dLat
+    })
+  }
+  return path.length >= 2 ? path : fallback
+}
+
 /** 生成两条穿越研究区的山路（东西向 + 南北向），用于道路匹配分析。 */
 export function buildRoadPaths(bounds: AreaBounds, seed: number, samples = 40): LonLat[][] {
   const spanLon = bounds.east - bounds.west

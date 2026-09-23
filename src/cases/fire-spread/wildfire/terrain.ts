@@ -171,31 +171,22 @@ export function buildProceduralTerrain(
   return grid
 }
 
-/** 采样 Cesium 世界地形，双线性插值到模拟网格；失败时抛出异常由调用方回退。 */
-export async function buildSampledTerrain(
+/** 将世界地形按给定量采样并双线性插值写入网格，再叠加微地形、下切河道并计算坡度坡向。 */
+async function sampleTerrainInto(
   terrainProvider: TerrainProvider,
-  bounds: AreaBounds,
-  cols: number,
-  rows: number,
-  spanMeters: number,
+  grid: TerrainGrid,
+  sampleCols: number,
+  sampleRows: number,
   river: LonLat[],
   seed: number,
   onProgress?: (ratio: number) => void
-): Promise<TerrainGrid> {
-  const grid: TerrainGrid = {
-    ...createGridMeta(bounds, cols, rows, spanMeters),
-    elevation: new Float32Array(cols * rows),
-    slope: new Float32Array(cols * rows),
-    upslope: new Float32Array(cols * rows)
-  }
-
-  const sampleCols = Math.min(cols, 65)
-  const sampleRows = Math.min(rows, 65)
+): Promise<void> {
+  const { cols, rows } = grid
   const positions: Cartographic[] = []
   for (let row = 0; row < sampleRows; row += 1) {
     for (let col = 0; col < sampleCols; col += 1) {
-      const lon = bounds.west + ((col + 0.5) / sampleCols) * (bounds.east - bounds.west)
-      const lat = bounds.north - ((row + 0.5) / sampleRows) * (bounds.north - bounds.south)
+      const lon = grid.west + ((col + 0.5) / sampleCols) * (grid.east - grid.west)
+      const lat = grid.north - ((row + 0.5) / sampleRows) * (grid.north - grid.south)
       positions.push(Cartographic.fromDegrees(lon, lat))
     }
   }
@@ -246,5 +237,86 @@ export async function buildSampledTerrain(
   }
   carveRiver(grid, elevation, river, 220, 130)
   computeSlopeAspect(grid)
+}
+
+/** 采样 Cesium 世界地形，双线性插值到模拟网格；失败时抛出异常由调用方回退。 */
+export async function buildSampledTerrain(
+  terrainProvider: TerrainProvider,
+  bounds: AreaBounds,
+  cols: number,
+  rows: number,
+  spanMeters: number,
+  river: LonLat[],
+  seed: number,
+  onProgress?: (ratio: number) => void
+): Promise<TerrainGrid> {
+  const grid: TerrainGrid = {
+    ...createGridMeta(bounds, cols, rows, spanMeters),
+    elevation: new Float32Array(cols * rows),
+    slope: new Float32Array(cols * rows),
+    upslope: new Float32Array(cols * rows)
+  }
+  await sampleTerrainInto(terrainProvider, grid, Math.min(cols, 65), Math.min(rows, 65), river, seed, onProgress)
   return grid
+}
+
+export type TerrainResampleMode = 'count' | 'distance'
+
+export type TerrainResampleOptions = {
+  /** count = 按每边采样点数；distance = 按采样间距（米） */
+  mode: TerrainResampleMode
+  value: number
+}
+
+export type TerrainResampleResult = {
+  sampleCols: number
+  sampleRows: number
+  /** 实际采样间距（米） */
+  spacingMeters: number
+}
+
+const RESAMPLE_MIN = 10
+const RESAMPLE_MAX = 500
+const RESAMPLE_DISTANCE_MIN = 5
+const RESAMPLE_DISTANCE_MAX = 500
+
+/** 依据「按数量」或「按距离」参数换算两个方向的采样点数。 */
+export function resolveResampleCounts(
+  grid: TerrainGrid,
+  options: TerrainResampleOptions
+): TerrainResampleResult {
+  const spanMeters = Math.max(grid.cellMeters * grid.cols, 1)
+  let sampleCols: number
+  let sampleRows: number
+  if (options.mode === 'count') {
+    sampleCols = clamp(Math.round(options.value), RESAMPLE_MIN, RESAMPLE_MAX)
+    sampleRows = clamp(Math.round((sampleCols * grid.rows) / grid.cols), RESAMPLE_MIN, RESAMPLE_MAX)
+  } else {
+    const spacing = clamp(options.value, RESAMPLE_DISTANCE_MIN, RESAMPLE_DISTANCE_MAX)
+    sampleCols = clamp(Math.round(spanMeters / spacing), RESAMPLE_MIN, RESAMPLE_MAX)
+    sampleRows = clamp(
+      Math.round((grid.cellMeters * grid.rows) / spacing),
+      RESAMPLE_MIN,
+      RESAMPLE_MAX
+    )
+  }
+  return {
+    sampleCols,
+    sampleRows,
+    spacingMeters: spanMeters / Math.max(sampleCols - 1, 1)
+  }
+}
+
+/** 按自定义重采样参数就地更新已有网格的高程、坡度与坡向（保持网格尺寸不变）。 */
+export async function resampleTerrainGrid(
+  terrainProvider: TerrainProvider,
+  grid: TerrainGrid,
+  options: TerrainResampleOptions,
+  river: LonLat[],
+  seed: number,
+  onProgress?: (ratio: number) => void
+): Promise<TerrainResampleResult> {
+  const counts = resolveResampleCounts(grid, options)
+  await sampleTerrainInto(terrainProvider, grid, counts.sampleCols, counts.sampleRows, river, seed, onProgress)
+  return counts
 }

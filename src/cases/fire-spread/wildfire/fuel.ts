@@ -3,6 +3,8 @@ import { fbm2 } from './noise'
 import type { TerrainGrid } from './terrain'
 import type { AreaBounds, LonLat } from './types'
 
+const DEG = Math.PI / 180
+
 export const FuelKind = {
   Water: 0,
   Rock: 1,
@@ -45,15 +47,20 @@ export type FuelGrid = {
   roadPaths: LonLat[][]
 }
 
-export function buildFuelGrid(terrain: TerrainGrid, bounds: AreaBounds, seed: number): FuelGrid {
+export function buildFuelGrid(
+  terrain: TerrainGrid,
+  bounds: AreaBounds,
+  seed: number,
+  riverPath?: LonLat[]
+): FuelGrid {
   const { cols, rows } = terrain
   const kind = new Uint8Array(cols * rows)
   const road = new Uint8Array(cols * rows)
   const water = new Uint8Array(cols * rows)
 
-  const riverPath = buildRiverPath(bounds, seed)
+  const river = riverPath && riverPath.length >= 2 ? riverPath : buildRiverPath(bounds, seed)
   const roadPaths = buildRoadPaths(bounds, seed)
-  const riverGrid = toGridPath(terrain, riverPath)
+  const riverGrid = toGridPath(terrain, river)
   const roadGrids = roadPaths.map((path) => toGridPath(terrain, path))
 
   let minElev = Infinity
@@ -74,7 +81,16 @@ export function buildFuelGrid(terrain: TerrainGrid, bounds: AreaBounds, seed: nu
       for (const path of roadGrids) {
         roadDist = Math.min(roadDist, distanceToGridPathMeters(terrain, path, col, row))
       }
-      const clearing = fbm2((col / cols) * 9, (row / rows) * 9, seed + 71)
+      const slope = terrain.slope[index]
+      const x = col / cols
+      const y = row / rows
+      // 无真实区域植被分类数据时，以「大尺度斑块 + 细碎林窗」噪声叠加坡向/海拔/水系立地条件，
+      // 程序化生成连续有机的地类分布（含生态过渡带），作为异质可燃物下垫面的代理。
+      const patch = fbm2(x * 6.5, y * 6.5, seed + 71)
+      const fine = fbm2(x * 24, y * 24, seed + 137)
+      const aspect = (terrain.upslope[index] + 180) % 360
+      const northness = 0.5 + 0.5 * Math.cos(aspect * DEG)
+      const riparian = 1 - Math.min(riverDist / 260, 1)
 
       if (riverDist < 58) {
         kind[index] = FuelKind.Water
@@ -82,19 +98,24 @@ export function buildFuelGrid(terrain: TerrainGrid, bounds: AreaBounds, seed: nu
       } else if (roadDist < 24) {
         kind[index] = FuelKind.Road
         road[index] = 1
-      } else if (terrain.slope[index] > 39 || elevNorm > 0.94) {
+      } else if (slope > 39 || elevNorm > 0.94 || (slope > 33 && elevNorm > 0.86 && patch < 0.42)) {
         kind[index] = FuelKind.Rock
-      } else if (riverDist < 130 || clearing > 0.63) {
-        kind[index] = FuelKind.Grass
-      } else if (elevNorm < 0.42) {
-        kind[index] = FuelKind.Grass
-      } else if (elevNorm < 0.68) {
-        kind[index] = FuelKind.Shrub
       } else {
-        kind[index] = FuelKind.Forest
+        // 立地生产力：海拔、阴坡（湿润）、连片度、林窗细碎度与近水程度共同决定林型
+        const vigor =
+          0.5 * elevNorm + 0.26 * northness + 0.34 * (patch - 0.5) + 0.12 * (fine - 0.5) + 0.14 * riparian
+        if (riverDist < 130 || patch < 0.33) {
+          kind[index] = FuelKind.Grass
+        } else if (vigor < 0.42) {
+          kind[index] = FuelKind.Grass
+        } else if (vigor < 0.6) {
+          kind[index] = FuelKind.Shrub
+        } else {
+          kind[index] = FuelKind.Forest
+        }
       }
     }
   }
 
-  return { kind, road, water, riverPath, roadPaths }
+  return { kind, road, water, riverPath: river, roadPaths }
 }

@@ -75,7 +75,7 @@ export function createWildfireViewer(container: HTMLElement, bounds: AreaBounds)
     skyBox: false,
     shadows: false,
     scene3DOnly: true,
-    contextOptions: { webgl: { alpha: false } }
+    contextOptions: { webgl: { alpha: false, preserveDrawingBuffer: true } }
   })
 
   viewer.scene.globe.baseColor = Color.fromCssColorString('#14241c')
@@ -115,13 +115,13 @@ export async function loadWildfireTerrain(viewer: Viewer): Promise<TerrainProvid
   }
 }
 
-export function setWildfireCamera(viewer: Viewer, bounds: AreaBounds): void {
+export function setWildfireCamera(viewer: Viewer, bounds: AreaBounds, altitude = 0): void {
   if (viewer.isDestroyed()) return
   const lon = (bounds.west + bounds.east) / 2
   const lat = (bounds.south + bounds.north) / 2
   const span = Math.max(bounds.east - bounds.west, bounds.north - bounds.south)
   const range = Math.max(span * 111000 * 1.25, 6000)
-  const center = Cartesian3.fromDegrees(lon, lat, 0)
+  const center = Cartesian3.fromDegrees(lon, lat, Number.isFinite(altitude) ? altitude : 0)
   viewer.camera.lookAt(
     center,
     new HeadingPitchRange(CesiumMath.toRadians(18), CesiumMath.toRadians(-33), range)
@@ -131,4 +131,29 @@ export function setWildfireCamera(viewer: Viewer, bounds: AreaBounds): void {
 
 export function destroyWildfireViewer(viewer: Viewer | undefined): void {
   if (viewer && !viewer.isDestroyed()) viewer.destroy()
+}
+
+/**
+ * 抓取当前三维场景画面用于分析报告配图。
+ * 依赖创建 Viewer 时开启的 preserveDrawingBuffer；输出等比缩放的 JPEG dataURL 以控制体积。
+ */
+export function captureWildfireCanvas(viewer: Viewer | undefined, maxWidth = 1000): string | undefined {
+  if (!viewer || viewer.isDestroyed()) return undefined
+  try {
+    const source = viewer.scene.canvas
+    if (!source || source.width === 0 || source.height === 0) return undefined
+    viewer.render()
+    const scale = Math.min(1, maxWidth / source.width)
+    const out = document.createElement('canvas')
+    out.width = Math.max(1, Math.round(source.width * scale))
+    out.height = Math.max(1, Math.round(source.height * scale))
+    const ctx = out.getContext('2d')
+    if (!ctx) return undefined
+    ctx.fillStyle = '#0a1524'
+    ctx.fillRect(0, 0, out.width, out.height)
+    ctx.drawImage(source, 0, 0, out.width, out.height)
+    return out.toDataURL('image/jpeg', 0.88)
+  } catch {
+    return undefined
+  }
 }

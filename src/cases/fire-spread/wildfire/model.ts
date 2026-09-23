@@ -1,5 +1,7 @@
-import { extractRings, ringPerimeterMeters, simplifyRing, type GridRing } from './contour'
+import { extractRings, isoRings, ringPerimeterMeters, simplifyRing, type GridRing } from './contour'
 import { FUEL_PROFILES, type FuelGrid } from './fuel'
+import { fuseRings } from './fuse'
+import { rasterizeBarriers, type Firebreak } from './firebreak'
 import { cellCenter, lonLatToIndex, type TerrainGrid } from './terrain'
 import type { LonLat } from './types'
 
@@ -39,6 +41,10 @@ export type FireMetrics = {
   erosionLengthM: number
   erosionAreaPct: number
   burningFuel: string
+  /** 火线椭圆蔓延模板长宽比（顺风拉长，1 为圆形） */
+  spreadLb: number
+  /** 主导蔓延方向（火头方位角，0=北 90=东） */
+  headAzimuth: number
 }
 
 export const DEFAULT_FIRE_PARAMS: FireParams = {
@@ -67,9 +73,23 @@ for (let dr = -1; dr <= 1; dr += 1) {
   }
 }
 
+/**
+ * 椭圆蔓延模板系数：长宽比 L/B = 1 + LB_WIND·有效风速 + LB_SLOPE·tan(坡度)，
+ * 风/坡越强顺风方向越拉长；收敛于 [1, LB_MAX]，避免退化为针状。
+ */
+const LB_WIND_COEF = 0.12
+const LB_SLOPE_COEF = 3
+const LB_MAX = 5
+/** 元胞邻域引燃概率权重映射到点燃延迟的缩放区间（概率越高延迟越小）。 */
+const PROB_DELAY_SCALE_MIN = 0.7
+const PROB_DELAY_SCALE_MAX = 1.3
+
+type SpreadEllipse = { head: number; back: number; flank: number; eccentricity: number; heading: number; lb: number }
+
+
 export class WildfireSimulation {
   readonly terrain: TerrainGrid
-  readonly fuel: FuelGrid
+  fuel: FuelGrid
   params: FireParams
 
   private arrival: Float32Array
@@ -77,9 +97,14 @@ export class WildfireSimulation {
   private burnDuration: Float32Array
   private burningMask: Uint8Array
   private burnedMask: Uint8Array
+  private scalarScratch: Float32Array
   private ignitionIndex = -1
   private currentTime = 0
   private solvedMax = 0
+  /** 全部起火种子（格点索引 → 点燃时刻），追加火点后仍可在参数/隔离带变化时完整重解。 */
+  private readonly seeds = new Map<number, number>()
+  private firebreaks: Firebreak[] = []
+  private barrierMask: Uint8Array
 
   constructor(terrain: TerrainGrid, fuel: FuelGrid, params: Partial<FireParams> = {}) {
     this.terrain = terrain
@@ -91,6 +116,8 @@ export class WildfireSimulation {
     this.burnDuration = new Float32Array(cells)
     this.burningMask = new Uint8Array(cells)
     this.burnedMask = new Uint8Array(cells)
+    this.scalarScratch = new Float32Array(cells)
+    this.barrierMask = new Uint8Array(cells)
     this.refreshBurnDuration()
   }
 
@@ -103,7 +130,20 @@ export class WildfireSimulation {
   }
 
   isFlammable(index: number): boolean {
-    return FUEL_PROFILES[this.fuel.kind[index]].flammable
+    return this.barrierMask[index] === 0 && FUEL_PROFILES[this.fuel.kind[index]].flammable
+  }
+
+  /** 是否为隔离带（阻火）格点。 */
+  isBarrier(index: number): boolean {
+    return this.barrierMask[index] === 1
+  }
+
+  get firebreakCount(): number {
+    return this.firebreaks.length
+  }
+
+  get firebreakList(): Firebreak[] {
+    return this.firebreaks.map((item) => ({ ...item, path: item.path.map((point) => ({ ...point })) }))
   }
 
   phaseAt(index: number): number {
@@ -123,7 +163,7 @@ export class WildfireSimulation {
   private refreshBurnDuration(): void {
     for (let i = 0; i < this.burnDuration.length; i += 1) {
       const profile = FUEL_PROFILES[this.fuel.kind[i]]
-      this.burnDuration[i] = profile.flammable ? profile.burnMinutes * this.params.burnScale : 0
+      this.burnDuration[i] = profile.flammable && this.barrierMask[i] === 0 ? profile.burnMinutes * this.params.burnScale : 0
     }
   }
 
@@ -131,6 +171,31 @@ export class WildfireSimulation {
     this.params = { ...this.params, ...patch }
     this.refreshBurnDuration()
     this.solve()
+  }
+
+  /** 地形重采样后替换可燃物栅格并重解到达时间场（保持起火点与隔离带不变）。 */
+  setFuelGrid(fuel: FuelGrid): void {
+    this.fuel = fuel
+    this.refreshBurnDuration()
+    this.solve()
+    this.solvedMax = Math.max(this.solvedMax, this.params.maxMinutes)
+  }
+
+  /** 设置隔离带集合（阻火掩膜随参数变化实时重算并重新求解到达时间场）。 */
+  setFirebreaks(firebreaks: Firebreak[]): void {
+    this.firebreaks = firebreaks.map((item) => ({ ...item, path: item.path.map((point) => ({ ...point })) }))
+    this.barrierMask = rasterizeBarriers(this.terrain, this.firebreaks)
+    this.refreshBurnDuration()
+    this.solve()
+    this.solvedMax = Math.max(this.solvedMax, this.params.maxMinutes)
+  }
+
+  addFirebreak(firebreak: Firebreak): void {
+    this.setFirebreaks([...this.firebreaks, firebreak])
+  }
+
+  clearFirebreaks(): void {
+    this.setFirebreaks([])
   }
 
   reset(): void {
@@ -141,6 +206,7 @@ export class WildfireSimulation {
     this.ignitionIndex = -1
     this.currentTime = 0
     this.solvedMax = 0
+    this.seeds.clear()
   }
 
   setIgnition(lon: number, lat: number): boolean {
@@ -148,7 +214,7 @@ export class WildfireSimulation {
     if (index < 0) return false
     this.reset()
     this.ignitionIndex = index
-    this.arrival[index] = 0
+    this.seeds.set(index, 0)
     this.solve()
     return true
   }
@@ -158,6 +224,8 @@ export class WildfireSimulation {
     const index = this.nearestFlammable(lon, lat)
     if (index < 0) return false
     const seed = Math.max(this.currentTime, 0)
+    const previous = this.seeds.get(index)
+    this.seeds.set(index, previous === undefined ? seed : Math.min(previous, seed))
     if (seed < this.arrival[index]) this.arrival[index] = seed
     if (this.ignitionIndex < 0) this.ignitionIndex = index
     this.relaxFrom([index])
@@ -201,19 +269,75 @@ export class WildfireSimulation {
     return best
   }
 
-  /** Rothermel 简化式：基准速率 × 含水率阻尼 ×（1 + 风速修正 + 坡度修正）。 */
-  private directionalRos(index: number, azimuth: number): number {
+  /** Rothermel 基准速率：基准速率 × 含水率阻尼。 */
+  private baseRos(index: number): number {
     const profile = FUEL_PROFILES[this.fuel.kind[index]]
     const moistureRatio = this.params.moisture / Math.max(profile.moistureOfExtinction, 0.01)
     const damping = Math.max(0, Math.min(1, 1 - moistureRatio))
-    const base = profile.baseRos * Math.pow(damping, 1.4)
+    return profile.baseRos * Math.pow(damping, 1.4)
+  }
 
-    const windPhi = this.params.windFactor * Math.pow(Math.max(this.params.windSpeed, 0), 1.35) * 0.06
-    const windAlign = Math.max(0, Math.cos((azimuth - this.params.windDir) * DEG))
-    const slopePhi = this.params.slopeFactor * Math.tan(this.terrain.slope[index] * DEG) * 2.2
-    const slopeAlign = Math.max(0, Math.cos((azimuth - this.terrain.upslope[index]) * DEG))
+  private ellipseLb(windSpeed: number, slopeTan: number): number {
+    const effective =
+      Math.max(windSpeed, 0) * Math.max(this.params.windFactor, 0) +
+      LB_SLOPE_COEF * Math.max(this.params.slopeFactor, 0) * slopeTan
+    const lb = 1 + LB_WIND_COEF * effective
+    return lb < 1 ? 1 : lb > LB_MAX ? LB_MAX : lb
+  }
 
-    return Math.max(base * (1 + windPhi * windAlign + slopePhi * slopeAlign), 0.05)
+  /** 风矢量 + 坡向矢量合成的有效蔓延方向与椭圆模板（顺风拉长、逆风收缩）。 */
+  private spreadEllipse(index: number): SpreadEllipse {
+    const base = this.baseRos(index)
+    const slopeTan = Math.tan(this.terrain.slope[index] * DEG)
+    const windPhi = Math.max(this.params.windFactor, 0) * Math.pow(Math.max(this.params.windSpeed, 0), 1.35) * 0.06
+    const slopePhi = Math.max(this.params.slopeFactor, 0) * slopeTan * 2.2
+
+    const windAz = this.params.windDir * DEG
+    const slopeAz = this.terrain.upslope[index] * DEG
+    const ex = windPhi * Math.sin(windAz) + slopePhi * Math.sin(slopeAz)
+    const ey = windPhi * Math.cos(windAz) + slopePhi * Math.cos(slopeAz)
+    const phi = Math.hypot(ex, ey)
+    const heading = (Math.atan2(ex, ey) / DEG + 360) % 360
+
+    const head = Math.max(base * (1 + phi), 0.05)
+    const lb = this.ellipseLb(this.params.windSpeed, slopeTan)
+    // 极坐标火速椭圆 ROS(θ)=head·(1−e)/(1−e·cosθ) 的长宽比满足 L/B = 1/(1−e²)，
+    // 故 e = sqrt(1 − 1/LB²)；侧翼速率 head·(1−e)，逆风 head·(1−e)/(1+e)。
+    const eccentricity = lb > 1 ? Math.sqrt(1 - 1 / (lb * lb)) : 0
+    const flank = head * (1 - eccentricity)
+    const back = head * ((1 - eccentricity) / (1 + eccentricity))
+    return { head, back, flank, eccentricity, heading, lb }
+  }
+
+  /** 椭圆模板在指定方位角的蔓延速率：ROS(θ)=head·(1−e)/(1−e·cos(θ−heading))。 */
+  private rosFromEllipse(ellipse: SpreadEllipse, azimuth: number): number {
+    const denom = 1 - ellipse.eccentricity * Math.cos((azimuth - ellipse.heading) * DEG)
+    return Math.max((ellipse.head * (1 - ellipse.eccentricity)) / Math.max(denom, 1e-3), 0.05)
+  }
+
+  /**
+   * 椭圆蔓延模板：θ=heading 得火头速率，θ=heading+180° 得逆风/下坡速率，侧翼介于两者之间。
+   * 取代旧式「顺风即最大、其余等于基准」的均匀扩散假设。
+   */
+  private directionalRos(index: number, azimuth: number): number {
+    return this.rosFromEllipse(this.spreadEllipse(index), azimuth)
+  }
+
+  /**
+   * 元胞自动机邻域引燃概率权重：将校准后的 Rothermel 蔓延速率归一到 [0,1]，
+   * 作为向该方位邻居点燃的权重（火头方向概率最高，逆风/侧翼最低）。
+   */
+  ignitionProbability(index: number, azimuth: number): number {
+    const ellipse = this.spreadEllipse(index)
+    const ros = this.rosFromEllipse(ellipse, azimuth)
+    return Math.max(0, Math.min(1, ros / Math.max(ellipse.head, 1e-3)))
+  }
+
+  /** 当前参数下的火线椭圆模板（用于指标展示与外部查询）。 */
+  spreadTemplateAt(lon: number, lat: number): SpreadEllipse | undefined {
+    const index = lonLatToIndex(this.terrain, lon, lat)
+    if (index < 0) return undefined
+    return this.spreadEllipse(index)
   }
 
   private relaxFrom(seeds: number[]): void {
@@ -230,6 +354,7 @@ export class WildfireSimulation {
       const col = index - row * cols
       const base = this.arrival[index]
       if (!Number.isFinite(base)) continue
+      const ellipse = this.spreadEllipse(index)
       for (let n = 0; n < NEIGHBOR_OFFSETS.length; n += 1) {
         const offset = NEIGHBOR_OFFSETS[n]
         const r = row + offset.dr
@@ -237,8 +362,10 @@ export class WildfireSimulation {
         if (r < 0 || r >= rows || c < 0 || c >= cols) continue
         const target = r * cols + c
         if (!this.isFlammable(target)) continue
-        const ros = this.directionalRos(index, offset.azimuth)
-        const candidate = base + (cellMeters * offset.dist) / ros + this.params.ignitionDelay
+        const ros = this.rosFromEllipse(ellipse, offset.azimuth)
+        const probability = Math.max(0, Math.min(1, ros / Math.max(ellipse.head, 1e-3)))
+        const delayScale = PROB_DELAY_SCALE_MAX - (PROB_DELAY_SCALE_MAX - PROB_DELAY_SCALE_MIN) * probability
+        const candidate = base + (cellMeters * offset.dist) / ros + this.params.ignitionDelay * delayScale
         if (candidate > this.params.maxMinutes) continue
         if (candidate < this.arrival[target] - 1e-4) {
           this.arrival[target] = candidate
@@ -253,12 +380,16 @@ export class WildfireSimulation {
   solve(): void {
     this.arrival.fill(Infinity)
     this.rosIn.fill(0)
-    if (this.ignitionIndex < 0) {
+    if (this.seeds.size === 0) {
       this.solvedMax = 0
       return
     }
-    this.arrival[this.ignitionIndex] = 0
-    this.relaxFrom([this.ignitionIndex])
+    const seeds: number[] = []
+    for (const [index, seed] of this.seeds) {
+      this.arrival[index] = seed
+      seeds.push(index)
+    }
+    this.relaxFrom(seeds)
     this.solvedMax = this.params.maxMinutes
   }
 
@@ -275,26 +406,46 @@ export class WildfireSimulation {
     }
   }
 
+  /** 火场外边界：到达时间场在显示时刻的亚格点等时线，经 jsts 布尔融合修复拓扑并消除栅格锯齿。 */
   frontRings(tolerance = 0.6): GridRing[] {
-    this.refreshMasks()
-    const { cols, rows } = this.terrain
-    const combined = new Uint8Array(cols * rows)
-    for (let i = 0; i < combined.length; i += 1) {
-      combined[i] = this.burningMask[i] || this.burnedMask[i] ? 1 : 0
-    }
-    return extractRings(combined, cols, rows).map((ring) => simplifyRing(ring, tolerance))
+    return this.isoRingsAt(this.arrival, tolerance)
   }
 
+  /** 活跃火线：与边界同源（蔓延火场的活动火线即过火区周界），独立方法便于样式/容差区分。 */
   burningRings(tolerance = 0.3): GridRing[] {
-    this.refreshMasks()
-    const { cols, rows } = this.terrain
-    return extractRings(this.burningMask, cols, rows).map((ring) => simplifyRing(ring, tolerance))
+    return this.isoRingsAt(this.arrival, tolerance)
   }
 
+  /** 烧毁区边界：到达时间 + 燃烧持续期 的等时线，即火线退火后的内缘。 */
   burnedRings(tolerance = 0.6): GridRing[] {
-    this.refreshMasks()
+    for (let i = 0; i < this.scalarScratch.length; i += 1) {
+      this.scalarScratch[i] = this.arrival[i] + this.burnDuration[i]
+    }
+    return this.isoRingsAt(this.scalarScratch, tolerance)
+  }
+
+  private isoRingsAt(field: Float32Array, tolerance: number): GridRing[] {
+    if (this.ignitionIndex < 0 || this.currentTime <= 0) return []
     const { cols, rows } = this.terrain
-    return extractRings(this.burnedMask, cols, rows).map((ring) => simplifyRing(ring, tolerance))
+    const rings = isoRings(field, cols, rows, this.currentTime)
+    if (!rings.length) return []
+    return fuseRings(rings).map((ring) => simplifyRing(ring, tolerance))
+  }
+
+  /**
+   * 一次性产出火场边界与活跃火线：两者同源（同一到达时间场、同一显示时刻），
+   * 仅简化容差不同。共享一次等值线提取与 jsts 布尔融合，避免重复计算造成的周期性卡顿。
+   */
+  frontAndBurningRings(frontTolerance = 0.6, burningTolerance = 0.3): { front: GridRing[]; burning: GridRing[] } {
+    if (this.ignitionIndex < 0 || this.currentTime <= 0) return { front: [], burning: [] }
+    const { cols, rows } = this.terrain
+    const rings = isoRings(this.arrival, cols, rows, this.currentTime)
+    if (!rings.length) return { front: [], burning: [] }
+    const fused = fuseRings(rings)
+    return {
+      front: fused.map((ring) => simplifyRing(ring, frontTolerance)),
+      burning: fused.map((ring) => simplifyRing(ring, burningTolerance))
+    }
   }
 
   get metrics(): FireMetrics {
@@ -310,6 +461,9 @@ export class WildfireSimulation {
     let roadAdjacent = 0
     let steepBurned = 0
     let steepBoundary = 0
+    let ellipseSin = 0
+    let ellipseCos = 0
+    let lbSum = 0
     const fuelCount = new Map<number, number>()
 
     const isBoundary = (row: number, col: number): boolean => {
@@ -336,6 +490,10 @@ export class WildfireSimulation {
           elevationSum += this.terrain.elevation[index]
           slopeSum += this.terrain.slope[index]
           frontCells += 1
+          const template = this.spreadEllipse(index)
+          ellipseSin += Math.sin(template.heading * DEG)
+          ellipseCos += Math.cos(template.heading * DEG)
+          lbSum += template.lb
         }
         for (let n = 0; n < NEIGHBOR_OFFSETS.length; n += 1) {
           const r = row + NEIGHBOR_OFFSETS[n].dr
@@ -370,7 +528,11 @@ export class WildfireSimulation {
     }
 
     let perimeterM = 0
-    for (const ring of this.frontRings(0.6)) perimeterM += ringPerimeterMeters(ring, cellMeters)
+    const combined = new Uint8Array(cols * rows)
+    for (let i = 0; i < combined.length; i += 1) {
+      combined[i] = this.burningMask[i] || this.burnedMask[i] ? 1 : 0
+    }
+    for (const ring of extractRings(combined, cols, rows)) perimeterM += ringPerimeterMeters(ring, cellMeters)
 
     let topFuel = 5
     let topCount = -1
@@ -387,6 +549,10 @@ export class WildfireSimulation {
       if (this.burningMask[i] && this.rosIn[i] > maxRos) maxRos = this.rosIn[i]
     }
 
+    const spreadLb = frontCells > 0 ? lbSum / frontCells : 1
+    const headAzimuth =
+      frontCells > 0 ? (((Math.atan2(ellipseSin, ellipseCos) / DEG) % 360) + 360) % 360 : this.params.windDir
+
     return {
       burnedCells,
       frontCells,
@@ -401,12 +567,21 @@ export class WildfireSimulation {
       roadMatchPct: frontCells > 0 ? Math.min((roadAdjacent / frontCells) * 100, 100) : 0,
       erosionLengthM: steepBoundary * cellMeters,
       erosionAreaPct: burnedCells > 0 ? (steepBurned / burnedCells) * 100 : 0,
-      burningFuel: FUEL_PROFILES[topFuel].name
+      burningFuel: FUEL_PROFILES[topFuel].name,
+      spreadLb,
+      headAzimuth
     }
   }
 
   ignitionLonLat(): LonLat | undefined {
     if (this.ignitionIndex < 0) return undefined
     return cellCenter(this.terrain, this.ignitionIndex)
+  }
+
+  /** 全部起火点（初始设置 + 人工追加）的格心坐标，用于同时标注所有火源。 */
+  seedLonLats(): LonLat[] {
+    const out: LonLat[] = []
+    for (const index of this.seeds.keys()) out.push(cellCenter(this.terrain, index))
+    return out
   }
 }

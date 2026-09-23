@@ -899,3 +899,11 @@ Entries discovered by the Agent during task execution should follow this format:
   - 实现约定（已落地）：`App.vue` 在案例 `category === 'system'` 时给 `.case-page` 加 `is-system`，由 `src/style.css` 的 `.case-page.is-system *` 规则隐藏 `.case-heading`、把 `.case-content/.case-stage` 改为满屏无内边距无圆角，并在案例页顶栏为系统案例提供「返回案例库」按钮；系统案例组件自身负责铺满舞台并渲染上述系统级区域。非 system 分类案例的原有布局必须保持不变。
   - 后续新增系统DEMO 案例时沿用同一套系统外壳（顶部标题栏 + 左右侧栏 + 底部状态栏）与配色语言，保持模块内视觉一致。
 
+[Project Knowledge Summary]
+- Date: 2026-09-23
+- Context: Discovered by Agent while headless-verifying the fire-spread system demo (Round③ 北斗网格 / 隔离带 / 算法说明)
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 本机 headless Playwright 驱动持续渲染的 Cesium 案例页时，侧栏 DOM 按钮的 `locator.click()` 会反复卡在 actionability 检查并超时（即使 `isVisible/enabled/boundingBox` 均正常、`elementFromPoint` 命中的就是该按钮）；改用 `locator.evaluate(el => el.click())` 或 `page.mouse.click(box 中心)` 即稳定生效。range/select 同理，直接 `evaluate` 设 `value` + `dispatchEvent(new Event('input'|'change', {bubbles:true}))`。
+  - 同一 headless 浏览器长时间跑「加载案例 + 多次 `page.screenshot`」会累积渲染压力并最终 page crash（报 `Target page, context or browser has been closed`，无 pageerror）。验证脚本应把截图压到 1~2 张、把弹窗开关等断言放在截图之前，每个功能点拆成独立短脚本执行。
+

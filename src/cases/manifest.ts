@@ -99,6 +99,7 @@ import icon_geoserver_layer from './geoserver-layer/icon.webp'
 import icon_geoserver_loader from './geoserver-loader/icon.webp'
 import icon_gltf_viewer from './gltf-viewer/icon.webp'
 import icon_godray_three from './godray-three/icon.webp'
+import icon_grid_render from './grid-render/icon.webp'
 import icon_heatmap_3d from './heatmap-3d/icon.webp'
 import icon_heatmap_canvas from './heatmap-canvas/icon.webp'
 import icon_height_measure from './height-measure/icon.webp'
@@ -372,6 +373,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'geoserver-loader': () => import('./geoserver-loader/index.ts'),
   'gltf-viewer': () => import('./gltf-viewer/index.ts'),
   'godray-three': () => import('./godray-three/index.ts'),
+  'grid-render': () => import('./grid-render/index.ts'),
   'heatmap-3d': () => import('./heatmap-3d/index.ts'),
   'heatmap-canvas': () => import('./heatmap-canvas/index.ts'),
   'height-measure': () => import('./height-measure/index.ts'),
@@ -644,6 +646,7 @@ export const demos: CaseMeta[] = [
   { id: "geoserver-loader", title: "GeoServer 服务加载", category: "tiles", description: "加载 WMS / WFS / WMTS 地图服务并管理图层", tag: "地图服务", icon: icon_geoserver_loader, available: true },
   { id: "gltf-viewer", title: "glTF/GLB 模型查看器", category: "tiles", description: "加载远程或本地 glTF/GLB 模型，支持位置、旋转、缩放、外观与相机控制", tag: "模型加载", icon: icon_gltf_viewer, updatedAt: "2026-09-06", available: true },
   { id: "godray-three", title: "VFX 丁达尔光柱", category: "particles", description: "以三片交叉的渐变光幕与太阳辉光构成晨昏光柱，光幕内部带流动的絮状噪声结构，配合缓慢摆动的整体姿态模拟大气折射；光柱体内散布大量缓慢浮沉、明暗闪烁的尘埃微粒，让空气具有可见的介质感。光柱高度/宽度、亮度/不透明度、噪声强度、尘埃数量/尺寸/不透明度、太阳高度角与光柱上下颜色均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 大气", icon: icon_godray_three, updatedAt: "2026-09-20", available: true },
+  { id: "grid-render", title: "地理网格渲染系统", category: "system", description: "完整复刻 Cesium 地理网格渲染技术路线：以椭球面为基座构建统一网格渲染内核，集成经纬网格、北斗网格（GB/T 39409-2020 非极地 1~11 级）、水文网格与符合 OGC DGGS 规范的离散全球网格（H3 六边形、孔径 7）四类网格引擎；支持二维贴地与三维网格体两种模式，三维网格体按 GB/T 40087 高度域逐层剖分以保持单元近正方体；四类网格共享同一套 GridStyle 样式 Schema 与拾取协议，线模式并入单 PolylineCollection、面模式合并实例提交单 Primitive、标注并入单 LabelCollection，单元数超上限时自动提升层级降级；相机高度联动自动 LOD，也可关闭后逐类手动指定间隔 / 层级 / 步长 / 分辨率；鼠标悬浮实时预览高亮，单击锁定单元并在左上弹窗回显编码、层级、经纬范围、行列号、中心坐标与单元面积等元数据；「只显示研究区」可将网格生成与拾取限定在固定研究区内；地图内图层浮层可独立开关四类网格，右上角提供技术路线说明（渲染管线、四层架构、DGGS 选型对比 H3/S2/rHEALPix、能力矩阵、公共内核、交互与样式、性能优化专项、风险与对策、工程选型）；底部状态栏实时输出视点高度、缩放层级、视点经纬、视域四至、单元总数与渲染帧率。", tag: "Cesium, 地理网格, 北斗网格, GB/T 39409, GB/T 40087, DGGS, H3, LOD, 拾取, 统一渲染内核", icon: icon_grid_render, updatedAt: "2026-09-24", available: true },
   { id: "heatmap-3d", title: "数据分析-三维热力图", category: "data", description: "通过数据采样构建的三维热力网格与面状地形", tag: "三维数据", icon: icon_heatmap_3d, updatedAt: "2026-08-27", available: true },
   { id: "heatmap-canvas", title: "数据分析-热力图", category: "data", description: "数据驱动的 Canvas 密度热力图动态渲染", tag: "数据可视化", icon: icon_heatmap_canvas, updatedAt: "2026-08-27", available: true },
   { id: "height-measure", title: "空间测量-高度量测", category: "measure", description: "两点高度与高差量测，含地形与三维模型，实时鼠标提示", tag: "测量", icon: icon_height_measure, updatedAt: "2026-08-24", available: true },

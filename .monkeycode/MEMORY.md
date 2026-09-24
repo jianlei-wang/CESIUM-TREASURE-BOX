@@ -907,3 +907,10 @@ Entries discovered by the Agent during task execution should follow this format:
   - 本机 headless Playwright 驱动持续渲染的 Cesium 案例页时，侧栏 DOM 按钮的 `locator.click()` 会反复卡在 actionability 检查并超时（即使 `isVisible/enabled/boundingBox` 均正常、`elementFromPoint` 命中的就是该按钮）；改用 `locator.evaluate(el => el.click())` 或 `page.mouse.click(box 中心)` 即稳定生效。range/select 同理，直接 `evaluate` 设 `value` + `dispatchEvent(new Event('input'|'change', {bubbles:true}))`。
   - 同一 headless 浏览器长时间跑「加载案例 + 多次 `page.screenshot`」会累积渲染压力并最终 page crash（报 `Target page, context or browser has been closed`，无 pageerror）。验证脚本应把截图压到 1~2 张、把弹窗开关等断言放在截图之前，每个功能点拆成独立短脚本执行。
 
+[User Instruction Summary]
+- Date: 2026-09-24
+- Context: 用户在 CESIUM-TREASURE-BOX 项目协作中明确要求
+- Instructions:
+  - 后续所有回复与推理过程强制使用中文（Simplified Chinese）。
+  - 案例代码提交前必须通过 TS 门禁 `npm run build`（`npx vue-tsc -b` 会 OOM）；仅用户明确「推送到仓库」才 `git push`，仅明确要求时才 `git commit`。
+

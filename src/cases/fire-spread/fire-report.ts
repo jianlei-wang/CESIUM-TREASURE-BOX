@@ -16,7 +16,42 @@ export function nowStamp(): string {
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
 }
 
-/** 将报告 DOM 渲染为 PDF Blob（A4 分页） */
+/**
+ * 可作为分页断点的原子块选择器：段落、列表项、表格行、图题、图片、键值对等。
+ * 分页时只在这些块的下边界切分，避免把一行文字或一整块内容截断。
+ */
+const ATOMIC_BREAK_SELECTOR = [
+  'p',
+  'li',
+  'dt',
+  'dd',
+  'tr',
+  '.rx-report-line',
+  '.rx-report-caption',
+  '.rx-report-figcaption',
+  '.rx-report-image',
+  '.rx-report-kv',
+  '.rx-report-figure',
+  '.rx-report-table'
+].join(',')
+
+/** 收集报告中所有可安全分页的纵向断点（相对元素顶部的画布像素）。 */
+function collectBreakPoints(element: HTMLElement, scale: number): number[] {
+  const base = element.getBoundingClientRect().top
+  const points = new Set<number>()
+  element.querySelectorAll<HTMLElement>(ATOMIC_BREAK_SELECTOR).forEach((node) => {
+    // 标题不作为断点，避免标题孤立在页尾（其下边界仍会作为后续内容的起点）。
+    if (node.tagName === 'H1' || node.tagName === 'H2' || node.tagName === 'H3') return
+    if (node.classList.contains('rx-report-h2')) return
+    const rect = node.getBoundingClientRect()
+    if (rect.height <= 0) return
+    const bottom = Math.round((rect.bottom - base) * scale)
+    if (bottom > 0) points.add(bottom)
+  })
+  return Array.from(points).sort((a, b) => a - b)
+}
+
+/** 将报告 DOM 渲染为 PDF Blob（A4 分页，分页处对齐内容块边界） */
 export async function renderReportPdf(element: HTMLElement): Promise<Blob> {
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
   const canvas = await html2canvas(element, {
@@ -38,10 +73,29 @@ export async function renderReportPdf(element: HTMLElement): Promise<Blob> {
   const pxPerMm = canvas.width / imageWidth
   const pageContentPx = Math.floor((pageHeight - margin * 2) * pxPerMm)
 
+  // 内容块边界换算到画布像素，用于选择不切断文字的分页位置。
+  const scale = canvas.width / Math.max(element.scrollWidth, 1)
+  const breakPoints = collectBreakPoints(element, scale)
+  const minSlicePx = Math.floor(pageContentPx * 0.2)
+
   let offset = 0
   let firstPage = true
   while (offset < canvas.height) {
-    const sliceHeight = Math.min(pageContentPx, canvas.height - offset)
+    const remaining = canvas.height - offset
+    let sliceHeight: number
+    if (remaining <= pageContentPx) {
+      sliceHeight = remaining
+    } else {
+      const limit = offset + pageContentPx
+      let breakAt = -1
+      for (const point of breakPoints) {
+        if (point <= offset) continue
+        if (point > limit) break
+        breakAt = point
+      }
+      sliceHeight =
+        breakAt > offset && breakAt - offset >= minSlicePx ? breakAt - offset : pageContentPx
+    }
     const slice = document.createElement('canvas')
     slice.width = canvas.width
     slice.height = sliceHeight

@@ -1461,9 +1461,6 @@ onBeforeUnmount(() => {
             <input v-model.number="params.ignitionDelay" class="param-slider" type="range" min="0" max="2" step="0.05" @input="scheduleSolve" />
             <span class="param-value">{{ params.ignitionDelay.toFixed(2) }}</span>
           </div>
-        </div>
-        <div class="wx-aux-col">
-          <div class="group-label">三维风场</div>
           <div class="param-row">
             <span class="param-label">风速(m/s)</span>
             <input v-model.number="params.windSpeed" class="param-slider" type="range" min="0" max="16" step="0.1" @input="onWindChange" />
@@ -1474,6 +1471,9 @@ onBeforeUnmount(() => {
             <input v-model.number="params.windDir" class="param-slider" type="range" min="0" max="359" step="1" @input="onWindChange" />
             <span class="param-value">{{ params.windDir }}</span>
           </div>
+        </div>
+        <div class="wx-aux-col">
+          <div class="group-label">三维风场</div>
           <div class="param-row">
             <span class="param-label">粒子密度</span>
             <input v-model.number="windFx.density" class="param-slider" type="range" min="0.15" max="1" step="0.01" @input="applyWind" />

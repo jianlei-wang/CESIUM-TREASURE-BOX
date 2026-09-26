@@ -84,7 +84,7 @@ export default defineConfig({
   base: './',
   plugins: [vue(), cesium(), cesiumHtmlOptimize, cesiumDevGlobal],
   optimizeDeps: {
-    exclude: ['cesium'],
+    exclude: ['cesium', 'dggal'],
     include: [
       'echarts',
       'xlsx',

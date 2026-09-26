@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>基于Cesium 1.144的低空规划系统设计与开发技术路线方案</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230B2545'/%3E%3Cpath d='M6 22 L13 15 L18 18 L26 9' stroke='%235B9BD5' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='26' cy='9' r='2.6' fill='%23E8A33D'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+:root{
+  --navy:#0B2545; --steel:#1F4E79; --blue:#2E75B6; --sky:#5B9BD5;
+  --blue-bg:#EAF2FA; --ink:#1F2D3D; --gray:#5A6B7C; --line:#D7E2EC;
+  --bg:#F6F9FC; --card:#FFFFFF; --green:#3E7C4F; --green-bg:#E7F1EA;
+  --orange:#B95C1F; --orange-bg:#FBEEDD; --red:#B33939;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto;}}
+body{
+  font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  background:var(--bg); color:var(--ink); font-size:16px; line-height:1.85;
+  -webkit-font-smoothing:antialiased;
+}
+.container{max-width:1120px;margin:0 auto;padding:0 22px;}
+/* ===== 封面 ===== */
+.cover{
+  background:radial-gradient(1100px 420px at 78% -10%, #1F4E79 0%, transparent 60%),
+             linear-gradient(180deg,#0B2545 0%,#12375F 100%);
+  color:#EAF2FA; padding:72px 0 58px; position:relative; overflow:hidden;
+}
+.cover::after{
+  content:""; position:absolute; inset:0; pointer-events:none; opacity:.16;
+  background-image:linear-gradient(rgba(91,155,213,.55) 1px, transparent 1px),
+                   linear-gradient(90deg, rgba(91,155,213,.55) 1px, transparent 1px);
+  background-size:44px 44px;
+}
+.cover .container{position:relative;z-index:1;}
+.cover .kicker{
+  display:inline-block; font-size:13px; letter-spacing:.18em; color:#8FB8DC;
+  border:1px solid rgba(91,155,213,.45); border-radius:999px; padding:5px 14px; margin-bottom:22px;
+}
+.cover h1{font-size:clamp(26px,4vw,40px); line-height:1.32; font-weight:700; letter-spacing:.02em; max-width:16em;}
+.cover .sub{font-size:clamp(15px,1.8vw,18px); color:#B9D2E8; margin-top:16px; max-width:46em;}
+.cover .meta{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px;
+  margin-top:34px; max-width:820px;
+}
+.cover .meta .cell{
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14);
+  border-radius:10px; padding:10px 14px; font-size:13px;
+}
+.cover .meta .cell b{display:block; color:#fff; font-weight:500; font-size:14px; margin-top:2px;}
+.cover .meta .cell span{color:#8FB8DC; font-size:12px;}
+/* 链路条 */
+.chain{
+  display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; margin-top:34px;
+  max-width:980px;
+}
+.chain .step{
+  flex:1 1 128px; background:rgba(255,255,255,.07); border:1px solid rgba(91,155,213,.4);
+  border-radius:10px; padding:10px 12px; font-size:13px; color:#EAF2FA; min-width:118px;
+}
+.chain .step b{display:block; font-size:14px; color:#fff; margin-bottom:2px;}
+.chain .arrow{align-self:center; color:#8FB8DC; font-size:18px; padding:0 2px;}
+/* ===== 导航 ===== */
+.nav{
+  position:sticky; top:0; z-index:50; background:rgba(255,255,255,.94);
+  backdrop-filter:blur(8px); border-bottom:1px solid var(--line);
+}
+.nav .inner{display:flex; align-items:center; gap:14px; height:54px;}
+.nav .brand{font-weight:700; color:var(--navy); font-size:15px; white-space:nowrap;}
+.nav .links{display:flex; gap:4px; overflow-x:auto; scrollbar-width:none; flex:1;}
+.nav .links::-webkit-scrollbar{display:none;}
+.nav .links a{
+  white-space:nowrap; text-decoration:none; color:var(--gray); font-size:13.5px;
+  padding:6px 10px; border-radius:7px; transition:color .15s,background .15s;
+}
+.nav .links a:hover{color:var(--blue); background:var(--blue-bg);}
+.nav .links a.active{color:#fff; background:var(--steel);}
+/* ===== 章节 ===== */
+main{padding:0 0 30px;}
+.chapter{padding:54px 0 8px; border-bottom:1px solid var(--line);}
+.chapter:last-of-type{border-bottom:none;}
+.ch-h{
+  display:flex; align-items:baseline; gap:14px; margin-bottom:22px;
+  padding-top:8px; scroll-margin-top:66px;
+}
+.ch-h .no{
+  font-size:15px; font-weight:700; color:#fff; background:var(--steel);
+  width:38px; height:38px; border-radius:10px; display:inline-flex; align-items:center;
+  justify-content:center; flex:none; align-self:flex-start;
+}
+.ch-h h2{font-size:clamp(21px,2.6vw,27px); color:var(--navy); font-weight:700; line-height:1.3;}
+.ch-h .en{color:var(--sky); font-size:12px; letter-spacing:.14em; text-transform:uppercase;}
+h3{font-size:19px; color:var(--steel); font-weight:700; margin:30px 0 12px; scroll-margin-top:70px;}
+h4{font-size:16px; color:var(--ink); font-weight:700; margin:20px 0 8px;}
+p{margin:10px 0; max-width:46em;}
+ul.tick{margin:10px 0 10px 2px; list-style:none;}
+ul.tick li{position:relative; padding-left:20px; margin:7px 0; max-width:46em;}
+ul.tick li::before{
+  content:""; position:absolute; left:2px; top:.72em; width:7px; height:7px;
+  background:var(--blue); border-radius:2px; transform:rotate(45deg);
+}
+.lead{color:var(--gray);}
+strong{color:var(--navy);}
+/* 图 */
+.fig{margin:26px 0 10px; text-align:center;}
+.fig img{max-width:100%; height:auto; border:1px solid var(--line); border-radius:12px; background:#fff; box-shadow:0 6px 24px rgba(11,37,69,.07);}
+.fig .cap{font-size:13px; color:var(--gray); margin-top:10px;}
+/* 表格 */
+.tbl-wrap{overflow-x:auto; margin:18px 0; border:1px solid var(--line); border-radius:12px; background:var(--card);}
+table{width:100%; border-collapse:collapse; table-layout:fixed; font-size:14px; min-width:560px;}
+thead th{
+  background:var(--steel); color:#fff; font-weight:500; text-align:left;
+  padding:10px 14px; font-size:13.5px; border-right:1px solid rgba(255,255,255,.14);
+}
+tbody td{padding:9px 14px; border-top:1px solid var(--line); vertical-align:top; color:var(--ink);}
+tbody tr:nth-child(even){background:#F4F8FC;}
+tbody td:first-child{color:var(--steel); font-weight:500;}
+.tbl-wrap .tcap{font-size:13px; color:var(--gray); padding:8px 14px 2px;}
+/* 代码 */
+.code{
+  background:#0E2436; color:#D7E6F2; border-radius:12px; padding:16px 18px;
+  font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace; font-size:13px;
+  line-height:1.75; overflow-x:auto; margin:16px 0; white-space:pre;
+}
+.code .cm{color:#6E93B8;}
+/* 提示框 */
+.note{
+  background:var(--blue-bg); border-left:4px solid var(--blue); border-radius:0 10px 10px 0;
+  padding:12px 16px; margin:16px 0; font-size:14.5px; color:var(--ink); max-width:52em;
+}
+.note.warn{background:var(--orange-bg); border-left-color:var(--orange);}
+/* 时间轴 */
+.timeline{margin:24px 0 10px; max-width:960px;}
+.tl-row{display:grid; grid-template-columns:150px 34px 1fr; gap:0;}
+@media (max-width:640px){.tl-row{grid-template-columns:104px 26px 1fr;}}
+.tl-time{text-align:right; padding:18px 14px 18px 0; font-weight:700; color:var(--steel); font-size:14.5px;}
+.tl-axis{position:relative; display:flex; justify-content:center;}
+.tl-axis::before{content:""; position:absolute; top:0; bottom:0; width:2px; background:var(--sky); opacity:.45;}
+.tl-dot{
+  position:relative; z-index:1; align-self:center; width:14px; height:14px; border-radius:50%;
+  background:var(--blue); border:3px solid #fff; box-shadow:0 0 0 2px var(--blue);
+}
+.tl-dot.p0{background:var(--steel); box-shadow:0 0 0 2px var(--steel);}
+.tl-dot.p2{background:var(--orange); box-shadow:0 0 0 2px var(--orange);}
+.tl-dot.p3{background:var(--green); box-shadow:0 0 0 2px var(--green);}
+.tl-body{padding:12px 0 18px 14px; border-bottom:1px dashed var(--line);}
+.tl-body h4{margin:0 0 4px; color:var(--navy);}
+.tl-body .when{font-size:12.5px; color:var(--gray); margin-bottom:6px;}
+.tl-body p{font-size:14px; color:var(--gray); margin:0; max-width:46em;}
+.tl-body .tags{margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;}
+.tl-body .tags span{
+  font-size:12px; background:var(--blue-bg); color:var(--steel);
+  border-radius:999px; padding:3px 10px;
+}
+/* 里程碑带 */
+.mile{
+  margin:26px 0 6px; max-width:960px; display:flex; flex-wrap:wrap; gap:10px;
+}
+.mile .m{
+  flex:1 1 190px; background:var(--card); border:1px solid var(--line); border-radius:12px;
+  padding:12px 14px; border-top:4px solid var(--blue);
+}
+.mile .m b{color:var(--navy); font-size:14.5px;}
+.mile .m span{display:block; font-size:12.5px; color:var(--gray); margin-top:3px;}
+/* 页脚 */
+footer{background:var(--navy); color:#9FB8D4; padding:30px 0 34px; font-size:13px;}
+footer .container{display:flex; flex-wrap:wrap; gap:10px 26px; justify-content:space-between;}
+footer b{color:#EAF2FA; font-weight:500;}
+/* 返回顶部 */
+#toTop{
+  position:fixed; right:22px; bottom:24px; width:44px; height:44px; border-radius:50%;
+  background:var(--steel); color:#fff; border:none; font-size:18px; cursor:pointer;
+  box-shadow:0 6px 18px rgba(11,37,69,.3); opacity:0; pointer-events:none;
+  transition:opacity .2s; z-index:60;
+}
+#toTop.show{opacity:1; pointer-events:auto;}
+@media (max-width:720px){
+  body{font-size:15px;}
+  .cover{padding:48px 0 40px;}
+  .chain .step{flex:1 1 46%;}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 封面 ===== -->
+<header class="cover">
+  <div class="container">
+    <span class="kicker">SYSTEM DESIGN &amp; DEVELOPMENT ROADMAP</span>
+    <h1>基于Cesium 1.144的低空规划系统<br>设计与开发技术路线方案</h1>
+    <p class="sub">面向低空飞行服务保障的Web3D一体化规划与管控平台：覆盖空域数字化、场景网格可视、航线智能规划、模拟飞行与实时监控全链路。</p>
+    <div class="meta">
+      <div class="cell"><span>文档版本</span><b>V1.0</b></div>
+      <div class="cell"><span>编制日期</span><b>2026年9月24日</b></div>
+      <div class="cell"><span>编制单位</span><b>【编制单位：××××××】</b></div>
+      <div class="cell"><span>密级</span><b>【内部资料】</b></div>
+      <div class="cell"><span>核心底座</span><b>CesiumJS 1.144</b></div>
+    </div>
+    <div class="chain">
+      <div class="step"><b>数据资源</b>影像/地形/3D Tiles/业务数据</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>场景网格可视</b>GeoSOT网格/LOD/热力</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>航线智能规划</b>障碍分析/A*·RRT*/平滑</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>模拟飞行</b>时间轴/姿态/HUD</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>实时监控告警</b>轨迹/越界/冲突</div>
+      <div class="arrow">→</div>
+      <div class="step"><b>业务闭环</b>审批/台账/报表</div>
+    </div>
+  </div>
+</header>
+
+<!-- ===== 导航 ===== -->
+<nav class="nav">
+  <div class="container inner">
+    <div class="brand">低空规划系统方案</div>
+    <div class="links" id="navLinks">
+      <a href="#ch1">1 项目概述</a>
+      <a href="#ch2">2 总体架构</a>
+      <a href="#ch3">3 页面设计</a>
+      <a href="#ch4">4 功能模块</a>
+      <a href="#ch5">5 数据模型</a>
+      <a href="#ch6">6 技术实现</a>
+      <a href="#ch7">7 接口设计</a>
+      <a href="#ch8">8 开发路线</a>
+      <a href="#ch9">9 附录</a>
+    </div>
+  </div>
+</nav>
+
+<main class="container">
+
+<!-- ===== 第1章 项目概述 ===== -->
+<section class="chapter" id="ch1">
+  <div class="ch-h"><span class="no">1</span><h2>项目概述</h2></div>
+
+  <h3>1.1 项目背景与政策环境</h3>
+  <p>低空经济是以民用有人驾驶和无人驾驶航空器为载体，辐射带动相关领域融合发展的综合性经济形态，已被列为国家战略性新兴产业。随着《无人驾驶航空器飞行管理暂行条例》（国务院、中央军委令第761号，2023年公布，2024年1月1日起施行）的落地，低空空域管理、飞行活动审批、实名登记、运行识别等要求逐步明确，各地低空飞行服务保障体系（飞行服务平台、空域管理、航线规划、飞行监控）建设进入加速期。</p>
+  <p>条例明确将真高120米以上空域，空中禁区、空中限制区及周边空域，机场及周边、军事禁区、监管场所、重要军工设施、核设施、易燃易爆危险品生产仓储区域、发电厂/变电站/加油（气）站、重要革命纪念地等特定区域上空划设为管制空域；管制空域以外的空域为微型、轻型、小型无人驾驶航空器适飞空域，适飞空域内的常规飞行活动原则上豁免飞行活动申请。这一“管制空域+适飞空域”的分级管理体系，要求低空管理系统具备空域数字化表达、网格化管控、航线智能规划、飞行计划审批和实时监控等核心能力。</p>
+  <p>与此同时，空域数字化普遍采用全球剖分网格体系（如GeoSOT北斗网格码）实现“把天空切成可编号、可检索、可计算的三维网格”，支撑禁飞/限飞/适飞区域的精细化管理，以及无人机飞行路径与空域网格的碰撞、占用和冲突检测。本方案即面向上述需求，基于CesiumJS 1.144三维地球引擎建设低空规划系统。</p>
+
+  <h3>1.2 参考视频产品功能分析</h3>
+  <p>为确定系统功能边界与页面形态，对“EasyGlobe（易景）| Web3D | Cesium低空场景”系列演示视频进行了逐帧分析。三个视频均为无配音的产品演示，画面展示了同一平台的不同能力页。分析结论如下。</p>
+
+  <h4>1.2.1 视频一：Cesium低空场景网格可视（BV1jytd6ZEwo，61秒）</h4>
+  <p>该视频演示低空场景的多源数据网格可视化能力，页面要素包括：</p>
+  <ul class="tick">
+    <li>系统一级导航：场景模块管理、基础数据管理、申请审批、任务调度、飞行监控、业务台账；</li>
+    <li>场景控制面板：单值渲染、分级渲染、点云渲染、热力图、轨迹图五种渲染模式，均带阈值参数（如0.001）；</li>
+    <li>场景树管理：基础图层（地形、路网、建筑、POI），以及道路网络、路网密度、设施分布、热力图、动态轨迹、视频融合等专题图层；</li>
+    <li>多源网格分析、动态路网规划、场景路网可视、移动态势分析、动态路网预测等功能页；</li>
+    <li>性能指标展示：数据规模8000+、渲染耗时44.204ms、加载进度100%、区域范围约47.58km×55.38km等，并标注“北斗2025”标识。</li>
+  </ul>
+  <p>可提炼的核心能力：低空场景按图层组织、按网格单元表达、支持多种渲染模式与性能监控，是“场景网格可视”模块的原型。</p>
+
+  <h4>1.2.2 视频二：Cesium低空航线智能规划（BV1gkti6tEjZ，61秒）</h4>
+  <p>该视频演示航线智能规划与相关分析功能，页面要素包括：</p>
+  <ul class="tick">
+    <li>低空业务菜单：静态障碍分析、低空航线规划、飞行空域申请、违规飞行告警、飞行数据统计、航班实时监控、应急指挥调度、历史轨迹回放、空域使用分析；</li>
+    <li>高度分层显示：0m、7m、17m等多高度层切换（对应低空高度分层概念）；</li>
+    <li>点位查询表单：点位编号、点位名称、点位地址、经度、纬度，含“查询/重置”操作；</li>
+    <li>底部工具条：场景浏览、净空数据分析、动态航迹溯源、电子围栏、轨迹分析、统计分析、综合分析、数据导出、视频回放；</li>
+    <li>地图量测：航线红色路径标注、距离量测（如“距离：177米”）、坐标显示；</li>
+    <li>分析专题：网络拓扑可视、静态风险分析、动态风险预测、应急指挥调度、单体楼宇分析、路网分析。</li>
+  </ul>
+  <p>可提炼的核心能力：航线规划（航点/障碍/高度层）、空域申请、电子围栏、轨迹与统计分析、净空风险分析，是“航线智能规划”模块的原型。</p>
+
+  <h4>1.2.3 视频三：Cesium低空航线模拟飞行（BV1fetJ6ZEqQ，121秒）</h4>
+  <p>该视频演示模拟飞行与实时监控能力，页面要素包括：</p>
+  <ul class="tick">
+    <li>动态规划详情：总数15、可用12、占用3、离线0、故障0，以及“开始规划”操作按钮；</li>
+    <li>实时监控：实时航迹监控、实时告警信息、区域告警（带时间戳）、实时数据监控、视频监控状态；</li>
+    <li>设备管理：设备详细信息面板（设备编号/名称/状态/信号强度/运行时长/上传速率/下载速率/经纬度/更新时间/剩余电量/温度）；</li>
+    <li>动态溯源列表：编号、经度、纬度、海拔、速度字段（如编号100001、116.405285、39.904989、52m、78km/h）；</li>
+    <li>设备状态统计：在线128、离线32、故障5；时间范围筛选：近1小时/近24小时/近7天/自定义；</li>
+    <li>功能页：设备联网可视、静态动态分析、态势研判预警、视频监控、事件闭环分析、态势分析研判、动态轨迹溯源、动态调度管理（设备状态/航线规划/告警信息/历史轨迹/数据统计/系统设置）。</li>
+  </ul>
+  <p>可提炼的核心能力：飞行计划动态规划、三维模拟飞行、实时航迹与设备监控、告警与态势研判、轨迹回放，是“模拟飞行+实时监控”模块的原型。</p>
+
+  <h4>1.2.4 视频功能与本系统模块的映射</h4>
+  <div class="tbl-wrap">
+    <div class="tcap">表1-1  参考视频功能到本系统模块的映射</div>
+    <table>
+      <colgroup><col style="width:30%"><col style="width:24%"><col style="width:46%"></colgroup>
+      <thead><tr><th>参考视频功能</th><th>本系统模块</th><th>落地要点</th></tr></thead>
+      <tbody>
+        <tr><td>场景树/图层管理/多源网格分析/渲染模式</td><td>场景网格可视模块</td><td>图层化组织、GeoSOT网格表达、单值/分级/点云/热力/轨迹渲染</td></tr>
+        <tr><td>静态障碍分析/高度层/航点规划/电子围栏</td><td>航线智能规划模块</td><td>障碍分析、高度层约束、航点/面状/环绕航线、围栏校验</td></tr>
+        <tr><td>动态规划/开始规划/实时航迹/告警</td><td>实时监控告警模块</td><td>动态规划、轨迹接入、状态监控、越界/冲突告警</td></tr>
+        <tr><td>模拟飞行/轨迹回放/HUD参数</td><td>模拟飞行模块</td><td>时间轴驱动、飞行器姿态、相机跟踪、回放控制</td></tr>
+        <tr><td>空域申请/审批/任务调度/业务台账</td><td>空域与业务管理模块</td><td>申请审批流程、任务调度、台账报表</td></tr>
+        <tr><td>设备管理/状态统计/时间筛选/导出</td><td>数据管理模块</td><td>设备台账、统计报表、数据导出</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>1.3 系统定位与建设目标</h3>
+  <p>系统定位：面向低空飞行服务保障的一体化Web3D规划与管控平台，以CesiumJS 1.144为三维底座，覆盖“空域数字化—网格可视—航线规划—模拟飞行—实时监控—业务闭环”全链路。</p>
+  <ul class="tick">
+    <li><strong>场景网格可视</strong>：基于GeoSOT网格实现低空空域与地面要素的数字化、可视化、可检索；</li>
+    <li><strong>航线智能规划</strong>：支持多任务类型的航线自动生成、避障平滑、多约束评估与方案比选；</li>
+    <li><strong>航线模拟飞行</strong>：支持规划航线三维仿真飞行、姿态与相机控制、HUD参数展示与回放；</li>
+    <li><strong>实时监控与告警</strong>：接入真实/模拟轨迹，实现航迹、设备、空域占用、越界与冲突的实时监控告警；</li>
+    <li><strong>业务闭环</strong>：空域申请、任务调度、飞行计划审批、业务台账、统计报表的一体化管理；</li>
+    <li><strong>性能目标</strong>：常规场景流畅交互（≥30FPS），支持万级实体与十万级网格单元的渲染调度。</li>
+  </ul>
+
+  <h3>1.4 术语与缩写</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表1-2  术语与缩写</div>
+    <table>
+      <colgroup><col style="width:22%"><col style="width:78%"></colgroup>
+      <thead><tr><th>术语/缩写</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>CesiumJS</td><td>开源三维地球与地图可视化JavaScript引擎，本系统采用1.144版本</td></tr>
+        <tr><td>3D Tiles</td><td>Cesium推出的三维空间数据开放标准（OGC标准），用于倾斜摄影、白模、BIM等海量三维数据流式加载</td></tr>
+        <tr><td>LOD</td><td>Level of Detail，多细节层次，按视距动态切换模型/网格精度</td></tr>
+        <tr><td>GeoSOT</td><td>Geographic Coordinate Subdividing Grid，全球经纬剖分网格，支持2^n树递归剖分与整型编码，可扩展至三维立体网格</td></tr>
+        <tr><td>北斗网格码</td><td>基于GeoSOT的网格编码体系，用于空域、区域的统一编码与检索</td></tr>
+        <tr><td>UTM</td><td>无人机交通管理系统（UAS Traffic Management）</td></tr>
+        <tr><td>UOM</td><td>无人机运行管理平台（Unmanned aircraft Operation Management）</td></tr>
+        <tr><td>WGS84</td><td>世界大地坐标系，Cesium默认坐标系统（经纬度+椭球高）</td></tr>
+        <tr><td>WFS/WMTS</td><td>OGC网络要素/地图瓦片服务标准</td></tr>
+        <tr><td>WebSocket/MQTT</td><td>实时双向通信协议，用于航迹、设备状态等实时数据推送</td></tr>
+        <tr><td>HUD</td><td>Head-Up Display，飞行参数平视显示</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== 第2章 总体架构设计 ===== -->
+<section class="chapter" id="ch2">
+  <div class="ch-h"><span class="no">2</span><h2>总体架构设计</h2></div>
+
+  <h3>2.1 设计原则</h3>
+  <ul class="tick">
+    <li><strong>分层解耦</strong>：表现层、应用服务层、数据服务层、数据资源层相互独立，接口契约化，支持前后端并行开发；</li>
+    <li><strong>数据驱动</strong>：三维场景完全由数据（图层配置、网格、航线、轨迹、告警）驱动渲染，业务变化不改代码；</li>
+    <li><strong>标准开放</strong>：遵循OGC标准（3D Tiles、WMTS、GeoJSON），支持与外部低空平台、UOM/UTM系统对接；</li>
+    <li><strong>性能优先</strong>：大规模网格与实体采用Primitive/实例化/瓦片化方案，避免Entity对象膨胀；</li>
+    <li><strong>安全合规</strong>：满足等保2.0要求，实名认证、飞行数据加密存储与审计，符合《无人驾驶航空器飞行管理暂行条例》数据管理要求；</li>
+    <li><strong>可扩展</strong>：模块化、插件化设计，预留气象、通信、第三方数据接入能力。</li>
+  </ul>
+
+  <h3>2.2 系统总体架构</h3>
+  <p>系统采用四层架构加横切能力的总体设计，如图2-1所示。</p>
+  <div class="fig">
+    <img src="https://media.doubao.com/space/api/box/stream/download/all_by_mount_point/PzqQbRWnOoY38BxkrS8cwPGentb" alt="低空规划系统总体架构图">
+    <div class="cap">图2-1  低空规划系统总体架构</div>
+  </div>
+  <div class="tbl-wrap">
+    <div class="tcap">表2-1  架构分层职责</div>
+    <table>
+      <colgroup><col style="width:16%"><col style="width:36%"><col style="width:48%"></colgroup>
+      <thead><tr><th>层级</th><th>职责</th><th>主要组成</th></tr></thead>
+      <tbody>
+        <tr><td>表现层</td><td>三维渲染与交互、页面组织、状态管理</td><td>CesiumJS 1.144、Vue3、组件库、Turf.js交互工具</td></tr>
+        <tr><td>应用服务层</td><td>业务逻辑、规划算法、审批流程、数据统计</td><td>场景网格、空域、航线规划、模拟飞行、实时监控等微服务</td></tr>
+        <tr><td>数据服务层</td><td>数据存储、缓存、消息、空间计算</td><td>PostgreSQL+PostGIS、Redis、MinIO、Kafka/MQTT、空间算法库</td></tr>
+        <tr><td>数据资源层</td><td>各类数据资产</td><td>基础地理、三维模型、低空业务、实时动态、专题业务、外部数据</td></tr>
+        <tr><td>横切能力</td><td>公共支撑</td><td>统一鉴权、操作审计、监控告警、日志链路、数据安全与合规</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>2.3 技术选型</h3>
+  <p>技术选型遵循“成熟稳定、生态丰富、团队熟悉、成本可控”原则，核心选型如下表所示。</p>
+  <div class="tbl-wrap">
+    <div class="tcap">表2-2  前端技术选型</div>
+    <table>
+      <colgroup><col style="width:14%"><col style="width:22%"><col style="width:16%"><col style="width:48%"></colgroup>
+      <thead><tr><th>层次</th><th>技术</th><th>版本建议</th><th>选型说明</th></tr></thead>
+      <tbody>
+        <tr><td>三维引擎</td><td>CesiumJS</td><td>1.144</td><td>开源、WebGL渲染、3D Tiles/GeoJSON/时间动态数据原生支持；1.144新增矢量贴地渲染、Controller相机框架、CAD风格面填充扩展，适合低空路网贴地与资产巡检场景</td></tr>
+        <tr><td>前端框架</td><td>Vue 3 + TypeScript</td><td>3.4+/5.x</td><td>组合式API、生态成熟，与Cesium封装（vue-cesium可选）结合</td></tr>
+        <tr><td>构建工具</td><td>Vite</td><td>5.x</td><td>开发热更新快，生产构建优化</td></tr>
+        <tr><td>状态管理</td><td>Pinia</td><td>2.x</td><td>轻量，管理场景状态、图层状态、规划任务状态</td></tr>
+        <tr><td>UI组件</td><td>Element Plus</td><td>2.x</td><td>后台管理成熟组件，含表格、表单、树、抽屉</td></tr>
+        <tr><td>图表</td><td>ECharts</td><td>5.x</td><td>统计报表、趋势图、仪表盘（HUD辅助）</td></tr>
+        <tr><td>空间计算</td><td>Turf.js</td><td>7.x</td><td>前端几何运算：缓冲区、点在多边形、线简化、面积/长度</td></tr>
+        <tr><td>动画</td><td>GSAP</td><td>3.x</td><td>相机过渡、面板动效</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="tbl-wrap">
+    <div class="tcap">表2-3  后端技术选型</div>
+    <table>
+      <colgroup><col style="width:14%"><col style="width:26%"><col style="width:16%"><col style="width:44%"></colgroup>
+      <thead><tr><th>层次</th><th>技术</th><th>版本建议</th><th>选型说明</th></tr></thead>
+      <tbody>
+        <tr><td>后端框架</td><td>Spring Boot</td><td>3.2+（JDK17）</td><td>企业级、生态完善、适合业务中台；备选NestJS（Node）</td></tr>
+        <tr><td>ORM</td><td>MyBatis-Plus</td><td>3.5+</td><td>开发效率高，配合多数据源</td></tr>
+        <tr><td>安全鉴权</td><td>Spring Security + JWT</td><td>6.x</td><td>统一认证与RBAC授权</td></tr>
+        <tr><td>实时通信</td><td>Netty WebSocket / MQTT</td><td>—</td><td>航迹、设备状态、告警实时推送</td></tr>
+        <tr><td>消息队列</td><td>Kafka / RabbitMQ</td><td>3.x</td><td>轨迹流、异步任务、告警解耦</td></tr>
+        <tr><td>空间算法</td><td>JTS / GEOS（后端）、自研GeoSOT库</td><td>—</td><td>空间关系运算、网格编码、路径规划算法服务</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="tbl-wrap">
+    <div class="tcap">表2-4  数据与部署技术选型</div>
+    <table>
+      <colgroup><col style="width:14%"><col style="width:34%"><col style="width:14%"><col style="width:38%"></colgroup>
+      <thead><tr><th>层次</th><th>技术</th><th>版本建议</th><th>选型说明</th></tr></thead>
+      <tbody>
+        <tr><td>关系数据库</td><td>PostgreSQL + PostGIS</td><td>16 + 3.4</td><td>空间数据与业务数据一体化存储，空间索引与函数完备</td></tr>
+        <tr><td>缓存</td><td>Redis</td><td>7.x</td><td>会话、热点配置、网格统计缓存</td></tr>
+        <tr><td>对象存储</td><td>MinIO</td><td>—</td><td>矢量文件、影像、模型包、导出文件</td></tr>
+        <tr><td>三维瓦片</td><td>3D Tiles（CesiumLab/OSGB转换）、CTB地形、WMTS影像</td><td>—</td><td>倾斜摄影、白模、地形与影像服务</td></tr>
+        <tr><td>部署</td><td>Docker + Docker Compose / K8s + Nginx</td><td>—</td><td>容器化部署，内网为主</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>2.4 部署架构</h3>
+  <p>系统以政务/企业内部网络部署为主，支持互联网接入。部署要点：</p>
+  <ul class="tick">
+    <li>Nginx作为统一入口：托管前端静态资源、反向代理后端API与WebSocket、HTTPS终止、静态瓦片缓存；</li>
+    <li>后端服务集群：无状态设计，多实例水平扩展，Session外置Redis；</li>
+    <li>数据库：PostgreSQL主从复制，定时全量+WAL增量备份；</li>
+    <li>消息与实时：Kafka集群承载轨迹流，WebSocket网关集群承载前端推送；</li>
+    <li>三维数据：3D Tiles瓦片与影像部署在MinIO/瓦片服务，Nginx缓存加速；</li>
+    <li>安全：防火墙分区、API网关统一鉴权、操作审计日志、数据库脱敏与备份策略，满足等保2.0三级基本要求。</li>
+  </ul>
+</section>
+
+<!-- ===== 第3章 系统页面与布局设计 ===== -->
+<section class="chapter" id="ch3">
+  <div class="ch-h"><span class="no">3</span><h2>系统页面与布局设计</h2></div>
+
+  <h3>3.1 页面总体布局</h3>
+  <p>系统主页面采用“顶部状态栏+左侧双栏（一级导航+场景树/控制面板）+中央三维场景+右侧业务面板+底部功能栏”的布局，对齐参考视频产品的界面结构，兼顾信息密度与三维视野，如图3-1所示。</p>
+  <div class="fig">
+    <img src="https://media.doubao.com/space/api/box/stream/download/all_by_mount_point/EzSDbkr9Oo6vpexdy1ccs6S0nLf" alt="主页面总体布局">
+    <div class="cap">图3-1  主页面总体布局</div>
+  </div>
+  <div class="tbl-wrap">
+    <div class="tcap">表3-1  页面区域说明</div>
+    <table>
+      <colgroup><col style="width:22%"><col style="width:26%"><col style="width:52%"></colgroup>
+      <thead><tr><th>区域</th><th>定位</th><th>主要元素</th></tr></thead>
+      <tbody>
+        <tr><td>顶部全局状态栏</td><td>全局信息与入口</td><td>系统名称、全局统计（网格数/设备数/告警数）、当前时间、用户信息与退出</td></tr>
+        <tr><td>左侧一级导航</td><td>功能切换</td><td>场景可视、航线规划、模拟飞行、实时监控、数据管理、系统管理</td></tr>
+        <tr><td>场景树/控制面板</td><td>数据与图层组织</td><td>图层树、渲染模式切换、参数设置、数据列表</td></tr>
+        <tr><td>中央三维场景</td><td>核心可视区</td><td>Cesium场景：影像/地形/3D Tiles/网格体/航线/飞行器/轨迹/告警标注，支持缩放、旋转、平移、拾取、测量、标绘</td></tr>
+        <tr><td>右侧业务面板</td><td>详情与实时信息</td><td>对象详情/属性、实时数据、告警信息、统计图表</td></tr>
+        <tr><td>底部功能栏</td><td>工具与流程入口</td><td>场景控制、净空分析、动态航线规划、模拟飞行控制、电子围栏、轨迹分析、数据导出、视频回放</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>3.2 页面清单与页面设计</h3>
+  <p>系统主要页面及其设计要点如下表所示。</p>
+  <div class="tbl-wrap">
+    <div class="tcap">表3-2  页面清单与设计要点</div>
+    <table>
+      <colgroup><col style="width:18%"><col style="width:44%"><col style="width:38%"></colgroup>
+      <thead><tr><th>页面</th><th>布局与核心区域</th><th>关键交互</th></tr></thead>
+      <tbody>
+        <tr><td>场景可视页</td><td>左侧图层树+渲染模式面板；中央场景；右侧属性与统计</td><td>图层显隐、渲染模式切换（单值/分级/点云/热力/轨迹）、网格层级缩放、要素拾取</td></tr>
+        <tr><td>航线规划页</td><td>左侧任务参数表单（起点/终点/类型/机型/高度层）；中央场景标绘与候选航线；右侧方案列表与评估结果</td><td>地图点选/表单录入、障碍自动分析、生成候选方案、方案切换对比、参数微调</td></tr>
+        <tr><td>模拟飞行页</td><td>左侧飞行计划列表+控制面板（播放/暂停/加速/回放）；中央三维飞行场景；底部HUD；右侧航迹与参数</td><td>时间轴拖动、相机视角切换（跟随/俯瞰/自由）、飞行参数实时展示</td></tr>
+        <tr><td>实时监控页</td><td>左侧设备/计划列表+状态统计；中央实时场景；右侧实时数据与告警</td><td>实时轨迹跟随、设备点选详情、告警定位与确认、时间范围筛选</td></tr>
+        <tr><td>空域管理页</td><td>左侧空域列表与围栏编辑；中央空域边界/网格可视化；右侧审批流程</td><td>围栏绘制/编辑、网格化展示、申请提交与审批流转</td></tr>
+        <tr><td>数据管理页</td><td>设备台账、飞行计划、历史轨迹、业务台账、统计报表等子页</td><td>增删改查、批量导入导出、轨迹回放、报表钻取</td></tr>
+        <tr><td>系统管理页</td><td>用户、角色、权限、日志、参数配置</td><td>RBAC授权、日志检索、网格与空域参数配置</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>3.3 关键交互设计</h3>
+  <ul class="tick">
+    <li>图层显隐与透明度：场景树勾选控制图层显隐，滑块控制影像/网格透明度；</li>
+    <li>测量与标绘：基于Cesium量测工具与Turf.js，支持距离、面积、高度测量，点/线/面/圆标绘（电子围栏、规划范围）；</li>
+    <li>要素拾取：点击场景拾取网格、设备、航线、障碍物，右侧面板联动显示属性；</li>
+    <li>视角控制：支持定位到对象、书签视角保存、相机飞行过渡（GSAP/Camera.flyTo）；</li>
+    <li>时间轴控制：模拟飞行与轨迹回放共享时间轴，支持播放/暂停/倍速/拖拽；</li>
+    <li>告警联动：告警发生时右侧列表置顶、地图标注闪烁、可选声音提醒，点击定位并弹出处置面板。</li>
+  </ul>
+</section>
+
+<!-- ===== 第4章 功能模块设计 ===== -->
+<section class="chapter" id="ch4">
+  <div class="ch-h"><span class="no">4</span><h2>功能模块设计</h2></div>
+
+  <h3>4.1 功能模块总览</h3>
+  <p>系统功能划分为四大核心模块与三大支撑模块，如图4-1所示。</p>
+  <div class="fig">
+    <img src="https://media.doubao.com/space/api/box/stream/download/all_by_mount_point/CBSzbbCoVoUx6nxoAQVc0dIBnqe" alt="功能模块总览">
+    <div class="cap">图4-1  功能模块总览</div>
+  </div>
+  <div class="tbl-wrap">
+    <div class="tcap">表4-1  模块总览</div>
+    <table>
+      <colgroup><col style="width:24%"><col style="width:16%"><col style="width:60%"></colgroup>
+      <thead><tr><th>模块</th><th>分类</th><th>核心职责</th></tr></thead>
+      <tbody>
+        <tr><td>场景网格可视</td><td>核心</td><td>低空场景图层化管理与网格化可视</td></tr>
+        <tr><td>空域管理</td><td>核心</td><td>禁/限/适飞区、电子围栏、空域网格化与审批</td></tr>
+        <tr><td>航线智能规划</td><td>核心</td><td>多任务类型航线生成、避障、评估与比选</td></tr>
+        <tr><td>模拟飞行</td><td>核心</td><td>规划航线三维仿真飞行与回放</td></tr>
+        <tr><td>实时监控告警</td><td>支撑</td><td>实时航迹、设备状态、告警与态势研判</td></tr>
+        <tr><td>数据业务管理</td><td>支撑</td><td>基础数据、任务调度、飞行监控、台账报表、视频融合</td></tr>
+        <tr><td>系统管理</td><td>支撑</td><td>用户权限、日志审计、参数配置</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.2 场景网格可视模块</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表4-2  场景网格可视模块功能</div>
+    <table>
+      <colgroup><col style="width:24%"><col style="width:76%"></colgroup>
+      <thead><tr><th>子功能</th><th>功能说明</th></tr></thead>
+      <tbody>
+        <tr><td>图层管理</td><td>场景树组织：地形、影像、路网、建筑、POI、专题图层；显隐/透明度/顺序控制</td></tr>
+        <tr><td>GeoSOT网格生成</td><td>按区域范围与网格层级生成二维/三维网格体，支持按属性（禁飞、限飞、适飞、占用）着色</td></tr>
+        <tr><td>LOD分级</td><td>按相机距离显示不同层级网格，远层聚合、近层细化</td></tr>
+        <tr><td>单值/分级渲染</td><td>单值渲染显示网格属性常量色；分级渲染按数值区间映射色带</td></tr>
+        <tr><td>点云渲染</td><td>海量点位（设备、轨迹点、采样点）以点云方式渲染</td></tr>
+        <tr><td>热力图</td><td>基于网格属性或点密度生成热力分布（前端heatmap或后端格网统计）</td></tr>
+        <tr><td>轨迹图</td><td>动态轨迹线渲染与时间维度回放</td></tr>
+        <tr><td>性能统计</td><td>帧率、渲染耗时、实体数、瓦片加载量实时统计</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.3 空域管理模块</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表4-3  空域管理模块功能</div>
+    <table>
+      <colgroup><col style="width:24%"><col style="width:76%"></colgroup>
+      <thead><tr><th>子功能</th><th>功能说明</th></tr></thead>
+      <tbody>
+        <tr><td>禁/限/适飞区管理</td><td>支持点/线/面/圆绘制与导入禁飞区、限飞区、适飞区，配置高度范围与生效时间，地图上以红/黄/绿标识</td></tr>
+        <tr><td>电子围栏</td><td>绘制与编辑围栏（含高度），越界判断与告警联动</td></tr>
+        <tr><td>空域网格化</td><td>将空域范围按GeoSOT网格剖分生成三维网格体，维护每个网格的状态（可用/占用/禁用）与属性</td></tr>
+        <tr><td>空域申请</td><td>发起飞行空域使用申请（区域、时间、高度、机型、用途），提交审批</td></tr>
+        <tr><td>审批管理</td><td>审批流配置、待办/已办、审批意见与结果回写（通过/驳回）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.4 航线智能规划模块</h3>
+  <p>该模块是系统核心，支持三种规划模式：</p>
+  <ul class="tick">
+    <li><strong>航点航线</strong>：用户指定航点序列（或起终点+途经点），自动避障与平滑；</li>
+    <li><strong>面状扫测航线</strong>：在地图绘制区域（可凹多边形），按航线间距与高度自动生成蛇形覆盖航线（基于Turf.js偏移切分），适用于巡检、测绘；</li>
+    <li><strong>环绕航线</strong>：指定目标点与半径，生成环绕侦察/拍摄航线（动态半径可调）。</li>
+  </ul>
+  <p>航线规划的总体业务流程如图4-2所示。</p>
+  <div class="fig">
+    <img src="https://media.doubao.com/space/api/box/stream/download/all_by_mount_point/IYmwbeTMZoKguZxtvZTcZn17neg" alt="航线智能规划业务流程">
+    <div class="cap">图4-2  航线智能规划业务流程</div>
+  </div>
+  <div class="tbl-wrap">
+    <div class="tcap">表4-4  航线智能规划模块功能</div>
+    <table>
+      <colgroup><col style="width:24%"><col style="width:76%"></colgroup>
+      <thead><tr><th>子功能</th><th>功能说明</th></tr></thead>
+      <tbody>
+        <tr><td>任务定义</td><td>起点/终点/途经点/任务类型/机型参数（巡航速度、转弯半径、最大坡度）/载荷</td></tr>
+        <tr><td>静态障碍分析</td><td>对航线走廊与禁飞区、限高区、建筑障碍（3D Tiles/网格）做碰撞排查，标注风险段</td></tr>
+        <tr><td>高度层管理</td><td>按0-30m、30-120m、120m以上等高度层划分，设置航线高度与相对地形高度</td></tr>
+        <tr><td>路径搜索</td><td>GeoSOT网格化A*搜索与RRT*采样搜索（详见6.4节）</td></tr>
+        <tr><td>轨迹平滑</td><td>B样条/Dubins曲线平滑，满足转弯半径与坡度约束</td></tr>
+        <tr><td>里程/时间估算</td><td>按分段速度模型估算航程与飞行时间、能耗</td></tr>
+        <tr><td>可行性校验</td><td>空域占用、障碍冲突、性能包线、法规合规（管制空域申请状态）综合校验</td></tr>
+        <tr><td>方案比选</td><td>生成多候选方案，按安全裕度、里程、时间、能耗加权评分，支持人工调整</td></tr>
+        <tr><td>提交审批</td><td>规划结果生成飞行计划，关联空域申请提交审批</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.5 模拟飞行模块</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表4-5  模拟飞行模块功能</div>
+    <table>
+      <colgroup><col style="width:24%"><col style="width:76%"></colgroup>
+      <thead><tr><th>子功能</th><th>功能说明</th></tr></thead>
+      <tbody>
+        <tr><td>时间轴驱动</td><td>基于Cesium Clock与SampledPositionProperty驱动飞行，支持播放/暂停/倍速/拖拽</td></tr>
+        <tr><td>航迹插值</td><td>对规划航点按速度/时间线性或Catmull-Rom样条插值生成连续轨迹</td></tr>
+        <tr><td>模型姿态</td><td>VelocityOrientationProperty自动计算航向/俯仰/滚转，加载无人机三维模型（glTF）</td></tr>
+        <tr><td>相机跟踪</td><td>跟随模式（相机绑定飞行器）、俯瞰模式（固定俯视角）、自由模式（用户控制）</td></tr>
+        <tr><td>HUD参数</td><td>速度、高度（真高/海拔）、航向、经纬度、剩余里程、剩余时间、电量估算</td></tr>
+        <tr><td>回放控制</td><td>历史轨迹回放与飞行过程录制回放，支持逐点定位</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.6 实时监控与告警模块</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表4-6  实时监控与告警模块功能</div>
+    <table>
+      <colgroup><col style="width:24%"><col style="width:76%"></colgroup>
+      <thead><tr><th>子功能</th><th>功能说明</th></tr></thead>
+      <tbody>
+        <tr><td>动态规划</td><td>对在线设备实时计算可用航线/动态占用（参考视频“动态规划详情：总数/可用/占用/离线/故障”）</td></tr>
+        <tr><td>实时航迹</td><td>WebSocket/MQTT接入设备实时位置，前端插值平滑渲染航迹与标牌</td></tr>
+        <tr><td>设备状态</td><td>在线/离线/故障/电量/信号强度实时展示，状态统计</td></tr>
+        <tr><td>越界告警</td><td>飞行器越出围栏/空域/高度层触发告警</td></tr>
+        <tr><td>冲突告警</td><td>多飞行器时空冲突检测（含动态网格占用判断）</td></tr>
+        <tr><td>偏离告警</td><td>实际轨迹偏离规划航线超过阈值触发</td></tr>
+        <tr><td>态势研判</td><td>结合静态风险与动态风险模型输出风险等级与建议</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.7 数据与业务管理模块</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表4-7  数据与业务管理模块功能</div>
+    <table>
+      <colgroup><col style="width:24%"><col style="width:76%"></colgroup>
+      <thead><tr><th>子功能</th><th>功能说明</th></tr></thead>
+      <tbody>
+        <tr><td>基础数据</td><td>设备、机场/起降点、人员、组织机构管理</td></tr>
+        <tr><td>任务调度</td><td>飞行任务创建、派发、状态跟踪</td></tr>
+        <tr><td>飞行监控</td><td>计划执行状态（待审批/待起飞/飞行中/已完成/取消）</td></tr>
+        <tr><td>业务台账</td><td>飞行记录、空域使用、告警处置台账</td></tr>
+        <tr><td>统计报表</td><td>飞行量、空域使用率、告警统计、设备在线率等（ECharts）</td></tr>
+        <tr><td>视频融合</td><td>视频监控点位与三维场景融合展示、视频回放</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.8 系统管理模块</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表4-8  系统管理模块功能</div>
+    <table>
+      <colgroup><col style="width:24%"><col style="width:76%"></colgroup>
+      <thead><tr><th>子功能</th><th>功能说明</th></tr></thead>
+      <tbody>
+        <tr><td>用户与权限</td><td>用户管理、角色管理、菜单/按钮级RBAC权限</td></tr>
+        <tr><td>日志审计</td><td>操作日志、登录日志、飞行数据访问审计</td></tr>
+        <tr><td>参数配置</td><td>网格层级默认值、高度层定义、告警阈值、渲染参数、审批流程配置</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== 第5章 数据模型设计 ===== -->
+<section class="chapter" id="ch5">
+  <div class="ch-h"><span class="no">5</span><h2>数据模型设计</h2></div>
+
+  <h3>5.1 数据架构与实体关系</h3>
+  <p>系统数据以PostgreSQL+PostGIS为核心，空间数据（空域边界、围栏、航线、轨迹）使用Geometry/Geography类型存储并建立空间索引（GIST）。核心实体关系如图5-1所示。</p>
+  <div class="fig">
+    <img src="https://media.doubao.com/space/api/box/stream/download/all_by_mount_point/E9ombfj71ouEjxxpGGscBDmSnge" alt="核心数据模型关系简图">
+    <div class="cap">图5-1  核心数据模型关系简图</div>
+  </div>
+
+  <h3>5.2 核心表结构</h3>
+  <p>以下列出核心业务表的关键字段（完整字段按开发细化，此处给出设计口径）。</p>
+  <div class="tbl-wrap">
+    <div class="tcap">表5-1  核心表结构</div>
+    <table>
+      <colgroup><col style="width:18%"><col style="width:56%"><col style="width:26%"></colgroup>
+      <thead><tr><th>表名</th><th>关键字段（类型）</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>sys_user</td><td>id、account、name、role_id、org_id、phone</td><td>用户表</td></tr>
+        <tr><td>sys_role</td><td>id、role_name、permissions(jsonb)</td><td>角色与权限集</td></tr>
+        <tr><td>dev_device</td><td>id、device_no、type、status、lon/lat/alt、battery、firmware、owner_id、geom(geometry)</td><td>设备（无人机/起降点/监控设备）</td></tr>
+        <tr><td>air_space</td><td>id、name、type(禁/限/适飞)、alt_min/alt_max、valid_time、geom(geometry)</td><td>空域（电子围栏同构）</td></tr>
+        <tr><td>grid_cell</td><td>id、geosot_code、level、center_geom、vol_box(3d)、state、attrs(jsonb)</td><td>GeoSOT三维网格单元</td></tr>
+        <tr><td>route_line</td><td>id、name、route_type、points(jsonb)、alt_mode、length、duration、status、creator_id</td><td>规划航线（航点序列）</td></tr>
+        <tr><td>flight_plan</td><td>id、route_id、device_id、space_id、start_time、end_time、status、approval_id</td><td>飞行计划</td></tr>
+        <tr><td>track_point</td><td>id、plan_id/device_id、t(时间)、lon/lat/alt、speed、heading、geom(geometry)</td><td>轨迹点（按设备分区+时间索引）</td></tr>
+        <tr><td>alarm_log</td><td>id、type、level、content、device_id/plan_id、position、status、t</td><td>告警记录</td></tr>
+        <tr><td>approval</td><td>id、biz_type(空域/计划)、biz_id、applicant_id、approver_id、status、comment</td><td>审批流转</td></tr>
+        <tr><td>sys_log</td><td>id、operator_id、action、detail、ip、t</td><td>操作审计日志</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>设计要点：轨迹表按设备ID与时间范围复合索引并定期归档；网格表以geosot_code为主键并建B-tree索引支持前缀检索（区域查询）；空域/围栏使用GIST空间索引；实时轨迹先入Kafka再批量落库，避免高频写入阻塞业务库。</p>
+</section>
+
+<!-- ===== 第6章 关键技术实现方案 ===== -->
+<section class="chapter" id="ch6">
+  <div class="ch-h"><span class="no">6</span><h2>关键技术实现方案</h2></div>
+
+  <h3>6.1 Cesium初始化与环境配置</h3>
+  <p>CesiumJS 1.144通过npm引入，使用Vite构建，并在应用启动时完成Viewer初始化与默认图层配置。</p>
+  <div class="code">// 安装与引入（package.json 依赖）
+<span class="cm">// "cesium": "^1.144.0"</span>
+import * as Cesium from 'cesium';
+import 'cesium/Build/Cesium/Widgets/widgets.css';
+import cesiumAsset from 'cesium/Build/Cesium/Assets';
+
+Cesium.Ion.defaultAccessToken = '';  <span class="cm">// 无Ion时留空，走自建数据源</span>
+
+export function initViewer(container) {
+  const viewer = new Cesium.Viewer(container, {
+    animation: true, timeline: true,          <span class="cm">// 保留时间轴供模拟飞行</span>
+    baseLayerPicker: false, geocoder: false,
+    homeButton: true, sceneModePicker: false,
+    navigationHelpButton: false, fullscreenButton: true,
+    infoBox: false, selectionIndicator: true,
+    requestRenderMode: false,                  <span class="cm">// 交互场景默认连续渲染；大数据场景可开 true + 手动 requestRender</span>
+    scene3DOnly: true, msaaSamples: 4,
+    contextOptions: { webgl: { alpha: false, antialias: true } }
+  });
+  viewer.scene.globe.depthTestAgainstTerrain = false;
+  viewer.scene.globe.showGroundAtmosphere = true;
+  return viewer;
+}</div>
+  <p class="lead">说明：无Ion授权时需自行配置影像/地形服务（见6.2）；1.144的Controller框架支持更精细的相机输入控制，可后续用于定制漫游交互。</p>
+
+  <h3>6.2 三维数据接入方案</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表6-1  三维数据接入</div>
+    <table>
+      <colgroup><col style="width:20%"><col style="width:34%"><col style="width:46%"></colgroup>
+      <thead><tr><th>数据类型</th><th>服务/格式</th><th>接入方式</th></tr></thead>
+      <tbody>
+        <tr><td>影像底图</td><td>WMTS / TMS / WMS</td><td>ImageryProvider.fromUrl()（WebMapTileServiceImageryProvider等）</td></tr>
+        <tr><td>地形</td><td>CTB（Cesium Terrain Builder）</td><td>CesiumTerrainProvider.fromUrl()，真高模式 terrainProvider</td></tr>
+        <tr><td>倾斜摄影/白模/BIM</td><td>3D Tiles（b3dm）</td><td>Cesium3DTileset.fromUrl() + modelMatrix地理配准</td></tr>
+        <tr><td>矢量要素</td><td>GeoJSON / KML</td><td>GeoJsonDataSource.load() + 自定义样式（1.144支持矢量线面贴地形渲染与per-feature styling）</td></tr>
+        <tr><td>业务数据</td><td>接口GeoJSON</td><td>动态创建Entity/Primitive，按场景树挂载图层</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="code">// 地形+影像+倾斜摄影示例
+const terrain = await Cesium.CesiumTerrainProvider.fromUrl(
+  'https://<terrain-host>/tileset.json',
+  { requestVertexNormals: true, requestWaterMask: true }
+);
+viewer.terrainProvider = terrain;
+
+const imagery = await Cesium.ImageryProvider.fromUrl(
+  'https://<wmts-host>/wmts', { layer: 'img' }
+);
+viewer.imageryLayers.addImageryProvider(imagery);
+
+const tileset = await Cesium.Cesium3DTileset.fromUrl(
+  'https://<tiles-host>/tileset.json'
+);
+viewer.scene.primitives.add(tileset);
+viewer.flyTo(tileset, { duration: 1.5 });</div>
+
+  <h3>6.3 GeoSOT网格可视化实现</h3>
+  <p>核心思路：把空域范围按目标层级递归剖分为网格单元，每个网格用一个<strong>BoxGeometry（三维盒体）或沿地表 Polygon</strong>表达，使用Primitive批量渲染以获得性能（万级网格不掉帧）；编码与状态来自后端，前端只负责渲染与拾取。</p>
+  <div class="code">// 网格Primitive批量渲染（示意）
+function buildGridPrimitive(cells, viewer) {
+  const instances = [];
+  const colorMap = { free: Cesium.Color.GREEN, used: Cesium.Color.ORANGE, forbid: Cesium.Color.RED };
+
+  for (const c of cells) {
+    const rect = Cesium.Rectangle.fromDegrees(c.west, c.south, c.east, c.north);
+    const hMin = c.altMin, hMax = c.altMax;
+    const box = new Cesium.BoxGeometry({
+      minimum: new Cesium.Cartesian3(
+        Cesium.Math.toRadians(c.west), Cesium.Math.toRadians(c.south), hMin),
+      maximum: new Cesium.Cartesian3(
+        Cesium.Math.toRadians(c.east), Cesium.Math.toRadians(c.north), hMax),
+      vertexFormat: Cesium.VertexFormat.POSITION_AND_NORMAL
+    });
+    const geom = Cesium.BoxGeometry.createGeometry(box);
+    instances.push(new Cesium.GeometryInstance({
+      geometry: geom,
+      modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(
+        Cesium.Cartesian3.fromDegrees((c.west+c.east)/2,(c.south+c.north)/2, (hMin+hMax)/2)),
+      attributes: { color: Cesium.ColorGeometryAttribute.fromColor(colorMap[c.state]||Cesium.Color.GREY) },
+      id: c.code
+    }));
+  }
+  const p = new Cesium.Primitive({
+    geometryInstances: instances,
+    appearance: new Cesium.PerInstanceColorAppearance({ translucent: true, flat: true })
+  });
+  viewer.scene.primitives.add(p);
+  return p;
+}
+
+// 网格拾取
+const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+handler.setInputAction((e) => {
+  const picked = viewer.scene.pick(e.position);
+  if (picked && picked.id) console.log('网格编码：', picked.id);
+}, Cesium.ScreenSpaceEventType.LEFT_CLICK);</div>
+  <p>性能要点：网格超过10万级时建议服务端按层级聚合返回（LOD），或使用GeometryInstance批量合并；三维盒体仅对需要显示高度属性的层级开启，平面场景用PolylineGeometry+GroundPrimitive贴地渲染。</p>
+
+  <h3>6.4 航线智能规划算法</h3>
+  <p>规划算法采用“<strong>空间网格化 + 双层搜索 + 曲线平滑</strong>”路线：</p>
+  <ul class="tick">
+    <li>障碍与空域约束栅格化：将禁飞区、限高区、建筑体按GeoSOT网格（或自定义网格）栅格化为不可通行/代价加权的三维体素；</li>
+    <li>全局搜索：A*（网格地图，保证确定性）与RRT*（连续空间采样，用于复杂障碍）双算法，按场景自动选择或并行生成；</li>
+    <li>局部平滑：B样条平滑全局折线，Dubins路径约束转弯半径，输出满足机型机动性的可飞轨迹。</li>
+  </ul>
+  <div class="code">// A*网格搜索（核心示意：二维网格+高度分层）
+function aStar(grid, start, goal) {
+  const open = new MinHeap();
+  const g = new Map(), parent = new Map();
+  open.push({ f: 0 + h(start, goal), g: 0, node: start });
+  g.set(key(start), 0);
+
+  while (!open.empty()) {
+    const cur = open.pop().node;
+    if (cur === goal) return reconstruct(parent, cur);
+    for (const nb of neighbors(grid, cur)) {          // 上下左右 + 高度层变化
+      if (!passable(grid, nb)) continue;
+      const ng = g.get(key(cur)) + cost(cur, nb);
+      if (ng < (g.get(key(nb)) ?? Infinity)) {
+        g.set(key(nb), ng); parent.set(key(nb), cur);
+        open.push({ f: ng + h(nb, goal), g: ng, node: nb });
+      }
+    }
+  }
+  return null;                                        // 无可行路径
+}
+
+// B样条平滑（Douglas-Peucker + 三阶B样条示意）
+function bsplineSmooth(pts, degree = 3) {
+  // 对A*折线先做抽稀，再按累积弦长参数化生成B样条控制点
+  const knots = chordLengthKnots(pts, degree);
+  const sampled = [];
+  for (let t = 0; t <= 1.0001; t += 0.02) {
+    sampled.push(deBoor(pts, knots, degree, t));
+  }
+  return sampled;
+}
+
+// Dubins曲线（固定转弯半径R的航向约束衔接）
+function dubins(p0, heading0, p1, heading1, R) {
+  // 返回 LSL / RSR / LSR / RSL 四种候选中最短的一条圆弧+直线段路径
+  return shortestOf(dubinCandidates(p0, heading0, p1, heading1, R));
+}</div>
+  <p class="lead">参数建议：网格粒度默认100m×100m×20m（可按机型与场景调整）；A*启发式采用三维欧氏距离；对多任务并行规划使用后端线程池，结果以GeoJSON返回前端渲染候选方案。</p>
+
+  <h3>6.5 模拟飞行实现</h3>
+  <p>基于Cesium Clock时间轴 + SampledPositionProperty + VelocityOrientationProperty实现规划航线的三维模拟飞行，支持播放/暂停/倍速/拖拽回放。</p>
+  <div class="code">// 模拟飞行核心代码（Cesium 1.144）
+function playRoute(viewer, routePoints) {
+  const start = Cesium.JulianDate.now();
+  const stopTime = Cesium.JulianDate.addSeconds(
+    start, routeDuration(routePoints), new Cesium.JulianDate());
+  viewer.clock.shouldAnimate = true;
+  viewer.clock.startTime = start.clone();
+  viewer.clock.stopTime = stopTime.clone();
+  viewer.clock.currentTime = start.clone();
+  viewer.clock.multiplier = 8;                       // 8倍速
+  viewer.timeline.zoomTo(start, stopTime);
+
+  const position = new Cesium.SampledPositionProperty();
+  for (let i = 0; i < routePoints.length; i++) {
+    const t = Cesium.JulianDate.addSeconds(start, routePoints[i].t, new Cesium.JulianDate());
+    position.addSample(t, Cesium.Cartesian3.fromDegrees(
+      routePoints[i].lon, routePoints[i].lat, routePoints[i].alt));
+  }
+  const entity = viewer.entities.add({
+    position: position,
+    orientation: new Cesium.VelocityOrientationProperty(position),
+    model: { uri: '/models/uav.glb', scale: 2, heightReference: Cesium.HeightReference.NONE },
+    path: { resolution: 10, width: 3, material: new Cesium.PolylineGlowMaterialProperty({ color: Cesium.Color.CYAN, glowPower: 0.2 }) },
+    label: { text: 'UAV-001', pixelOffset: new Cesium.Cartesian2(0, -46), scale: 0.7 }
+  });
+  // 相机跟随
+  viewer.entities.add({
+    position: position,
+    viewFrom: new Cesium.Cartesian3(30, -50, 25)     // 第三视角跟随
+  });
+  viewer.trackedEntity = entity;
+  return entity;
+}
+
+// HUD参数实时更新
+const onTick = () => {
+  const pos = entity.position.getValue(viewer.clock.currentTime);
+  const vel = entity.orientation.getValue(viewer.clock.currentTime);
+  // 计算经纬度/海拔/速度/航向，更新HUD面板DOM
+};</div>
+  <p class="lead">回放历史轨迹时使用同一套Clock机制，仅将采样数据替换为track_point表历史数据（时间戳为真实时间），即可实现“历史轨迹回放”。</p>
+
+  <h3>6.6 实时数据链路（航迹/设备/告警）</h3>
+  <p>实时链路采用“<strong>设备/仿真源 → Kafka → 后端状态服务 → WebSocket/MQTT → 前端Cesium渲染</strong>”架构。</p>
+  <div class="code">// 后端：航迹消息推送（Spring Boot WebSocket示意）
+@Component
+public class TrackSender {
+  private final SimpMessagingTemplate template;
+  private final KafkaConsumer<String, TrackMsg> consumer;
+
+  @KafkaListener(topics = "uav-track")
+  public void onTrack(TrackMsg msg) {
+    // 1) 实时状态缓存 Redis hash uav:track:{deviceNo}
+    redis.opsForHash().put("uav:track:" + msg.getDeviceNo(),
+      "t:" + msg.getT() + ":lon:" + msg.getLon() + ":lat:" + msg.getLat());
+    // 2) 越界/冲突检测（可异步线程池）
+    List<Alarm> alarms = detector.check(msg);
+    // 3) 推送给订阅前端（按区域/设备分组 topic）
+    template.convertAndSend("/topic/track/" + msg.getDeviceNo(), msg);
+    alarms.forEach(a -> template.convertAndSend("/topic/alarm", a));
+  }
+}</div>
+  <div class="code">// 前端：WebSocket接入与轨迹更新
+const ws = new WebSocket('wss://<host>/ws/track');
+const sample = new Cesium.SampledPositionProperty();   // 实时缓冲2分钟
+ws.onmessage = (e) => {
+  const m = JSON.parse(e.data);                         // {deviceNo,lon,lat,alt,speed,heading,t}
+  const cart = Cesium.Cartesian3.fromDegrees(m.lon, m.lat, m.alt);
+  const jd = Cesium.JulianDate.fromDate(new Date(m.t));
+  sample.addSample(jd, cart);
+  updateEntity(m.deviceNo, cart, m);                    // 实体位置直接setValue平滑
+  checkAlarm(m);                                        // 前端快速越界预判
+};
+// 前端高频更新使用 callbackProperty 平滑：
+entity.position = new Cesium.CallbackProperty((time, result) => {
+  return sample.getValue(time, result);
+}, false);</div>
+
+  <h3>6.7 冲突与越界检测设计</h3>
+  <ul class="tick">
+    <li>静态检测：航线与禁飞区/围栏使用PostGIS ST_Intersects + 网格占用表一次性校验（规划期）；</li>
+    <li>动态检测：实时航迹在Redis网格占用表标记“网格编码+时间片+设备”，新轨迹查询时空交集；<strong>网格占用采用时间片轮转表</strong>（如5秒一个时间片），支持亚秒级并发判断；</li>
+    <li>前端辅助：Turf.js做轻量越界预判（点在多边形），减少服务端压力；</li>
+    <li>告警分级：越界/冲突=紧急（红），偏离航线=警告（橙），低电量/信号弱=提醒（黄），全部落alarm_log并联动处置。</li>
+  </ul>
+
+  <h3>6.8 前端工程化与性能优化</h3>
+  <ul class="tick">
+    <li>代码组织：目录按 modules（场景/规划/飞行/监控）+ core（Cesium封装）+ shared 划分；Cesium Viewer封装为单例可注入模块；</li>
+    <li>分包加载：Cesium核心包单独chunk，业务代码按页面懒加载；</li>
+    <li>渲染优化：大数据使用Primitive/Instance、关闭不必要特效、requestRenderMode按需渲染、远裁剪面与LOD策略、地形/影像瓦片缓存；</li>
+    <li>内存治理：图层销毁时移除Entity/Primitive并释放数据源；轨迹缓冲按时间窗滑动裁剪；</li>
+    <li>多线程：网格剖分、热力统计等CPU密集计算放Web Worker，避免阻塞主线程。</li>
+  </ul>
+</section>
+
+<!-- ===== 第7章 接口设计 ===== -->
+<section class="chapter" id="ch7">
+  <div class="ch-h"><span class="no">7</span><h2>接口设计</h2></div>
+
+  <h3>7.1 接口规范</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表7-1  REST接口规范</div>
+    <table>
+      <colgroup><col style="width:26%"><col style="width:74%"></colgroup>
+      <thead><tr><th>项目</th><th>约定</th></tr></thead>
+      <tbody>
+        <tr><td>协议</td><td>HTTPS；数据交换JSON（UTF-8）；上传/导出支持multipart与文件流</td></tr>
+        <tr><td>路径风格</td><td>/api/v1/{module}/{resource}，资源名复数名词，RESTful语义</td></tr>
+        <tr><td>认证</td><td>JWT（Authorization: Bearer &lt;token&gt;）；网关统一校验</td></tr>
+        <tr><td>分页</td><td>page、pageSize参数；响应含 total / list</td></tr>
+        <tr><td>统一响应</td><td>{"code":0,"message":"ok","data":{...}}；code非0表示业务错误，错误信息中文可读</td></tr>
+        <tr><td>实时接口</td><td>/ws/track（航迹）、/ws/alarm（告警）、/ws/device（设备状态），STOMP或原生WebSocket+心跳</td></tr>
+        <tr><td>幂等与限流</td><td>写接口支持幂等键；网关按接口限流与熔断</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>7.2 核心接口清单</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表7-2  核心接口清单</div>
+    <table>
+      <colgroup><col style="width:34%"><col style="width:12%"><col style="width:54%"></colgroup>
+      <thead><tr><th>接口路径</th><th>方法</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>/api/v1/auth/login、/logout、/refresh</td><td>POST</td><td>登录/登出/令牌刷新</td></tr>
+        <tr><td>/api/v1/users、/users/{id}、/roles</td><td>GET/POST/PUT/DELETE</td><td>用户与角色管理</td></tr>
+        <tr><td>/api/v1/devices、/devices/{id}/status</td><td>GET/POST/PUT</td><td>设备台账与状态</td></tr>
+        <tr><td>/api/v1/airspaces、/airspaces/{id}/grids</td><td>GET/POST/PUT/DELETE</td><td>空域与围栏管理、网格化结果</td></tr>
+        <tr><td>/api/v1/grids/cells?level=&amp;bbox=&amp;state=</td><td>GET</td><td>按层级/范围/状态查询网格单元</td></tr>
+        <tr><td>/api/v1/routes/plan</td><td>POST</td><td>航线智能规划（任务参数→候选方案列表）</td></tr>
+        <tr><td>/api/v1/routes/{id}/validate</td><td>POST</td><td>航线可行性校验（障碍/空域/性能）</td></tr>
+        <tr><td>/api/v1/routes、/routes/{id}</td><td>GET/POST/PUT/DELETE</td><td>航线CRUD</td></tr>
+        <tr><td>/api/v1/flight-plans、/{id}/approve</td><td>POST/PUT</td><td>飞行计划创建与审批</td></tr>
+        <tr><td>/api/v1/simulation/{planId}/start|pause|resume|seek</td><td>POST</td><td>模拟飞行控制</td></tr>
+        <tr><td>/api/v1/tracks?deviceNo=&amp;start=&amp;end=</td><td>GET</td><td>历史轨迹查询（GeoJSON）</td></tr>
+        <tr><td>/api/v1/alarms?level=&amp;status=&amp;time=</td><td>GET</td><td>告警查询与处置</td></tr>
+        <tr><td>/api/v1/statistics/flights|airspace|alarms</td><td>GET</td><td>统计报表聚合</td></tr>
+        <tr><td>/api/v1/export/routes|tracks|reports</td><td>GET</td><td>数据导出（GeoJSON/CSV/Excel）</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">接口设计约定：所有查询接口支持经纬度bbox与几何过滤；轨迹查询必须携带时间范围并限制单次返回条数（防大流量拖垮）；规划接口为耗时操作，采用异步任务+轮询/推送结果模式。</div>
+</section>
+
+<!-- ===== 第8章 开发技术路线与实施计划 ===== -->
+<section class="chapter" id="ch8">
+  <div class="ch-h"><span class="no">8</span><h2>开发技术路线与实施计划</h2></div>
+
+  <h3>8.1 总体路线图</h3>
+  <p>项目采用四阶段、24周迭代式开发路线，如图8-1所示。</p>
+  <div class="fig">
+    <img src="https://media.doubao.com/space/api/box/stream/download/all_by_mount_point/V9VDbC2kIoklNYxjokkcSe0vndb" alt="开发技术路线与里程碑">
+    <div class="cap">图8-1  开发技术路线与里程碑（P0–P3四阶段24周）</div>
+  </div>
+
+  <h3>8.2 阶段计划（时间轴）</h3>
+  <div class="timeline">
+    <div class="tl-row">
+      <div class="tl-time">P0 · 第1-4周<br>基础底座搭建</div>
+      <div class="tl-axis"><span class="tl-dot p0"></span></div>
+      <div class="tl-body">
+        <h4>基础底座与三维环境搭建</h4>
+        <div class="when">第1周：项目启动、需求细化、UI原型评审；第2周：工程脚手架、Cesium集成与编译验证；第3周：影像/地形/3D Tiles接入与场景框架；第4周：页面框架与导航、基础组件库、数据模型落地</div>
+        <p>交付物：可运行的Vue3+Cesium空场景工程、数据库初始化脚本、UI设计稿。</p>
+        <div class="tags"><span>Vite</span><span>Cesium初始化</span><span>数据源接入</span><span>UI框架</span></div>
+      </div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-time">P1 · 第5-12周<br>核心功能实现</div>
+      <div class="tl-axis"><span class="tl-dot"></span></div>
+      <div class="tl-body">
+        <h4>场景网格可视与航线智能规划</h4>
+        <div class="when">第5-7周：场景树、图层管理与单值/分级/点云/热力渲染；第8周：GeoSOT网格剖分与Primitive批量渲染；第9-10周：障碍分析、A*/RRT*规划与B样条/Dubins平滑；第11-12周：航线评估比选、飞行计划与空域申请审批闭环</div>
+        <p>交付物：场景网格可视模块MVP、航线智能规划模块MVP，支撑M2里程碑演示。</p>
+        <div class="tags"><span>GeoSOT网格</span><span>路径规划</span><span>审批流</span></div>
+      </div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-time">P2 · 第13-18周<br>模拟飞行与监控</div>
+      <div class="tl-axis"><span class="tl-dot p2"></span></div>
+      <div class="tl-body">
+        <h4>模拟飞行与实时监控告警</h4>
+        <div class="when">第13-14周：时间轴飞行与HUD、相机跟踪；第15周：轨迹插值与姿态解算；第16-17周：Kafka+WebSocket实时链路、航迹/设备状态接入；第18周：越界/冲突/偏离检测与告警处置、态势研判</div>
+        <p>交付物：模拟飞行模块MVP、实时监控告警模块MVP，支撑M3里程碑演示。</p>
+        <div class="tags"><span>Clock时间轴</span><span>WebSocket</span><span>冲突检测</span></div>
+      </div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-time">P3 · 第19-24周<br>完善与交付</div>
+      <div class="tl-axis"><span class="tl-dot p3"></span></div>
+      <div class="tl-body">
+        <h4>业务闭环、性能优化与上线</h4>
+        <div class="when">第19-20周：数据业务管理（台账/报表/视频融合）、数据导出；第21-22周：性能优化（LOD/瓦片/实例化）、安全加固、兼容性测试；第23周：集成测试与用户培训、试运行；第24周：正式验收与部署交付</div>
+        <p>交付物：完整可上线系统、部署文档、用户手册、运维手册，通过M4验收。</p>
+        <div class="tags"><span>报表</span><span>性能优化</span><span>安全加固</span><span>上线验收</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h3>8.3 里程碑</h3>
+  <div class="mile">
+    <div class="m" style="border-top-color:var(--steel)"><b>M1（第4周末）</b><span>需求基线冻结，三维空场景可运行，技术选型验证通过</span></div>
+    <div class="m"><b>M2（第12周末）</b><span>场景网格可视+航线智能规划MVP可演示，空域申请审批闭环</span></div>
+    <div class="m" style="border-top-color:var(--orange)"><b>M3（第18周末）</b><span>模拟飞行+实时监控告警MVP可演示，实时链路贯通</span></div>
+    <div class="m" style="border-top-color:var(--green)"><b>M4（第24周末）</b><span>系统整体验收通过，完成部署、培训与文档交付</span></div>
+  </div>
+
+  <h3>8.4 团队与分工</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表8-1  团队角色与职责</div>
+    <table>
+      <colgroup><col style="width:18%"><col style="width:28%"><col style="width:54%"></colgroup>
+      <thead><tr><th>角色</th><th>人数建议</th><th>职责</th></tr></thead>
+      <tbody>
+        <tr><td>项目经理</td><td>1</td><td>计划、进度、风险、干系人沟通</td></tr>
+        <tr><td>产品/UI设计师</td><td>1</td><td>原型、页面设计、交互规范</td></tr>
+        <tr><td>三维前端工程师</td><td>2</td><td>Cesium场景、网格渲染、模拟飞行、交互</td></tr>
+        <tr><td>后端工程师</td><td>2</td><td>业务服务、规划算法、实时链路、接口</td></tr>
+        <tr><td>测试工程师</td><td>1</td><td>功能/性能/兼容性测试、缺陷跟踪</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>8.5 测试与质量保障</h3>
+  <ul class="tick">
+    <li>单元测试：规划算法（A*/RRT*/平滑）以Jest/Vitest覆盖关键分支与边界；</li>
+    <li>接口测试：Postman/Apifox集合化，集成到CI流水线（GitLab CI）；</li>
+    <li>性能测试：大数据网格（≥10万单元）、万级轨迹点场景下的帧率、内存、首屏与交互耗时基准；</li>
+    <li>兼容性测试：Chrome/Edge（主支持）、Firefox，桌面分辨率与移动端适配；</li>
+    <li>安全测试：越权访问、SQL注入、XSS、敏感数据脱敏、日志合规检查；</li>
+    <li>验收测试：按功能清单逐项验收，输出测试报告与缺陷闭环记录。</li>
+  </ul>
+
+  <h3>8.6 主要风险与应对</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表8-2  风险清单与应对</div>
+    <table>
+      <colgroup><col style="width:34%"><col style="width:24%"><col style="width:42%"></colgroup>
+      <thead><tr><th>风险</th><th>等级</th><th>应对措施</th></tr></thead>
+      <tbody>
+        <tr><td>大数据网格/实体渲染性能不足</td><td>高</td><td>Primitive批量渲染、LOD聚合、按需渲染、Web Worker计算、早期性能原型验证</td></tr>
+        <tr><td>Cesium 1.144新特性兼容问题</td><td>中</td><td>锁定版本、建立升级回归用例、关注官方Release Notes与issue</td></tr>
+        <tr><td>规划算法复杂场景不可用</td><td>中</td><td>双算法并行与降级、网格粒度自适应、参数化调优、预留人工调整能力</td></tr>
+        <tr><td>实时链路高并发推送瓶颈</td><td>中</td><td>Kafka削峰、WebSocket网关集群、轨迹批量打包推送、限流与背压</td></tr>
+        <tr><td>三维数据源获取与处理周期长</td><td>中</td><td>提前启动数据生产与质检、支持外部瓦片服务对接、多源兼容</td></tr>
+        <tr><td>法规合规口径变化</td><td>低</td><td>空域规则参数化配置、跟踪《条例》实施细则、预留策略调整接口</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== 第9章 附录 ===== -->
+<section class="chapter" id="ch9">
+  <div class="ch-h"><span class="no">9</span><h2>附录</h2></div>
+
+  <h3>9.1 依赖清单</h3>
+  <div class="tbl-wrap">
+    <div class="tcap">表9-1  主要依赖与版本</div>
+    <table>
+      <colgroup><col style="width:30%"><col style="width:18%"><col style="width:52%"></colgroup>
+      <thead><tr><th>依赖</th><th>版本</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td>CesiumJS</td><td>1.144</td><td>三维场景引擎</td></tr>
+        <tr><td>Vue 3 + TypeScript + Vite</td><td>3.4+/5.x</td><td>前端框架与构建</td></tr>
+        <tr><td>Pinia / Vue Router / Element Plus</td><td>2.x</td><td>状态/路由/UI组件</td></tr>
+        <tr><td>ECharts 5 / Turf.js 7 / GSAP 3</td><td>—</td><td>图表/空间计算/动画</td></tr>
+        <tr><td>Spring Boot 3.2 / MyBatis-Plus / JWT</td><td>—</td><td>后端服务与安全</td></tr>
+        <tr><td>PostgreSQL 16 + PostGIS 3.4</td><td>—</td><td>空间与业务数据</td></tr>
+        <tr><td>Redis 7 / Kafka 3 / MinIO</td><td>—</td><td>缓存/消息/对象存储</td></tr>
+        <tr><td>Docker + Nginx</td><td>—</td><td>部署与代理</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>9.2 参考资料</h3>
+  <ul class="tick">
+    <li>参考演示视频：Cesium低空场景网格可视（BV1jytd6ZEwo）、Cesium低空航线智能规划（BV1gkti6tEjZ）、Cesium低空航线模拟飞行（BV1fetJ6ZEqQ），Bilibili；</li>
+    <li>CesiumJS 1.144官方发布说明（2026年8月），https://cesium.com/blog/2026/08/04/cesium-releases-in-august-2026/；</li>
+    <li>《无人驾驶航空器飞行管理暂行条例》（国务院、中央军委令第761号），https://www.gov.cn/zhengce/zhengceku/202306/content_6888800.htm；</li>
+    <li>GeoSOT全球剖分网格体系，http://www.iwhere.com/Archives/IndexArctype/index/t_id/9.html；</li>
+    <li>GeoSOT-3D动态空域管理研究（ISPRS Archives），https://isprs-archives.copernicus.org/articles/XLVIII-G-2025/555/2025/isprs-archives-XLVIII-G-2025-555-2025.pdf。</li>
+  </ul>
+
+  <div class="note warn">本方案为技术设计文档，正文中的代码为关键实现示意（非完整可运行工程），部署地址、单位名称、账号口令等均以“【××】”占位，落地时按实际环境替换。</div>
+</section>
+
+</main>
+
+<!-- ===== 页脚 ===== -->
+<footer>
+  <div class="container">
+    <div><b>基于Cesium 1.144的低空规划系统设计与开发技术路线方案</b> · V1.0 · 2026-09-24</div>
+    <div>文档含示意代码与占位数据，仅供设计与开发参考</div>
+  </div>
+</footer>
+
+<button id="toTop" aria-label="返回顶部">↑</button>
+<script>
+(function(){
+  try{
+    // 导航滚动高亮
+    var links=[].slice.call(document.querySelectorAll('#navLinks a'));
+    var secs=links.map(function(a){return document.querySelector(a.getAttribute('href'));});
+    var toTop=document.getElementById('toTop');
+    function onScroll(){
+      var y=window.scrollY+90;
+      var cur=0;
+      for(var i=0;i<secs.length;i++){
+        if(secs[i]&&secs[i].offsetTop<=y){cur=i;}
+      }
+      links.forEach(function(a,i){a.classList.toggle('active',i===cur);});
+      toTop.classList.toggle('show',window.scrollY>600);
+    }
+    window.addEventListener('scroll',onScroll,{passive:true});
+    onScroll();
+    toTop.addEventListener('click',function(){window.scrollTo({top:0,behavior:'smooth'});});
+  }catch(e){}
+})();
+</script>
+</body>
+</html>

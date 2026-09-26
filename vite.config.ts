@@ -47,6 +47,7 @@ const CESIUM_SYMBOLS = [
   'SampledProperty', 'Sampler', 'Scene', 'SceneMode', 'SceneTransforms',
   'ScreenSpaceEventHandler', 'ScreenSpaceEventType', 'ShaderProgram', 'ShaderSource',
   'ShadowMode',   'SingleTileImageryProvider', 'Simon1994PlanetaryPositions', 'SkyAtmosphere', 'SplitDirection', 'SunLight',
+  'StripeMaterialProperty',
   'Texture', 'Texture3D', 'TextureMagnificationFilter', 'TextureMinificationFilter',
   'TextureWrap', 'TimeInterval', 'Transforms', 'Tonemapper', 'UniformType', 'UrlTemplateImageryProvider',
   'TimeIntervalCollection',
@@ -55,7 +56,7 @@ const CESIUM_SYMBOLS = [
   'MetadataType', 'MetadataComponentType',
   'WebMapServiceImageryProvider', 'WebMapTileServiceImageryProvider', 'WebMercatorProjection', 'WebMercatorTilingScheme',
   'ArcGisMapServerImageryProvider', 'ArcType', 'BlendingState', 'ClassificationType',
-  'createWorldTerrainAsync', 'CesiumTerrainProvider', 'ArcGISTiledElevationTerrainProvider', 'ParticleSystem', 'CircleEmitter', 'BoxEmitter', 'CylinderEmitter',
+  'createWorldTerrainAsync', 'createOsmBuildingsAsync', 'CesiumTerrainProvider', 'ArcGISTiledElevationTerrainProvider', 'ParticleSystem', 'CircleEmitter', 'BoxEmitter', 'CylinderEmitter',
   'defined', 'destroyObject', 'sampleTerrainMostDetailed'
 ]
 

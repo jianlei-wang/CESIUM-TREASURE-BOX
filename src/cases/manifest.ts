@@ -136,6 +136,7 @@ import icon_line_flow from './line-flow/icon.webp'
 import icon_line_image_trail from './line-image-trail/icon.webp'
 import icon_line_lighting_trail from './line-lighting-trail/icon.webp'
 import icon_line_material from './line-material/icon.webp'
+import icon_low_altitude_planning from './low-altitude-planning/icon.webp'
 import icon_map_amap from './map-amap/icon.webp'
 import icon_map_baidu from './map-baidu/icon.webp'
 import icon_map_geovis from './map-geovis/icon.webp'
@@ -410,6 +411,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'line-image-trail': () => import('./line-image-trail/index.ts'),
   'line-lighting-trail': () => import('./line-lighting-trail/index.ts'),
   'line-material': () => import('./line-material/index.ts'),
+  'low-altitude-planning': () => import('./low-altitude-planning/index.ts'),
   'map-amap': () => import('./map-amap/index.ts'),
   'map-baidu': () => import('./map-baidu/index.ts'),
   'map-geovis': () => import('./map-geovis/index.ts'),
@@ -683,6 +685,7 @@ export const demos: CaseMeta[] = [
   { id: "line-image-trail", title: "三维特效-图片轨迹线效果", category: "effects", description: "箭头图片沿折线路径水平流动形成轨迹，支持颜色、流动速度、重复次数、线宽实时调节，可点击地图平移折线", tag: "图片轨迹线", icon: icon_line_image_trail, updatedAt: "2026-09-01", available: true },
   { id: "line-lighting-trail", title: "三维特效-发光轨迹线效果", category: "effects", description: "光照贴图配合中心高亮亮线沿路径流动，支持颜色、流动速度、线宽实时调节，可点击地图平移折线", tag: "发光轨迹线", icon: icon_line_lighting_trail, updatedAt: "2026-09-01", available: true },
   { id: "line-material", title: "三维特效-材质线效果", category: "effects", description: "支持 10 种材质线样例（分段尾迹/流动/栅栏/多箭头/虚线箭头/方向/发光/闪烁等），切换后参数实时联动，可点击地图平移整条折线", tag: "材质线", icon: icon_line_material, updatedAt: "2026-09-01", available: true },
+  { id: "low-altitude-planning", title: "低空规划系统 DEMO（系统设计技术路线）", category: "system", description: "基于 Cesium 1.144 的低空飞行服务保障一体化 Web3D 规划与管控系统 DEMO：顶部状态栏 + 左侧双栏 + 中央三维场景 + 右侧业务面板 + 底部功能栏的完整系统外壳，内置场景网格可视、空域管理、航线智能规划、模拟飞行、实时监控告警、数据与业务管理、系统管理七大交互模块。支持 GeoSOT（GB/T 39409）网格 L15–L19 分级生成与单值/分级/点云/热力多模式渲染、禁飞/限飞空域与建筑障碍叠加、A* 栅格避障 + Catmull-Rom 平滑的航点/面状/环绕航线规划与风险评估、Clock 时间轴模拟飞行与 HUD、虚拟设备巡飞航迹与越界/冲突/低电量实时告警，并可一键查看 P0–P3 四阶段 24 周实施路线图。", tag: "Cesium 1.144, 低空规划, GeoSOT网格, 空域管理, A*航线规划, 模拟飞行, 实时监控, 系统DEMO", icon: icon_low_altitude_planning, updatedAt: "2026-09-25", available: true },
   { id: "map-amap", title: "高德地图底图", category: "scene", description: "高德电子地图与卫星影像+注记叠加两套方案，支持 GCJ02/WGS84 坐标系切换", tag: "地图底图", icon: icon_map_amap, available: true },
   { id: "map-baidu", title: "百度地图底图", category: "scene", description: "百度矢量地图与卫星影像两套方案，支持 BD09/WGS84 坐标系切换", tag: "地图底图", icon: icon_map_baidu, available: true },
   { id: "map-geovis", title: "星图地图底图", category: "scene", description: "星图矢量地图与卫星影像两套方案，token 手动输入后按参数加载底图", tag: "地图底图", icon: icon_map_geovis, available: true },

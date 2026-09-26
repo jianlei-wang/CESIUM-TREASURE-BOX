@@ -1,0 +1,11 @@
+Model Information:
+* title:	Flying Drone
+* source:	https://sketchfab.com/3d-models/flying-drone-2ecfb55304a043a2a86353f70cc1cf92
+* author:	DogexorRexUwU (https://sketchfab.com/oscar.lopez.riviello)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Flying Drone" (https://sketchfab.com/3d-models/flying-drone-2ecfb55304a043a2a86353f70cc1cf92) by DogexorRexUwU (https://sketchfab.com/oscar.lopez.riviello) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

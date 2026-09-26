@@ -914,3 +914,13 @@ Entries discovered by the Agent during task execution should follow this format:
   - 后续所有回复与推理过程强制使用中文（Simplified Chinese）。
   - 案例代码提交前必须通过 TS 门禁 `npm run build`（`npx vue-tsc -b` 会 OOM）；仅用户明确「推送到仓库」才 `git push`，仅明确要求时才 `git commit`。
 
+[Project Knowledge Summary]
+- Date: 2026-09-26
+- Context: Discovered by Agent while fixing the low-altitude-planning system demo drone model not rendering in Cesium 1.144
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 低空规划系统DEMO 的无人机模型（flying_drone）在 Cesium 1.144 + 本机 SwiftShader 后端下**骨骼蒙皮模型完全不可见**：`Model.fromGltfAsync` 可 `ready=true`、77 个 runtimePrimitive 均有合法 drawCommand/VAO/`_count`、BV 在视锥内、`scene.isVisible=true`、logDepth 派生命令的 shader program 链接成功，但屏幕上无任何像素。根因是 GPU 蒙皮：88 个关节的 `ModelSkin._jointMatrices` 全部退化为常量纯缩放（0.111，位移为 0），顶点被塌缩。**排查手法**：把同一 gltf 去掉 `skins`/`animations` 与所有 `node.skin` 后另存为静态 gltf，静态版可正常渲染 → 即可判定为蒙皮问题而非材质/尺寸/剔除问题。
+  - 解决方案：无人机统一使用去蒙皮的静态模型 `public/models/flying_drone/scene_static.gltf`（由 `scene.gltf` 先转 metallic-roughness、再删除 skins/animations/node.skin 得到，复用 `scene.bin`）。`sys/drone.ts` 的 `DRONE_FULL_URI` 指向它，不再调用 `enableDroneAnimation`；不再依赖 glTF 骨骼动画。
+  - Cesium 1.144 调试 draw command 时注意：`useLogDepth=true` 时真正执行的是 `command.derivedCommands.logDepth.command`（`_command.shaderProgram._program` 为 undefined 是正常现象，要看派生命令）；`ModelDrawCommand` 的 `_originalCommand.command` 与 `_command` 是同一对象；runtime primitive 的公开属性是 `runtimePrimitives`（无下划线），`ModelSceneGraph.pushDrawCommands` 经 `scene.isVisible(cullingVolume, command, occluder)` 剔除。
+  - 该案例 `scene.gltf` 含 `extensionsRequired:['KHR_materials_pbrSpecularGlossiness']`（Cesium 1.144 不支持），必须转 metallic-roughness 后再用。
+

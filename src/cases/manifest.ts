@@ -261,6 +261,7 @@ import icon_widget_compass from './widget-compass/icon.webp'
 import icon_widget_context_menu from './widget-context-menu/icon.webp'
 import icon_widget_distance_legend from './widget-distance-legend/icon.webp'
 import icon_widget_hawkeye_map from './widget-hawkeye-map/icon.webp'
+import icon_widget_layer_swipe from './widget-layer-swipe/icon.webp'
 import icon_widget_loading_mask from './widget-loading-mask/icon.webp'
 import icon_widget_location_bar from './widget-location-bar/icon.webp'
 import icon_widget_map_split from './widget-map-split/icon.webp'
@@ -269,6 +270,8 @@ import icon_widget_region_shot from './widget-region-shot/icon.webp'
 import icon_widget_scene_shot from './widget-scene-shot/icon.webp'
 import icon_widget_timeline from './widget-timeline/icon.webp'
 import icon_widget_tooltip from './widget-tooltip/icon.webp'
+import icon_widget_tour_recorder from './widget-tour-recorder/icon.webp'
+import icon_widget_video_recorder from './widget-video-recorder/icon.webp'
 import icon_widget_zoom_controller from './widget-zoom-controller/icon.webp'
 import icon_wind_field_three from './wind-field-three/icon.webp'
 import icon_wind_layer_3d from './wind-layer-3d/icon.webp'
@@ -537,6 +540,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'widget-context-menu': () => import('./widget-context-menu/index.ts'),
   'widget-distance-legend': () => import('./widget-distance-legend/index.ts'),
   'widget-hawkeye-map': () => import('./widget-hawkeye-map/index.ts'),
+  'widget-layer-swipe': () => import('./widget-layer-swipe/index.ts'),
   'widget-loading-mask': () => import('./widget-loading-mask/index.ts'),
   'widget-location-bar': () => import('./widget-location-bar/index.ts'),
   'widget-map-split': () => import('./widget-map-split/index.ts'),
@@ -545,6 +549,8 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'widget-scene-shot': () => import('./widget-scene-shot/index.ts'),
   'widget-timeline': () => import('./widget-timeline/index.ts'),
   'widget-tooltip': () => import('./widget-tooltip/index.ts'),
+  'widget-tour-recorder': () => import('./widget-tour-recorder/index.ts'),
+  'widget-video-recorder': () => import('./widget-video-recorder/index.ts'),
   'widget-zoom-controller': () => import('./widget-zoom-controller/index.ts'),
   'wind-field-three': () => import('./wind-field-three/index.ts'),
   'wind-layer-3d': () => import('./wind-layer-3d/index.ts'),
@@ -811,6 +817,7 @@ export const demos: CaseMeta[] = [
   { id: "widget-context-menu", title: "右键菜单控件", category: "widgets", description: "右键菜单控件：在地图上右键弹出上下文菜单，支持飞行、添加标记与坐标信息展示", tag: "地图控件", icon: icon_widget_context_menu, available: true },
   { id: "widget-distance-legend", title: "距离比例尺控件", category: "widgets", description: "距离比例尺控件：按 1/2/3/5 序列自适应档位，显示当前视角下的地面距离比例尺", tag: "地图控件", icon: icon_widget_distance_legend, available: true },
   { id: "widget-hawkeye-map", title: "鹰眼小地图控件", category: "widgets", description: "鹰眼小地图控件：左下角 2D 圆形鹰眼窗叠加 Bing 街道底图，比主地图低 2 级缩放并框选主图当前视野范围", tag: "地图控件", icon: icon_widget_hawkeye_map, available: true },
+  { id: "widget-layer-swipe", title: "图层滑动对比控件", category: "widgets", description: "图层滑动对比控件：拖动中央分割条分别查看两侧不同底图，支持水平 / 垂直两种方向与分割比例实时预览", tag: "地图控件", icon: icon_widget_layer_swipe, updatedAt: "2026-09-26", available: true },
   { id: "widget-loading-mask", title: "初始化加载控件", category: "widgets", description: "初始化加载控件：全屏半透明遮罩配五个错峰闪烁光点，用于初始化与数据加载期间的过渡反馈", tag: "地图控件", icon: icon_widget_loading_mask, available: true },
   { id: "widget-location-bar", title: "位置信息栏控件", category: "widgets", description: "位置信息栏控件：底部状态栏实时显示鼠标经纬度、海拔与相机视角、视高", tag: "地图控件", icon: icon_widget_location_bar, available: true },
   { id: "widget-map-split", title: "地图卷帘控件", category: "widgets", description: "地图卷帘控件：拖动中央滑块对比左右两侧不同底图，支持街道图 / 影像图切换", tag: "地图控件", icon: icon_widget_map_split, available: true },
@@ -819,6 +826,8 @@ export const demos: CaseMeta[] = [
   { id: "widget-scene-shot", title: "场景截图控件", category: "widgets", description: "场景截图控件：以可调渲染分辨率倍率对当前场景一键截图，导出 PNG / JPG 图片", tag: "截图导出", icon: icon_widget_scene_shot, updatedAt: "2026-09-07", available: true },
   { id: "widget-timeline", title: "自定义时间轴控件", category: "widgets", description: "复刻 Cesium 时间轴与动画控件能力：播放/反向/倍率、点击跳转、刮擦、窗口缩放平移、循环钳制，并提供光照与阴影开关及三种视觉样式", tag: "地图控件", icon: icon_widget_timeline, updatedAt: "2026-09-10", available: true },
   { id: "widget-tooltip", title: "提示浮层控件", category: "widgets", description: "提示浮层控件：鼠标移动时浮层跟随光标右侧显示拾取坐标或自定义文本", tag: "地图控件", icon: icon_widget_tooltip, available: true },
+  { id: "widget-tour-recorder", title: "地图导览录制控件", category: "widgets", description: "地图导览录制控件：采集多个相机关键帧，逐段设置停留与过渡时长并飞行动画，一键录制为导览视频，支持配置保存与加载", tag: "录制导出", icon: icon_widget_tour_recorder, updatedAt: "2026-09-26", available: true },
+  { id: "widget-video-recorder", title: "视频录制控件", category: "widgets", description: "视频录制控件：录制当前三维场景（整图或框选区域）为视频，支持题图/来源水印与位置设置，导出 MP4 / WebM", tag: "录制导出", icon: icon_widget_video_recorder, updatedAt: "2026-09-26", available: true },
   { id: "widget-zoom-controller", title: "缩放控制器控件", category: "widgets", description: "缩放控制器控件：朝视线焦点前进放大、反方向拉远缩小，一键飞回默认视角", tag: "地图控件", icon: icon_widget_zoom_controller, available: true },
   { id: "wind-field-three", title: "VFX 全球风场可视化", category: "particles", description: "海量短拖尾粒子在无散度矢量风场中平流，寿命到期后原地重生以保持总数恒定，形成流动的“风之河”。风场由多尺度流函数涡旋（u=∂ψ/∂z、w=-∂ψ/∂x，保证不可压）叠加纬向急流带与近似 Rankine 气旋切向风构成，并按高度施加风速切变；粒子采用中点积分保证轨迹平滑，拖尾用时间常数连续逼近，速度映射到深蓝→青→绿→黄→橙→红的色带。风场在粗网格上采样、粒子经双线性插值读取，逐粒子开销大幅降低。粒子数、区域范围、风速、湍流、寿命、拖尾长度、气旋强度/半径、高度与厚度、亮度均可调整", tag: "Three.js, three.quarks, 风场, 数据可视化", icon: icon_wind_field_three, updatedAt: "2026-09-20", available: true },
   { id: "wind-layer-3d", title: "三维风场-WebGL2&GPU效果", category: "weather", description: "GPU 计算风场粒子流线与自定义四至生成", tag: "风场粒子", icon: icon_wind_layer_3d, updatedAt: "2026-08-23", available: true },

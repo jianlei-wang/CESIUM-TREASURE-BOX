@@ -9,6 +9,7 @@ import {
   Clock,
   Back,
   Document,
+  MagicStick,
   Menu,
   Notebook,
   Picture,
@@ -21,6 +22,7 @@ import {
 } from '@element-plus/icons-vue'
 import { categories, demos, loadCaseEntry, type CaseMeta } from './cases'
 const PerfChecklistDoc = defineAsyncComponent(() => import('./components/PerfChecklistDoc.vue'))
+const SkillsPanel = defineAsyncComponent(() => import('./components/SkillsPanel.vue'))
 
 type CesiumStatsLike = { triangles: number; tileQueue: number }
 
@@ -89,6 +91,7 @@ const helpOpen = ref(false)
 const settingsOpen = ref(false)
 const aboutOpen = ref(false)
 const perfDocOpen = ref(false)
+const skillsOpen = ref(false)
 const fullCaseDemo = shallowRef<CaseMeta | null>(null)
 const fullCaseComponent = shallowRef<import('vue').Component | null>(null)
 const caseReady = ref(false)
@@ -309,6 +312,7 @@ onUnmounted(() => {
 <template>
   <div class="page-root">
     <PerfChecklistDoc v-if="perfDocOpen" @close="perfDocOpen = false" />
+    <SkillsPanel v-if="skillsOpen" @close="skillsOpen = false" />
 
     <section v-if="fullCaseDemo" class="case-page" :class="{ 'is-system': fullCaseDemo.category === 'system' }">
       <header class="topbar case-topbar">
@@ -378,6 +382,7 @@ onUnmounted(() => {
         </a>
         <el-icon class="topbar-icon" title="使用帮助" @click="helpOpen = true"><Document /></el-icon>
         <el-icon class="topbar-icon" title="Cesium 卡顿排查清单" @click="perfDocOpen = true"><Notebook /></el-icon>
+        <el-icon class="topbar-icon" title="技能管理（Skills）" @click="skillsOpen = true"><MagicStick /></el-icon>
         <el-icon class="topbar-icon" title="界面设置" @click="settingsOpen = true"><Setting /></el-icon>
         <div class="avatar" title="关于案例库" @click="aboutOpen = true">C</div>
       </div>

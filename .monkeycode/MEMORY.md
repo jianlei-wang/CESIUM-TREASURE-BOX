@@ -934,3 +934,15 @@ Entries discovered by the Agent during task execution should follow this format:
   - 新增技能只需在 `src/skills/<id>/` 放置 `SKILL.md` 与相关文件即可自动出现在技能库面板，不需改动任何代码。
   - 现有技能 `cesium-render-optimizer`（CesiumJS 1.144 渲染效果与性能优化）：后续涉及 Cesium 性能 / 画质 / 渲染 / 初始化调参相关的系统迭代，先阅读 `src/skills/cesium-render-optimizer/SKILL.md`，再按其中「诊断 → 定位 → 优化 → 验证」工作流与 references 执行。
 
+[Project Knowledge Summary]
+- Date: 2026-09-26
+- Context: Discovered by Agent while browser-verifying the 8 DGGS cases (h3/s2/a5/dggrid/dggal/olc/geohash/tilecode, category `scene`/「场景示例」)
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - Vite dev 下 emscripten 产出的 wasm 依赖（本项目为 `dggal`）必须列在 `vite.config.ts` 的 `optimizeDeps.exclude`：一旦被预打包，glue 里的 `new URL('*.wasm', import.meta.url)` 会指向不存在的 `node_modules/.vite/deps/*.wasm`，dev 返回 index.html（MIME 非 `application/wasm`），报 `expected magic word 00 61 73 6d, found 3c 21 64 6f`；exclude 后由 Vite 资产管线以 `application/wasm` 正确供给。`webdggrid` 以 `wasmBinary` 内嵌 wasm，不受影响；生产 `npm run build` 会自动发出 wasm 资产，无需额外配置。
+  - 无 URL 路由，案例只能经首页「分类 → 案例卡片」打开；headless 验证用全局 playwright（位于 `/usr/local/lib/node_modules/playwright`），但因全局版本期望的 chromium 1243 未下载，必须显式传 `executablePath: '/root/.cache/ms-playwright/chromium-1148/chrome-linux/chrome'`。浏览器冒烟脚本见 `/tmp/opencode/dggs-ui-smoke.cjs`（挂载/截图/拾取均为实时 UI 路径）。
+  - 首次尝试用 `page.evaluate` 里 `fetch('/src/**')` + 动态 `import` 挂载案例组件不可行：需先 `page.goto(origin)`，否则相对 URL 解析失败；且会触发 Vite 对模块请求返回 403/404。走真实 UI 点击最稳。
+  - Cesium 网格/矢量叠加层禁用贴地分类图元：`GroundPrimitive` / `GroundPolylinePrimitive` / `HeightReference.CLAMP_TO_GROUND` 标注会在**每帧**重新做地面分类，相机拉近到贴地阈值（本项目 120km）后单元数上千即会把帧率从 140 打到个位数，且大批实例下会抛 `DeveloperError` 使网格整体消失。无地形椭球底图上改用「普通 `Primitive`（`height` 抬升）+ `PolylineCollection` + `HeightReference.NONE` 标注」，抬升量随相机高度线性变化（`clamp(height*0.001, 6, 220)` 米）即可视觉贴合且无逐帧开销。另注意 `PolygonGeometry` 的 `perPositionHeight` 默认 false，顶点自带高度会被忽略，抬升必须显式传 `height`。
+  - Cesium 拾取要「与所见一致」应直接拾取渲染实例而非反算坐标：给 `GeometryInstance` / `PolylineCollection.add` 传 `id: 单元ID`，`scene.pick(position).id` 即命中单元（配合 `Set<string>` 校验归属），只在未命中时回退 `camera.pickEllipsoid` 反算。不要用 `scene.pickPosition`：它读深度缓冲，受已渲染图元抬升影响产生偏差，且 `MOUSE_MOVE` 高频调用代价高（光标经纬度用纯数学的 `pickEllipsoid` 即可）。
+
+

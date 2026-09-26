@@ -924,3 +924,13 @@ Entries discovered by the Agent during task execution should follow this format:
   - Cesium 1.144 调试 draw command 时注意：`useLogDepth=true` 时真正执行的是 `command.derivedCommands.logDepth.command`（`_command.shaderProgram._program` 为 undefined 是正常现象，要看派生命令）；`ModelDrawCommand` 的 `_originalCommand.command` 与 `_command` 是同一对象；runtime primitive 的公开属性是 `runtimePrimitives`（无下划线），`ModelSceneGraph.pushDrawCommands` 经 `scene.isVisible(cullingVolume, command, occluder)` 剔除。
   - 该案例 `scene.gltf` 含 `extensionsRequired:['KHR_materials_pbrSpecularGlossiness']`（Cesium 1.144 不支持），必须转 metallic-roughness 后再用。
 
+[Project Knowledge Summary]
+- Date: 2026-09-26
+- Context: Discovered by Agent while adding the in-app skills library and integrating the uploaded Cesium optimization skill
+- Category: Workflow & Collaboration
+- Instructions:
+  - 系统内置技能库位于 `src/skills/`：每个子目录为一个技能，内含 `SKILL.md`（YAML frontmatter 的 `name`/`description`）+ `references/` + `assets/`。`src/skills/index.ts` 用 `import.meta.glob('./*/*.{md,js}').query('?raw')` 收集并解析，自动生成技能列表，无需手工注册。
+  - `src/components/SkillsPanel.vue` 为技能预览面板，由首页顶栏「技能管理（Skills）」（MagicStick 图标）触发；Markdown 预览使用自研极简渲染器 `src/lib/markdown.ts`（无第三方 Markdown 依赖，支持标题/列表/表格/代码块/引用/行内样式）。
+  - 新增技能只需在 `src/skills/<id>/` 放置 `SKILL.md` 与相关文件即可自动出现在技能库面板，不需改动任何代码。
+  - 现有技能 `cesium-render-optimizer`（CesiumJS 1.144 渲染效果与性能优化）：后续涉及 Cesium 性能 / 画质 / 渲染 / 初始化调参相关的系统迭代，先阅读 `src/skills/cesium-render-optimizer/SKILL.md`，再按其中「诊断 → 定位 → 优化 → 验证」工作流与 references 执行。
+

@@ -27,6 +27,8 @@ export type DggsPolygonStyle = {
   lineWidth?: number
   /** 网格相对椭球面的抬升高度（米），用于避免与底图 Z-fighting。 */
   lift?: number
+  /** 每个屏幕像素对应的地面米数；用于把抬升补偿限制在亚像素级，避免高缩放时标注/高亮偏移。 */
+  pixelScale?: number
 }
 
 export type DggsLabelItem = {
@@ -40,6 +42,10 @@ type Disposable = { destroy(): void }
 const LIFTED_FILL_LIMIT = 24000
 const LABEL_LIMIT = 260
 const DEFAULT_LIFT = 20
+/** 轮廓相对填充的抬升上限（米）；实际取像素折算值与该上限的较小者。 */
+const LINE_OFFSET_LIMIT = 6
+/** 标注相对网格的抬升上限（米）；实际取像素折算值与该上限的较小者。 */
+const LABEL_OFFSET_LIMIT = 40
 
 /** 展开多边形外环 / 内环的经纬度顶点（二元组），高度由 PolygonGeometry 的 height 统一决定。 */
 function ringToFlat(ring: number[][]): number[] {
@@ -150,7 +156,9 @@ export class DggsCesiumLayer {
     const width = style.lineWidth ?? 1
     if (width <= 0) return
     const color = Color.fromCssColorString(style.lineColor)
-    const lineHeight = lift + 6
+    // 轮廓相对填充的抬升按屏幕像素折算并设上限：低缩放时保持原有亚像素间距，
+    // 高缩放时收敛到约半像素，避免轮廓/填充随缩放产生可见偏移。
+    const lineHeight = lift + Math.min(LINE_OFFSET_LIMIT, (style.pixelScale ?? 0) * 0.5)
 
     const collection = new PolylineCollection()
     for (let index = 0; index < features.length; index += 1) {
@@ -180,7 +188,10 @@ export class DggsCesiumLayer {
 
   renderLabels(items: DggsLabelItem[], style: DggsPolygonStyle): void {
     if (this.viewer.isDestroyed() || items.length === 0) return
-    const lift = (style.lift ?? DEFAULT_LIFT) + 40
+    // 标注抬升同样按像素折算并设上限；并禁用深度测试，使标注始终绘制在网格之上，
+    // 从而无需依赖大高度抬升来避免遮挡。
+    const lift =
+      (style.lift ?? DEFAULT_LIFT) + Math.min(LABEL_OFFSET_LIMIT, (style.pixelScale ?? 0) * 1.5)
     const fill = Color.fromCssColorString(style.lineColor ?? '#e2e8f0').withAlpha(0.92)
     const labels = new LabelCollection({ scene: this.viewer.scene })
     for (const item of items.slice(0, LABEL_LIMIT)) {
@@ -196,7 +207,8 @@ export class DggsCesiumLayer {
         scale: 0.92,
         horizontalOrigin: HorizontalOrigin.CENTER,
         verticalOrigin: VerticalOrigin.CENTER,
-        pixelOffset: new Cartesian2(0, 0)
+        pixelOffset: new Cartesian2(0, 0),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
       })
     }
     if (labels.length) {

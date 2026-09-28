@@ -120,7 +120,7 @@ Entries discovered by the Agent during task execution should follow this format:
 - Date: 2026-08-26
 - Context: User instruction while planning new buffer analysis cases
 - Instructions:
-  - 新增案例默认不自动生成 icon，`DemoCard.icon` 留空即可（首页自动显示"暂无截图"占位）。若用户在迭代反馈中提供了截图（如 image-1/image-2/image-3），则将截图拷为案例目录 `icon.webp` 并在 `index.ts` 添加 `icon` 引用。首页卡片读的是 `src/cases/manifest.ts`，改完后必须 `npm run sync` 才会显示新 icon。
+  - 新增案例默认不自动生成 icon，`DemoCard.icon` 留空即可（首页自动显示"暂无截图"占位）。若用户在迭代反馈中提供了截图（如 image-1/image-2/image-3），则将截图拷为案例目录 `icon.webp` 并在 `index.ts` 添加 `icon` 引用。首页卡片读的是 `src/cases/manifest.ts`，改完后必须 `npm run sync` 才会显示新 icon。icon 尺寸统一缩放为**宽 300px 的 WebP**（保持原始宽高比，项目既有 icon 均为 300×约 150；卡片缩略图容器 16:9 + `object-fit: cover`）。
 
 [Project Knowledge Summary]
 - Date: 2026-08-26
@@ -942,7 +942,7 @@ Entries discovered by the Agent during task execution should follow this format:
   - Vite dev 下 emscripten 产出的 wasm 依赖（本项目为 `dggal`）必须列在 `vite.config.ts` 的 `optimizeDeps.exclude`：一旦被预打包，glue 里的 `new URL('*.wasm', import.meta.url)` 会指向不存在的 `node_modules/.vite/deps/*.wasm`，dev 返回 index.html（MIME 非 `application/wasm`），报 `expected magic word 00 61 73 6d, found 3c 21 64 6f`；exclude 后由 Vite 资产管线以 `application/wasm` 正确供给。`webdggrid` 以 `wasmBinary` 内嵌 wasm，不受影响；生产 `npm run build` 会自动发出 wasm 资产，无需额外配置。
   - 无 URL 路由，案例只能经首页「分类 → 案例卡片」打开；headless 验证用全局 playwright（位于 `/usr/local/lib/node_modules/playwright`），但因全局版本期望的 chromium 1243 未下载，必须显式传 `executablePath: '/root/.cache/ms-playwright/chromium-1148/chrome-linux/chrome'`。浏览器冒烟脚本见 `/tmp/opencode/dggs-ui-smoke.cjs`（挂载/截图/拾取均为实时 UI 路径）。
   - 首次尝试用 `page.evaluate` 里 `fetch('/src/**')` + 动态 `import` 挂载案例组件不可行：需先 `page.goto(origin)`，否则相对 URL 解析失败；且会触发 Vite 对模块请求返回 403/404。走真实 UI 点击最稳。
-  - Cesium 网格/矢量叠加层禁用贴地分类图元：`GroundPrimitive` / `GroundPolylinePrimitive` / `HeightReference.CLAMP_TO_GROUND` 标注会在**每帧**重新做地面分类，相机拉近到贴地阈值（本项目 120km）后单元数上千即会把帧率从 140 打到个位数，且大批实例下会抛 `DeveloperError` 使网格整体消失。无地形椭球底图上改用「普通 `Primitive`（`height` 抬升）+ `PolylineCollection` + `HeightReference.NONE` 标注」，抬升量随相机高度线性变化（`clamp(height*0.001, 6, 220)` 米）即可视觉贴合且无逐帧开销。另注意 `PolygonGeometry` 的 `perPositionHeight` 默认 false，顶点自带高度会被忽略，抬升必须显式传 `height`。
+  - Cesium 网格/矢量叠加层禁用贴地分类图元：`GroundPrimitive` / `GroundPolylinePrimitive` / `HeightReference.CLAMP_TO_GROUND` 标注会在**每帧**重新做地面分类，相机拉近到贴地阈值（本项目 120km）后单元数上千即会把帧率从 140 打到个位数，且大批实例下会抛 `DeveloperError` 使网格整体消失。无地形椭球底图上改用「普通 `Primitive`（`height` 抬升）+ `PolylineCollection` + `HeightReference.NONE` 标注」即可视觉贴合且无逐帧开销。**抬升量及「轮廓 / 标注 / 选中高亮相对网格」的附加偏移都必须按屏幕像素折算**（米每像素 × 少量像素，再设世界米上限），固定米数偏移（旧版 line+6/标注+40/选中+70）在高层级（相机贴近，米每像素 <1）会放大成数十~上百像素，表现为 ID 标注与拾取高亮偏离单元；本项目 `DggsCaseShell` 现用 `clamp(metersPerPixel*1.5, 0.1, 220)` 作基础抬升、各叠加层偏移取 `min(原固定米数, 像素折算值)`，标注另设 `disableDepthTestDistance = Infinity` 免依赖抬高避免遮挡。另注意 `PolygonGeometry` 的 `perPositionHeight` 默认 false，顶点自带高度会被忽略，抬升必须显式传 `height`。
   - Cesium 拾取要「与所见一致」应直接拾取渲染实例而非反算坐标：给 `GeometryInstance` / `PolylineCollection.add` 传 `id: 单元ID`，`scene.pick(position).id` 即命中单元（配合 `Set<string>` 校验归属），只在未命中时回退 `camera.pickEllipsoid` 反算。不要用 `scene.pickPosition`：它读深度缓冲，受已渲染图元抬升影响产生偏差，且 `MOUSE_MOVE` 高频调用代价高（光标经纬度用纯数学的 `pickEllipsoid` 即可）。
 
 

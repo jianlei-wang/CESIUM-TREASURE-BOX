@@ -36,11 +36,11 @@ const system = getDggsSystem(props.systemId)
 const EMPTY: FeatureCollection<Polygon> = { type: 'FeatureCollection', features: [] }
 const GEOMETRY_KEYS = ['resolution', 'autoResolution', 'topology', 'projection', 'aperture', 'dggrsType']
 /**
- * 网格相对椭球面的抬升高度随相机高度线性变化：远景抬高到数百米避免与底图深度冲突，
- * 近景收敛到数米以保持视觉贴合。始终使用抬升渲染，避免贴地分类带来的帧率骤降。
+ * 网格相对椭球面的抬升高度：按屏幕像素折算（约 LIFT_PIXELS 个像素对应的地面米数），
+ * 既在远景避免与底图深度冲突，又在近景收敛到亚像素级，避免高缩放时网格/标注/高亮偏移。
  */
-const LIFT_PER_HEIGHT = 0.001
-const MIN_LIFT = 6
+const LIFT_PIXELS = 1.5
+const MIN_LIFT = 0.1
 const MAX_LIFT = 220
 const DEFAULT_CAMERA_ZOOM = 1.6
 
@@ -107,16 +107,23 @@ function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason)
 }
 
+/** 当前视口每个屏幕像素对应的地面米数（默认透视投影，近似垂直俯视）。 */
+function metersPerPixel(): number {
+  if (!viewer || viewer.isDestroyed()) return 1
+  const frustum = viewer.camera.frustum
+  if (!(frustum instanceof PerspectiveFrustum)) return 1
+  const canvasHeight = viewer.scene.canvas.clientHeight || viewer.scene.canvas.height || 1
+  const fovy = frustum.fovy || Math.PI / 3
+  return (2 * viewer.camera.positionCartographic.height * Math.tan(fovy / 2)) / canvasHeight
+}
+
 /** 由相机高度与视场角反算 Web Mercator 近似缩放层级（与案例库其他网格系统一致）。 */
 function cameraZoom(): number {
   if (!viewer || viewer.isDestroyed()) return DEFAULT_CAMERA_ZOOM
   const frustum = viewer.camera.frustum
   if (!(frustum instanceof PerspectiveFrustum)) return DEFAULT_CAMERA_ZOOM
-  const canvasHeight = viewer.scene.canvas.clientHeight || viewer.scene.canvas.height || 1
-  const fovy = frustum.fovy || Math.PI / 3
-  const metersPerPixel = (2 * viewer.camera.positionCartographic.height * Math.tan(fovy / 2)) / canvasHeight
   const circumference = 2 * Math.PI * 6378137
-  const value = Math.log2(circumference / (256 * Math.max(metersPerPixel, 1e-6)))
+  const value = Math.log2(circumference / (256 * Math.max(metersPerPixel(), 1e-6)))
   return Math.max(0, Math.min(22, value))
 }
 
@@ -124,12 +131,11 @@ function syncZoom(): void {
   zoom.value = cameraZoom()
 }
 
-/** 当前相机高度对应的网格抬升量（米）。 */
+/** 当前相机高度对应的网格抬升量（米），随屏幕像素尺度收敛。 */
 function baseLift(): number {
-  if (!viewer || viewer.isDestroyed()) return MIN_LIFT
-  const height = viewer.camera.positionCartographic.height
-  if (!Number.isFinite(height)) return MIN_LIFT
-  return Math.min(MAX_LIFT, Math.max(MIN_LIFT, height * LIFT_PER_HEIGHT))
+  const mpp = metersPerPixel()
+  if (!Number.isFinite(mpp)) return MIN_LIFT
+  return Math.min(MAX_LIFT, Math.max(MIN_LIFT, mpp * LIFT_PIXELS))
 }
 
 /** 当前相机可视经纬范围（带少量外扩，跨 180° 或全球视角时退化为全球范围）。 */
@@ -232,25 +238,44 @@ function render(): void {
   if (!viewer || viewer.isDestroyed() || !layer || !system) return
   layer.clear()
   const lift = baseLift()
+  // 各叠加层相对网格的抬升按屏幕像素折算并设上限，避免高缩放时随缩放产生可见偏移。
+  const px = metersPerPixel()
+  const overlayLift = lift + Math.min(50, px * 3)
+  const parentLift = lift + Math.min(50, px * 3)
+  const neighborLift = lift + Math.min(30, px * 2)
+  const selectedLift = lift + Math.min(70, px * 4)
+  const labelLift = lift + Math.min(40, px * 2)
   const lineColor = settings.lineColor as string
 
   if (overlayData.value) {
-    layer.renderPolygons(overlayData.value.features, { lineColor: '#f59e0b', lineWidth: 1.6, lift: lift + 50 })
+    layer.renderPolygons(overlayData.value.features, {
+      lineColor: '#f59e0b',
+      lineWidth: 1.6,
+      lift: overlayLift,
+      pixelScale: px
+    })
   }
-  layer.renderPolygons(parentFeatures.value, { lineColor: '#f8fafc', lineWidth: 3, lift: lift + 50 })
+  layer.renderPolygons(parentFeatures.value, {
+    lineColor: '#f8fafc',
+    lineWidth: 3,
+    lift: parentLift,
+    pixelScale: px
+  })
   layer.renderPolygons(neighborFeatures.value, {
     fillColor: lineColor,
     fillAlpha: 0.22,
     lineColor,
     lineWidth: 2,
-    lift: lift + 30
+    lift: neighborLift,
+    pixelScale: px
   })
   layer.renderPolygons(grid.value.features, {
     fillColor: settings.fillColor as string,
     fillAlpha: settings.fillOpacity as number,
     lineColor,
     lineWidth: settings.lineWidth as number,
-    lift
+    lift,
+    pixelScale: px
   })
   if (selectedFeature.value) {
     layer.renderPolygons([selectedFeature.value], {
@@ -258,11 +283,16 @@ function render(): void {
       fillAlpha: 0.35,
       lineColor: '#f8fafc',
       lineWidth: 3,
-      lift: lift + 70
+      lift: selectedLift,
+      pixelScale: px
     })
   }
   if (settings.showLabels && zoom.value >= system.labelMinZoom(resolution.value)) {
-    layer.renderLabels(labelsFrom(grid.value.features), { lineColor, lift })
+    layer.renderLabels(labelsFrom(grid.value.features), {
+      lineColor,
+      lift: labelLift,
+      pixelScale: px
+    })
   }
 }
 
@@ -545,57 +575,51 @@ onBeforeUnmount(() => {
     <div ref="mapEl" class="dggs-map"></div>
 
     <aside class="dggs-panel">
-      <header class="dggs-panel-head">
-        <div>
-          <h2>{{ system.title }}</h2>
-          <p>{{ system.subtitle }}</p>
-        </div>
-        <span class="dggs-tag">{{ system.tag }}</span>
-      </header>
+      <div class="panel-title">{{ system.title }}</div>
+      <div class="panel-subtitle">{{ system.subtitle }}</div>
 
       <div v-if="error" class="dggs-error">{{ error }}</div>
 
-      <section class="dggs-section">
-        <label class="dggs-check">
-          <input
-            type="checkbox"
-            :checked="settings.autoResolution"
-            @change="setChecked('autoResolution', ($event.target as HTMLInputElement).checked)"
-          />
-          <span>自动分辨率</span>
-        </label>
-
-        <label class="dggs-row">
-          <span>{{ system.resolutionName }}</span>
-          <select
-            v-if="system.resolutionOptions"
-            :value="String(settings.resolution)"
-            :disabled="settings.autoResolution"
-            @change="setResolution(($event.target as HTMLSelectElement).value)"
-          >
-            <option v-for="option in system.resolutionOptions" :key="option" :value="String(option)">
-              {{ option }}
-            </option>
-          </select>
-          <span v-else class="dggs-value">{{ resolution }}</span>
-        </label>
+      <div class="section-title">网格</div>
+      <label class="switch-row">
+        <span>自动分辨率</span>
         <input
-          v-if="!system.resolutionOptions"
-          class="dggs-range"
-          type="range"
-          :min="resolutionMin"
-          :max="resolutionMax"
-          :step="resolutionStep"
-          :value="settings.resolution"
-          :disabled="settings.autoResolution"
-          @input="setResolution(($event.target as HTMLInputElement).value)"
+          type="checkbox"
+          :checked="settings.autoResolution"
+          @change="setChecked('autoResolution', ($event.target as HTMLInputElement).checked)"
         />
-      </section>
+      </label>
 
-      <section v-if="system.extraFields" class="dggs-section">
+      <label class="control-row">
+        <span class="row-label">{{ system.resolutionName }}</span>
+        <select
+          v-if="system.resolutionOptions"
+          :value="String(settings.resolution)"
+          :disabled="settings.autoResolution"
+          @change="setResolution(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="option in system.resolutionOptions" :key="option" :value="String(option)">
+            {{ option }}
+          </option>
+        </select>
+        <span v-else class="row-value">{{ resolution }}</span>
+      </label>
+      <input
+        v-if="!system.resolutionOptions"
+        class="range-input"
+        type="range"
+        :min="resolutionMin"
+        :max="resolutionMax"
+        :step="resolutionStep"
+        :value="settings.resolution"
+        :disabled="settings.autoResolution"
+        @input="setResolution(($event.target as HTMLInputElement).value)"
+      />
+
+      <template v-if="system.extraFields">
         <template v-for="field in system.extraFields" :key="field.key">
-          <label v-if="field.kind === 'select'" class="dggs-row">
-            <span>{{ field.label }}</span>
+          <label v-if="field.kind === 'select'" class="control-row">
+            <span class="row-label">{{ field.label }}</span>
             <select
               :value="fieldValue(field.key)"
               :disabled="fieldDisabled(field)"
@@ -606,107 +630,110 @@ onBeforeUnmount(() => {
               </option>
             </select>
           </label>
-          <label v-else class="dggs-check">
+          <label v-else class="switch-row">
+            <span>{{ field.label }}</span>
             <input
               type="checkbox"
               :checked="isChecked(field.key)"
               @change="setChecked(field.key, ($event.target as HTMLInputElement).checked)"
             />
-            <span>{{ field.label }}</span>
           </label>
         </template>
-      </section>
-
-      <section class="dggs-section">
-        <label class="dggs-row">
-          <span>填充颜色</span>
-          <input
-            type="color"
-            :value="settings.fillColor"
-            @input="setField('fillColor', ($event.target as HTMLInputElement).value)"
-          />
-        </label>
-        <label class="dggs-row">
-          <span>填充不透明度</span>
-          <input
-            class="dggs-range"
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            :value="settings.fillOpacity"
-            @input="settings.fillOpacity = Number(($event.target as HTMLInputElement).value)"
-          />
-        </label>
-        <label class="dggs-row">
-          <span>轮廓颜色</span>
-          <input
-            type="color"
-            :value="settings.lineColor"
-            @input="setField('lineColor', ($event.target as HTMLInputElement).value)"
-          />
-        </label>
-        <label class="dggs-row">
-          <span>轮廓宽度</span>
-          <input
-            class="dggs-range"
-            type="range"
-            min="0.1"
-            max="8"
-            step="0.1"
-            :value="settings.lineWidth"
-            @input="settings.lineWidth = Number(($event.target as HTMLInputElement).value)"
-          />
-        </label>
-        <label class="dggs-check">
-          <input
-            type="checkbox"
-            :checked="settings.showLabels"
-            @change="setChecked('showLabels', ($event.target as HTMLInputElement).checked)"
-          />
-          <span>显示单元 ID</span>
-        </label>
-        <label class="dggs-check">
-          <input
-            type="checkbox"
-            :checked="settings.includeNeighbors"
-            @change="setChecked('includeNeighbors', ($event.target as HTMLInputElement).checked)"
-          />
-          <span>包含选中单元邻域</span>
-        </label>
-        <label class="dggs-check">
-          <input
-            type="checkbox"
-            :checked="settings.includeParents"
-            @change="setChecked('includeParents', ($event.target as HTMLInputElement).checked)"
-          />
-          <span>包含选中单元父级</span>
-        </label>
-      </section>
-
-      <section class="dggs-actions">
-        <button type="button" @click="exportGeoJson">导出 GeoJSON</button>
-        <button type="button" @click="exportCsv">导出 CSV</button>
-        <button type="button" @click="addAsLayer">添加网格为图层</button>
-        <button type="button" class="ghost" @click="resetView">重置视图</button>
-      </section>
-    </aside>
-
-    <aside class="dggs-identify">
-      <template v-if="selectedId && selectedFeature">
-        <h3>选中单元</h3>
-        <dl>
-          <template v-for="row in system.identify(selectedId, settings, selectedFeature)" :key="row.label">
-            <dt>{{ row.label }}</dt>
-            <dd>{{ row.value }}</dd>
-          </template>
-        </dl>
-        <div class="dggs-identify-actions">
-          <button type="button" @click="copyId">复制 ID</button>
-          <button type="button" @click="zoomToCell">缩放到单元</button>
-        </div>
       </template>
-      <p v-else class="dggs-hint">点击地图以识别 {{ system.english }} 单元。</p>
+
+      <div class="section-title">样式</div>
+      <label class="control-row">
+        <span class="row-label">填充颜色</span>
+        <input
+          class="color-input"
+          type="color"
+          :value="settings.fillColor"
+          @input="setField('fillColor', ($event.target as HTMLInputElement).value)"
+        />
+      </label>
+      <label class="control-row">
+        <span class="row-label">填充不透明度</span>
+        <input
+          class="range-input"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          :value="settings.fillOpacity"
+          @input="settings.fillOpacity = Number(($event.target as HTMLInputElement).value)"
+        />
+        <span class="row-value">{{ settings.fillOpacity.toFixed(2) }}</span>
+      </label>
+      <label class="control-row">
+        <span class="row-label">轮廓颜色</span>
+        <input
+          class="color-input"
+          type="color"
+          :value="settings.lineColor"
+          @input="setField('lineColor', ($event.target as HTMLInputElement).value)"
+        />
+      </label>
+      <label class="control-row">
+        <span class="row-label">轮廓宽度</span>
+        <input
+          class="range-input"
+          type="range"
+          min="0.1"
+          max="8"
+          step="0.1"
+          :value="settings.lineWidth"
+          @input="settings.lineWidth = Number(($event.target as HTMLInputElement).value)"
+        />
+        <span class="row-value">{{ settings.lineWidth.toFixed(1) }}</span>
+      </label>
+      <label class="switch-row">
+        <span>显示单元 ID</span>
+        <input
+          type="checkbox"
+          :checked="settings.showLabels"
+          @change="setChecked('showLabels', ($event.target as HTMLInputElement).checked)"
+        />
+      </label>
+      <label class="switch-row">
+        <span>包含选中单元邻域</span>
+        <input
+          type="checkbox"
+          :checked="settings.includeNeighbors"
+          @change="setChecked('includeNeighbors', ($event.target as HTMLInputElement).checked)"
+        />
+      </label>
+      <label class="switch-row">
+        <span>包含选中单元父级</span>
+        <input
+          type="checkbox"
+          :checked="settings.includeParents"
+          @change="setChecked('includeParents', ($event.target as HTMLInputElement).checked)"
+        />
+      </label>
+
+      <div class="section-title">选中单元</div>
+      <div class="dggs-identify">
+        <template v-if="selectedId && selectedFeature">
+          <dl>
+            <template v-for="row in system.identify(selectedId, settings, selectedFeature)" :key="row.label">
+              <dt>{{ row.label }}</dt>
+              <dd>{{ row.value }}</dd>
+            </template>
+          </dl>
+          <div class="dggs-identify-actions">
+            <button type="button" class="action-button" @click="copyId">复制 ID</button>
+            <button type="button" class="action-button" @click="zoomToCell">缩放到单元</button>
+          </div>
+        </template>
+        <p v-else class="dggs-hint">点击地图以识别 {{ system.english }} 单元。</p>
+      </div>
+
+      <div class="dggs-actions">
+        <button type="button" class="action-button" @click="exportGeoJson">导出 GeoJSON</button>
+        <button type="button" class="action-button" @click="exportCsv">导出 CSV</button>
+        <button type="button" class="action-button" @click="addAsLayer">添加网格为图层</button>
+        <button type="button" class="action-button ghost" @click="resetView">重置视图</button>
+      </div>
     </aside>
 
     <div class="dggs-status">
@@ -733,9 +760,10 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #0a1a30;
-  color: #d7e4f5;
-  font: 13px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  border-radius: 8px;
+  background: #152b4c;
+  color: #dce8f5;
+  font: 12px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
 .dggs-map {
@@ -747,170 +775,135 @@ onBeforeUnmount(() => {
 
 .dggs-panel {
   position: absolute;
-  z-index: 3;
-  top: 14px;
-  left: 14px;
-  width: 264px;
-  max-height: calc(100% - 76px);
+  z-index: 10;
+  top: 12px;
+  right: 12px;
+  width: 260px;
+  max-height: calc(100% - 24px);
   overflow-y: auto;
-  padding: 14px;
-  border: 1px solid rgba(132, 177, 224, 0.24);
-  border-radius: 12px;
-  background: rgba(12, 27, 48, 0.92);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid rgba(157, 188, 224, 0.28);
+  border-radius: 9px;
+  background: rgba(10, 26, 52, 0.86);
   backdrop-filter: blur(6px);
+  color: #dce8f5;
 }
 
-.dggs-panel-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
+.panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #eaf2ff;
 }
 
-.dggs-panel-head h2 {
-  margin: 0;
-  font-size: 15px;
-  color: #f1f6ff;
+.panel-subtitle {
+  margin-top: 2px;
+  margin-bottom: 6px;
+  font-size: 10px;
+  color: #8ea5c2;
 }
 
-.dggs-panel-head p {
-  margin: 2px 0 0;
+.section-title {
+  margin-top: 8px;
+  margin-bottom: 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(157, 188, 224, 0.16);
   font-size: 11px;
   color: #8ea5c2;
 }
 
-.dggs-tag {
-  padding: 2px 7px;
-  border-radius: 6px;
-  background: rgba(98, 180, 255, 0.16);
-  color: #7cc0ff;
-  font-size: 10px;
-  white-space: nowrap;
-}
-
 .dggs-error {
-  margin-bottom: 10px;
-  padding: 8px 10px;
+  margin: 8px 0;
+  padding: 7px 9px;
   border: 1px solid rgba(248, 113, 113, 0.4);
-  border-radius: 8px;
+  border-radius: 6px;
   background: rgba(127, 29, 29, 0.35);
   color: #fecaca;
   font-size: 11px;
 }
 
-.dggs-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 0;
-  border-top: 1px solid rgba(132, 177, 224, 0.14);
-}
-
-.dggs-section:first-of-type {
-  border-top: 0;
-}
-
-.dggs-row {
+.control-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 12px;
-  color: #b9cbe2;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11px;
+  color: #c3d5e8;
 }
 
-.dggs-row select {
+.row-label {
+  flex: 0 0 auto;
+}
+
+.row-value {
+  min-width: 30px;
+  margin-left: auto;
+  text-align: right;
+  color: #eaf2ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.control-row select {
   min-width: 96px;
-  padding: 3px 6px;
-  border: 1px solid rgba(132, 177, 224, 0.3);
-  border-radius: 6px;
-  background: #0e2340;
-  color: #d7e4f5;
-  font-size: 12px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid rgba(157, 188, 224, 0.28);
+  border-radius: 4px;
+  background: rgba(8, 21, 40, 0.55);
+  color: #e6eef9;
+  font-size: 10px;
+  box-sizing: border-box;
 }
 
-.dggs-row select:disabled {
+.control-row select:disabled {
   opacity: 0.45;
 }
 
-.dggs-value {
-  font-variant-numeric: tabular-nums;
-  color: #eaf2ff;
+.range-input {
+  flex: 1;
+  min-width: 0;
+  accent-color: #2f80ed;
 }
 
-.dggs-check {
+.range-input:disabled {
+  opacity: 0.45;
+}
+
+.color-input {
+  width: 36px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid rgba(157, 188, 224, 0.28);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.switch-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
-  color: #b9cbe2;
+  padding: 3px 0;
+  font-size: 11px;
+  color: #c3d5e8;
   cursor: pointer;
 }
 
-.dggs-check input {
-  accent-color: #62b4ff;
-}
-
-.dggs-range {
-  flex: 1;
-  min-width: 90px;
-  accent-color: #62b4ff;
-}
-
-.dggs-actions {
-  display: grid;
-  gap: 7px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(132, 177, 224, 0.14);
-}
-
-.dggs-actions button {
-  padding: 7px 10px;
-  border: 1px solid rgba(98, 180, 255, 0.35);
-  border-radius: 8px;
-  background: rgba(37, 99, 235, 0.22);
-  color: #d7e4f5;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.18s;
-}
-
-.dggs-actions button:hover {
-  background: rgba(37, 99, 235, 0.4);
-}
-
-.dggs-actions button.ghost {
-  background: transparent;
+.switch-row input {
+  accent-color: #2f80ed;
 }
 
 .dggs-identify {
-  position: absolute;
-  z-index: 3;
-  top: 14px;
-  right: 14px;
-  width: 252px;
-  max-height: calc(100% - 76px);
-  overflow-y: auto;
-  padding: 12px 14px;
-  border: 1px solid rgba(132, 177, 224, 0.24);
-  border-radius: 12px;
-  background: rgba(12, 27, 48, 0.92);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(6px);
-}
-
-.dggs-identify h3 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: #f1f6ff;
+  padding-top: 2px;
 }
 
 .dggs-identify dl {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 4px 10px;
+  gap: 3px 10px;
   margin: 0;
   font-size: 11px;
 }
@@ -928,79 +921,98 @@ onBeforeUnmount(() => {
 
 .dggs-identify-actions {
   display: flex;
-  gap: 7px;
-  margin-top: 10px;
-}
-
-.dggs-identify-actions button {
-  flex: 1;
-  padding: 6px 8px;
-  border: 1px solid rgba(98, 180, 255, 0.35);
-  border-radius: 7px;
-  background: rgba(37, 99, 235, 0.22);
-  color: #d7e4f5;
-  font-size: 11px;
-  cursor: pointer;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .dggs-hint {
-  margin: 0;
+  margin: 4px 0 0;
   color: #8ea5c2;
-  font-size: 12px;
+  font-size: 11px;
+}
+
+.dggs-actions {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(157, 188, 224, 0.16);
+}
+
+.action-button {
+  flex: 1;
+  min-height: 26px;
+  padding: 5px 8px;
+  border: 1px solid rgba(157, 188, 224, 0.32);
+  border-radius: 5px;
+  background: rgba(47, 128, 237, 0.18);
+  color: #dce8f5;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.18s;
+}
+
+.action-button:hover {
+  background: rgba(47, 128, 237, 0.32);
+}
+
+.action-button.ghost {
+  background: rgba(8, 21, 40, 0.4);
 }
 
 .dggs-status {
   position: absolute;
-  z-index: 3;
-  right: 14px;
+  z-index: 5;
   bottom: 12px;
-  left: 14px;
+  left: 12px;
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  padding: 8px 12px;
-  border: 1px solid rgba(132, 177, 224, 0.2);
-  border-radius: 10px;
-  background: rgba(8, 20, 38, 0.9);
-  color: #9fb6d2;
+  gap: 12px;
+  max-width: calc(100% - 300px);
+  padding: 6px 10px;
+  border: 1px solid rgba(157, 188, 224, 0.22);
+  border-radius: 8px;
+  background: rgba(8, 21, 40, 0.88);
+  color: #9fb8d4;
   font-size: 11px;
+  pointer-events: none;
 }
 
 .dggs-status-note {
-  margin-left: auto;
-  color: #7cc0ff;
+  color: #7cb3ff;
 }
 
 .dggs-loading {
   position: absolute;
-  z-index: 4;
-  top: 50%;
+  z-index: 6;
+  top: 12px;
   left: 50%;
-  transform: translate(-50%, -50%);
-  padding: 10px 16px;
-  border-radius: 10px;
-  background: rgba(12, 27, 48, 0.94);
-  color: #d7e4f5;
-  font-size: 12px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border: 1px solid rgba(157, 188, 224, 0.3);
+  border-radius: 999px;
+  background: rgba(10, 26, 52, 0.92);
+  color: #dce8f5;
+  font-size: 11px;
 }
 
 .dggs-banner {
   position: absolute;
-  z-index: 5;
-  bottom: 52px;
+  z-index: 7;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 7px 14px;
-  border-radius: 999px;
-  background: rgba(37, 99, 235, 0.9);
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: rgba(47, 128, 237, 0.92);
   color: #fff;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .dggs-missing {
   display: grid;
   place-items: center;
   height: 100%;
-  color: #9fb6d2;
+  color: #9fb8d2;
 }
 </style>

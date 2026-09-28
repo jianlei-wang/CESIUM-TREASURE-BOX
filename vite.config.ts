@@ -48,7 +48,7 @@ const CESIUM_SYMBOLS = [
   'ScreenSpaceEventHandler', 'ScreenSpaceEventType', 'ShaderProgram', 'ShaderSource',
   'ShadowMode',   'SingleTileImageryProvider', 'Simon1994PlanetaryPositions', 'SkyAtmosphere', 'SplitDirection', 'SunLight',
   'StripeMaterialProperty',
-  'Texture', 'Texture3D', 'TextureMagnificationFilter', 'TextureMinificationFilter',
+  'Texture', 'Texture3D', 'TextureMagnificationFilter', 'TextureMinificationFilter', 'TextureUniform',
   'TextureWrap', 'TimeInterval', 'Transforms', 'Tonemapper', 'UniformType', 'UrlTemplateImageryProvider',
   'TimeIntervalCollection',
   'VertexArray', 'VertexFormat', 'VerticalOrigin', 'Viewer', 'WallGeometry',

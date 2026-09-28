@@ -169,6 +169,7 @@ import icon_point_cluster from './point-cluster/icon.webp'
 import icon_point_create from './point-create/icon.webp'
 import icon_point_markers from './point-markers/icon.webp'
 import icon_point_voxel from './point-voxel/icon.webp'
+import icon_point_voxel_mass from './point-voxel-mass/icon.webp'
 import icon_polygon from './polygon/icon.webp'
 import icon_polygon_buffer from './polygon-buffer/icon.webp'
 import icon_polygon_create from './polygon-create/icon.webp'
@@ -456,6 +457,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'point-create': () => import('./point-create/index.ts'),
   'point-markers': () => import('./point-markers/index.ts'),
   'point-voxel': () => import('./point-voxel/index.ts'),
+  'point-voxel-mass': () => import('./point-voxel-mass/index.ts'),
   'polygon': () => import('./polygon/index.ts'),
   'polygon-buffer': () => import('./polygon-buffer/index.ts'),
   'polygon-create': () => import('./polygon-create/index.ts'),
@@ -742,6 +744,7 @@ export const demos: CaseMeta[] = [
   { id: "point-create", title: "标点创建-动态点标注", category: "draw", description: "鼠标点击地图动态创建点标注，支持大小、颜色、高度、贴地等参数", tag: "点标记", icon: icon_point_create, updatedAt: "2026-08-26", available: true },
   { id: "point-markers", title: "标记标绘-点位标记与清单", category: "draw", description: "输入经纬度或在地图上点击添加点位，地图同步标记点位与经纬度值，支持点位删除、跳转定位以及整体导出 CSV / Excel 清单", tag: "点位管理", icon: icon_point_markers, updatedAt: "2026-08-28", available: true },
   { id: "point-voxel", title: "数据可视化-高性能体元素渲染", category: "data", description: "根据模拟生成的空间点数据（x, y, z, value）自动生成高性能体元素进行体渲染：以空间哈希加速反距离加权插值，将离散采样点重建为规则体元素网格，并交给 VoxelPrimitive 单图元 GPU 光线步进渲染。支持采样点数、随机种子、网格分辨率、搜索半径、距离幂次、空体元素填充、色带、值域、透明度、步长、屏幕误差、最近邻采样与三向剖切等参数配置，鼠标悬浮拾取体元素位置与数值，并可叠加显示原始采样点云。", tag: "体元素渲染", icon: icon_point_voxel, updatedAt: "2026-09-28", available: true },
+  { id: "point-voxel-mass", title: "数据可视化-高性能海量体元素渲染", category: "data", description: "面向海量离散点数据的体元素流式渲染案例：在 Web Worker 中用纯 TypedArray 的 CSR 扁平空间哈希对采样点建立索引，按环形 K 近邻与反距离加权（IDW）将点数据实时重建为规则体数据，并以八叉树多级瓦片（tileSize³ / 多级 LOD）组织，通过 VoxelProvider.requestData 按屏幕误差流式供给单个 VoxelPrimitive 做 GPU 光线步进渲染。支持采样点数、随机种子、分辨率预设（128³/192³/256³）、K 近邻数、搜索半径、距离幂次、空体元素填充、可分离高斯平滑、传递函数色带（Viridis/Turbo/冷暖/地形/彩虹/Jet）、值域、不透明度、覆盖基底、步长、屏幕误差、最近邻采样与任意方向剖切等参数；剖切采用拖动低分辨率、松开高分辨率的持久化 Canvas 预览，开启 requestRenderMode 按需渲染，鼠标悬浮拾取体元素数值，并可叠加显示原始点云。", tag: "体元素渲染", icon: icon_point_voxel_mass, updatedAt: "2026-09-28", available: true },
   { id: "polygon", title: "多边形-逐点圈定区域", category: "draw", description: "左键逐点圈定范围、右键闭合生成多边形面；支持颜色与不透明度实时调整。", tag: "面绘制", icon: icon_polygon, updatedAt: "2026-09-06", available: true },
   { id: "polygon-buffer", title: "空间分析-面缓冲区分析", category: "analysis", description: "动态绘制多边形面，按缓冲值(m)生成缓冲区，支持圆角/方角端点与拐角", tag: "缓冲区", icon: icon_polygon_buffer, updatedAt: "2026-08-26", available: true },
   { id: "polygon-create", title: "线面绘制-动态多边形面", category: "draw", description: "鼠标点击地图动态创建多边形面，支持填充色、透明度、边框、高度等参数", tag: "面绘制", icon: icon_polygon_create, updatedAt: "2026-08-26", available: true },

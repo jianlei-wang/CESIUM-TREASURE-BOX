@@ -32,6 +32,16 @@ Entries discovered by the Agent during task execution should follow this format:
 ## Entries
 
 [Project Knowledge Summary]
+- Date: 2026-09-28
+- Context: Discovered by Agent while delivering 数据可视化-高性能海量体元素渲染 (src/cases/point-voxel-mass, VoxelPrimitive + Web Worker KNN/IDW)
+- Category: Environment Configuration
+- Instructions:
+  - Dev 与 build 的 Cesium 导入解析不同：生产构建走 `vite-plugin-cesium` 的真实 ESM，任何 `@cesium/engine` 导出都可用；dev 下 `cesium` 被 vite.config.ts 的 `cesium-dev-global` 插件替换为读取 `window.Cesium` 的白名单 shim `CESIUM_SYMBOLS`。因此从 `cesium` 新导入一个不在白名单里的符号，`vue-tsc` 与 `vite build` 都可能通过，但 dev 运行时会抛 `does not provide an export named 'X'`。新增 Cesium 符号（本次为 `TextureUniform`）必须同步追加到 `vite.config.ts` 的 `CESIUM_SYMBOLS`。
+  - VoxelPrimitive 自定义 provider 约定（本项目 Cesium 1.144/engine 26.2）：provider 需给出 `shape/dimensions/paddingBefore/paddingAfter/minBounds/maxBounds/names/types/componentTypes/availableLevels/requestData`；`requestData(options)` 的 `options` 为 `{tileLevel,tileX,tileY,tileZ,keyframe}`，返回 `Promise<VoxelContent>`；`VoxelContent.fromMetadataArray([typedArray])` 每个字段一个 TypedArray，长度 = `(dimensions+padding)^3 * 分量数`，顺序按 X→Y→Z；瓦片世界坐标 = `(tile + (voxel+0.5)/dimPaddedNoPadding) * 2^-level`（归一化体积）。
+  - 该案例验证范式（SwiftShader 无头渲染体光线步进极慢）：用 `/tmp/opencode/verify_mass_voxel*.mjs`，先切预设到 `128³` 且采样点数降到 4000、关闭剖切，轮询「已加载瓦片」>0 后再截图；`page.screenshot` 超时需放宽到 ≥150s；用「显示体元素 / 启用剖切」开关或 `pickVoxel`（`.pick-panel`）确认体元素确实渲染，比像素 diff 可靠。
+  - Worker 生产端的 CPU 热点是逐体素 K 近邻：`BUCKET_DIM=16→32` 可略降耗时（585 个 34³ 瓦片全量约 108s/Node，单瓦片 ~108ms），真实浏览器按屏幕误差只请求可见 LOD，不会全量抽取；把最近邻回退拆到冷路径 `queryNearest`、避免在热循环里做无条件最近点跟踪。
+
+[Project Knowledge Summary]
 - Date: 2026-09-08
 - Context: Discovered by Agent while delivering V6.23 可视化大屏模块（datav 分类 + demo0 样板屏；参考 SC-DATAV demos0-3 平移，后续 demo1~3 同此约定）
 - Category: Environment Configuration

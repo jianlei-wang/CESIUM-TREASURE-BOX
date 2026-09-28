@@ -5078,6 +5078,45 @@ https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer
 - 三个案例卡片显示新图标；`barrier-lake-cesium` 科普弹窗内容与重构前一致（7 个小节、2 个表格）。
 - `vue-tsc` 类型检查与 Vite 生产构建通过。
 
+### V2.12 新增「高性能海量体元素渲染」案例与覆盖/面板布局修复
+
+**目标**：新增数据可视化分类案例「数据可视化-高性能海量体元素渲染」（`point-voxel-mass`），并修复其体元素未覆盖点云数据域、左侧剖切/图例与右侧控制面板在小视口下互相重叠两个问题。
+
+**实施内容**：
+
+1. 案例结构：新增 `src/cases/point-voxel-mass/`，含 `index.ts`（`id: 'point-voxel-mass'`、`category: 'data'`、无专用 icon）、`MassVoxelDemo.vue`、`voxel-worker-source.ts`。运行 `npm run sync`（285 条）与 `npm run case-list` 重新生成清单。
+2. Worker 重建管线：`voxel-worker-source.ts` 内以纯 TypedArray 的 CSR 扁平空间哈希对采样点建索引，环形 K 近邻搜索 + 反距离加权（IDW）插值，空体素冷路径回退到最近邻，随后可分离高斯平滑；按 `(tileLevel,tileX,tileY,tileZ)` 输出 `(tileSize+2)³` 带 1 层 padding 的瓦片元数据。
+3. 单图元渲染：`MassVoxelDemo.vue` 实现 `VoxelProvider`（`shape/dimensions/padding/minBounds/maxBounds/availableLevels/requestData`），交由单个 `VoxelPrimitive` 做 GPU 光线步进；开启 `requestRenderMode` 按需渲染，256×1 传递函数纹理经 `TextureUniform` + `SAMPLER_2D` 传入。
+4. dev 运行时修复：`TextureUniform` 未列入 `vite.config.ts` 的 `CESIUM_SYMBOLS` 白名单，dev 下会报 `does not provide an export named 'TextureUniform'`，已补加。
+5. 体元素覆盖修复：传递函数 alpha 由「低值全透明」改为「带基底平滑上升」——`alpha = floor + (1 - floor) * smoothstep(t)`（`floor = 0.32`），使低值体元素仍有可见不透明度，从而完整覆盖点云所在数据域；高值继续抬升至不透明以突出异常体。
+6. 面板布局修复：将左上「剖切面预览」与左下「图例/数据说明」合并为单一 `.left-stack` 纵向弹性列（`top/left/bottom` 约束 + `overflow-y: auto`，子面板 `pointer-events: auto`），二者不再互相覆盖；控制面板宽度改为 `min(272px, calc(100% - 24px))`，并新增收起/展开按钮与 `.panel-restore`，通过 `ResizeObserver` 测量容器宽度，窄视口（`< 620px`）默认收起，避免与左侧面板重叠。
+7. 参数变更粒度：采样点数/随机种子/预设触发 `rebuild()`；K、搜索半径、幂次、平滑等只调用 `reloadTiles()` 重抽瓦片。
+
+### 验证标准
+
+- `npx vue-tsc -b --force` 与 `npm run build` 均退出码 0，案例运行无 pageerror。
+- 剖切预览在默认方位角 45°/倾角 0°/偏移 24% 下呈现完整横截面色带（有效像素占比约 0.35），而非仅有异常团块。
+- 在 311×599、420×720、800×600、1280×800 四种视口下，剖切/图例/控制面板两两包围盒交叠面积均为 0；窄视口默认收起控制面板并显示「控制面板」恢复按钮，点击可展开。
+- 左侧面板高度不足时由 `.left-stack` 统一滚动，图例保留最小高度 160px 不被压缩为细条。
+
+### V2.13 体元素覆盖参数化、面板瘦身与案例图标
+
+**目标**：将体元素覆盖效果开放为可调参数，移除图例中的长说明文字以消除滚动条，并为案例卡片配置上传图标。
+
+**实施内容**：
+
+1. 覆盖参数：`buildLut(index, alphaFloor)` 增加基底不透明度入参，新增 `DEFAULT_COVERAGE = 0.32` 与 `coverage` 状态，抽出 `refreshLut()` 统一重建传递函数纹理、刷新点云配色与剖切预览；新增「覆盖基底」滑块（0–0.9），`onCoverageChange` 实时生效，不触发瓦片重算。
+2. 图例瘦身：移除左下角「Worker 生成离散点 → CSR 空间哈希 → …」说明段落及其 `.legend-note` 样式，压缩图例标题/说明/统计行间距，并将剖切预览画布由 170×170 调整为 160×160；图例在常规视口下不再出现内部滚动条。
+3. 案例图标：上传的 `image-1` 按项目图标规范（宽度 300、等比缩放）生成 `src/cases/point-voxel-mass/icon.webp`（300×146），`index.ts` 以 `import icon from './icon.webp'` 写入 `icon` 字段，运行 `npm run sync` 与 `npm run case-list` 重新生成清单。
+4. 案例描述同步补充「覆盖基底」参数。
+
+### 验证标准
+
+- 「覆盖基底」为 0 时剖切预览仅显示异常团块（有效像素占比约 0.08），调大后完整覆盖横截面（约 0.35）。
+- 图例面板 `scrollHeight ≤ clientHeight`，无内部滚动条。
+- 案例卡片缩略图正常显示上传图标。
+- `vue-tsc` 类型检查与 Vite 生产构建通过，运行无 pageerror。
+
 ## 后续迭代记录方式
 
 每次系统迭代按以下顺序追加内容：

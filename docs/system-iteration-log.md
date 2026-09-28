@@ -5117,6 +5117,31 @@ https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer
 - 案例卡片缩略图正常显示上传图标。
 - `vue-tsc` 类型检查与 Vite 生产构建通过，运行无 pageerror。
 
+### V2.14 体元素第一批 Volume Engine 基准（5 个体渲染案例）
+
+**目标**：把体元素渲染沉淀为可复用的 Volume Engine 底座，并据此一次性交付 5 个完整体渲染案例：三维气象雷达回波体、三维 PM2.5 浓度体、三维风场向量体、三维地层属性体、CFD 多物理场体。案例按用户要求不配置图标。
+
+**实施内容**：
+
+1. 共享底座 `src/lib/volume-engine/`：
+   - `palette.ts`：`PALETTES` 色带库（通用科学色带 + radar/aqi/wind/thermal/porosity/permeability/saturation 业务色带）、CPU 端 256 级 RGBA 传递函数 `buildTransferLut(paletteKey,{alphaFloor,alphaGamma,threshold,alphaMax})`、图例 CSS 渐变 `gradientCss`、岩性分类色板。
+   - `scenes.ts`：`SCENES: Record<SceneKind, SceneSpec>`（`radar|pm25|wind|geology|cfd`），声明体域范围、变量通道（含单位/量程/色带/模式/阈值分档）、时间步、分类色板、向量参数与默认渲染参数。
+   - `volume-worker-source.ts`：内联 Worker 源码，承担全部 CPU 密集计算——按场景解析式生成 dBZ/PM2.5/风速与垂直速度/地层岩性与孔隙率渗透率饱和度/CFD 速度压力温度场，并负责瓦片抽取、任意平面剖切采样与向量场粒子平流；使用 `mulberry32` 保证确定性，TypedArray 经 Transferable 零拷贝回传。
+   - `voxel.ts`：`createVolumeProvider` 封装 `VoxelProvider`（`names:['color']`、VEC4/FLOAT32、`(tileSize+2)³` 带 1 层 padding）、`makeLutTexture`、标量/分类两套 `CustomShader` 与分类色板纹理。
+   - `VolumeEngine.ts`：主线程控制器，统一编排 Cesium 场景、Worker、`VoxelPrimitive`、传递函数、任意方向剖切平面、剖切面采样、体素拾取、向量粒子、时间步与分辨率预设；提供 `setChannel/setPalette/setOpacity/setAlphaFloor/setValueRange/setThreshold/setSse/setStepSize/setNearest/setVolumeVisible/setPreset/setParams/rebuild/reloadTiles/setClip/updateClipPlane/requestSlice/setParticlesVisible/addSurfacePoints` 等接口。
+   - `VolumeShell.vue`：通用版式外壳（右上控制面板、左上剖切预览、左下剖切参数与图例、左下角体素拾取浮层、窄视口自动收起）。
+   - `VolumeCase.vue`：以 `SceneSpec` 驱动的通用案例组件，内置变量切换、LOD 预设、传递函数色带、值域/不透明度/覆盖基底/阈值、光线步长/屏幕误差/最近邻、任意方向剖切、时间轴与向量粒子等公共交互，并通过 `extra-controls / extra-legend / extra-actions` 槽暴露领域扩展。
+2. 5 个案例目录（均 `category: 'data'`、不配 icon）：`volume-radar`、`volume-pm25`、`volume-wind`、`volume-geology`、`volume-cfd`，各自 `index.ts` + 主 `.vue`，仅补充领域交互——雷达的对流单体数与风移、PM2.5 的监测站点叠加与空气质量分级、风场的基础风速与涡旋数、地层的起伏与侵入体规模、CFD 的入射风速与热源温度。
+3. 元数据显隐约定：标量瓦片 `.r=数值/.g=有效`，分类瓦片 `.r=分类码/.g=有效`；分类通道经 `uCategoryLut` 纹理映射颜色。所有场景（含地层）均支持任意方向剖切。
+4. 运行 `npm run sync`（290 条）与 `npm run case-list` 重新生成 `src/cases/manifest.ts` 与 `CASE_LIST.md`。
+
+**验证标准**：
+
+- `npx vue-tsc -b --force` 与 `npm run build` 均退出码 0。
+- 5 个案例均可从首页搜索进入，状态行以 `✓` 结尾（128³ 等效分辨率、16³/瓦片、4 级 LOD），运行无 pageerror。
+- 每个案例的剖切预览 canvas 均渲染出有效像素（雷达约 0.096、风场约 0.083、地层约 0.202、CFD 约 0.081、PM2.5 低浓度区约 0.005），图例渐变正常，统计行完整。
+- 风场与 CFD 默认开启向量粒子且可关闭/再开启；多变量案例切换通道后色带与图例随之更新。
+
 ## 后续迭代记录方式
 
 每次系统迭代按以下顺序追加内容：

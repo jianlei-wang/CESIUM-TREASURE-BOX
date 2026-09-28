@@ -25,6 +25,15 @@ import {
 /** H3 最细分辨率。 */
 const MAX_H3_RESOLUTION = 15
 
+/** H3 分辨率 0 的平均边长（米）。 */
+const H3_EDGE_LENGTH_RES0 = 1107712.591
+/** Web Mercator zoom 0 在赤道处的地面分辨率（米 / 像素）。 */
+const MERCATOR_METERS_PER_PIXEL_Z0 = 156543.03392
+/** 自动分辨率目标：让六边形在屏幕上的边长稳定在约 48 px（恒定屏幕密度）。 */
+const H3_TARGET_EDGE_PIXELS = 48
+/** 相邻分辨率的边长比 = sqrt(7)（孔径 7），其以 2 为底的对数。 */
+const H3_EDGE_LEVEL_LOG2 = Math.log2(Math.sqrt(7))
+
 /**
  * H3 投影所依据的二十面体，以加密大圆边线的 GeoJSON 描述。插件首次添加图层时由
  * MapLibre 拉取；离线时叠加层保持为空。
@@ -107,10 +116,16 @@ function h3CellFeature(cell: string): Feature<Polygon> {
 }
 
 /**
- * 自动分辨率规则：缩放每加一级约前进一个分辨率，缩放 3 时归零，并夹取到合法范围。
+ * 自动分辨率规则：按恒定屏幕密度选级——由当前 Web Mercator 近似缩放反算理想分辨率，
+ * 使六边形在屏幕上的边长稳定在约 `H3_TARGET_EDGE_PIXELS` 像素，再取整并夹取到合法范围。
  */
 function h3ResolutionForZoom(zoom: number): number {
-  return Math.min(MAX_H3_RESOLUTION, Math.max(0, Math.floor((zoom - 3) * 0.9)))
+  const ideal =
+    (zoom +
+      Math.log2(H3_EDGE_LENGTH_RES0 / MERCATOR_METERS_PER_PIXEL_Z0) -
+      Math.log2(H3_TARGET_EDGE_PIXELS)) /
+    H3_EDGE_LEVEL_LOG2
+  return Math.min(MAX_H3_RESOLUTION, Math.max(0, Math.round(ideal)))
 }
 
 /** 标签最小缩放：避免全球视图下数千个 ID 相互重叠。 */

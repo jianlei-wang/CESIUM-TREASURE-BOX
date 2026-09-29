@@ -152,6 +152,9 @@ import icon_map_google from './map-google/icon.webp'
 import icon_map_tdt from './map-tdt/icon.webp'
 import icon_map_tencent from './map-tencent/icon.webp'
 import icon_mass_cubes from './mass-cubes/icon.webp'
+import icon_mass_dynamic_lines from './mass-dynamic-lines/icon.webp'
+import icon_mass_dynamic_points from './mass-dynamic-points/icon.webp'
+import icon_mass_dynamic_polygons from './mass-dynamic-polygons/icon.webp'
 import icon_mass_lines from './mass-lines/icon.webp'
 import icon_mass_point_cluster from './mass-point-cluster/icon.webp'
 import icon_mass_polygons from './mass-polygons/icon.webp'
@@ -440,6 +443,9 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'map-tdt': () => import('./map-tdt/index.ts'),
   'map-tencent': () => import('./map-tencent/index.ts'),
   'mass-cubes': () => import('./mass-cubes/index.ts'),
+  'mass-dynamic-lines': () => import('./mass-dynamic-lines/index.ts'),
+  'mass-dynamic-points': () => import('./mass-dynamic-points/index.ts'),
+  'mass-dynamic-polygons': () => import('./mass-dynamic-polygons/index.ts'),
   'mass-lines': () => import('./mass-lines/index.ts'),
   'mass-point-cluster': () => import('./mass-point-cluster/index.ts'),
   'mass-polygons': () => import('./mass-polygons/index.ts'),
@@ -732,6 +738,9 @@ export const demos: CaseMeta[] = [
   { id: "map-tdt", title: "天地图底图", category: "scene", description: "天地图矢量地图与影像+注记两套方案，Key 手动输入后按参数加载底图", tag: "地图底图", icon: icon_map_tdt, available: true },
   { id: "map-tencent", title: "腾讯地图底图", category: "scene", description: "腾讯电子地图与卫星影像两套方案，支持 GCJ02/WGS84 坐标系切换", tag: "地图底图", icon: icon_map_tencent, available: true },
   { id: "mass-cubes", title: "数据可视化-海量立方体", category: "data", description: "Primitive 实例化十万级至百万级随机立方体加载渲染", tag: "海量渲染", icon: icon_mass_cubes, available: true },
+  { id: "mass-dynamic-lines", title: "数据可视化-海量动态线", category: "data", description: "浮点纹理流式承载十万级随机线段，两端位置每 50ms 更新一次并在 GPU 双缓冲插值，按屏幕空间展开恒定像素宽度四边形，单次 DrawCall 渲染全部线，支持数量/线宽/线段长度/更新频率/速度/颜色等参数调整", tag: "海量数据", icon: icon_mass_dynamic_lines, updatedAt: "2026-09-29", available: true },
+  { id: "mass-dynamic-points", title: "数据可视化-海量动态点", category: "data", description: "浮点纹理流式承载十万级随机点数据，位置每 50ms 更新一次并在 GPU 双缓冲插值，以屏幕空间点精灵单次 DrawCall 渲染全部点，支持数量/点大小/更新频率/速度/颜色等参数调整", tag: "海量数据", icon: icon_mass_dynamic_points, updatedAt: "2026-09-29", available: true },
+  { id: "mass-dynamic-polygons", title: "数据可视化-海量动态多边形", category: "data", description: "浮点纹理流式承载十万级随机面数据，位置每 50ms 更新一次并在 GPU 双缓冲插值，单次 DrawCall 渲染全部多边形，支持数量/形状/更新频率/速度/颜色等参数调整", tag: "海量数据", icon: icon_mass_dynamic_polygons, updatedAt: "2026-09-29", available: true },
   { id: "mass-lines", title: "数据可视化-海量不规则线", category: "data", description: "Primitive 批量实例加载十万乃至百万级不规则线，支持数量、随机范围、线宽、透明度与颜色模式等参数调整", tag: "海量数据", icon: icon_mass_lines, updatedAt: "2026-08-28", available: true },
   { id: "mass-point-cluster", title: "数据可视化-海量点实时聚合", category: "data", description: "Web Worker 屏幕空间网格聚合，PointPrimitiveCollection 散点与 BillboardCollection 聚合图标双集合渲染，聚合图标内嵌数量并随聚合点数对数放大，支持 10 万~50 万点实时聚合、点击拾取与双击飞行展开", tag: "海量数据", icon: icon_mass_point_cluster, updatedAt: "2026-09-16", available: true },
   { id: "mass-polygons", title: "数据可视化-海量不规则多边形", category: "data", description: "Primitive 批量实例加载十万乃至百万级不规则多边形，支持数量、形状、随机范围、高度、透明度与颜色模式等参数调整", tag: "海量数据", icon: icon_mass_polygons, updatedAt: "2026-08-28", available: true },

@@ -7,20 +7,23 @@
  */
 import type { PickedView, StatItem } from './types'
 
-const props = defineProps<{
-  title: string
-  status: string
-  panelOpen: boolean
-  legendCss?: string
-  legendMin?: string
-  legendMax?: string
-  stats?: StatItem[]
-  clipRows?: StatItem[]
-  showClipPanel?: boolean
-  hasSlice?: boolean
-  sliceSize?: number
-  picked?: PickedView | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    title: string
+    status: string
+    panelOpen: boolean
+    legendCss?: string
+    legendMin?: string
+    legendMax?: string
+    stats?: StatItem[]
+    clipRows?: StatItem[]
+    showClipPanel?: boolean
+    hasSlice?: boolean
+    sliceSize?: number
+    picked?: PickedView | null
+  }>(),
+  { showClipPanel: true }
+)
 
 const emit = defineEmits<{
   (e: 'toggle-panel'): void
@@ -35,7 +38,7 @@ const okStatus = () => props.status.startsWith('✓')
     <slot name="scene"></slot>
 
     <div class="vol-left">
-      <div v-if="props.showClipPanel !== false" class="vol-panel vol-clip">
+      <div v-if="props.showClipPanel" class="vol-panel vol-clip">
         <div class="vol-panel-title">剖切面预览</div>
         <div class="vol-slice-wrap">
           <slot name="slice"></slot>

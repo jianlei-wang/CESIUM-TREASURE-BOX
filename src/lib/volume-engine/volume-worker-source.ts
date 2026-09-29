@@ -28,6 +28,7 @@ self.onmessage = function (event) {
     case 'slice': handleSlice(message); break;
     case 'particleInit': handleParticleInit(message); break;
     case 'particleTick': handleParticleTick(message); break;
+    case 'analyze': handleAnalyze(message); break;
     case 'dispose': particleState = null; ctx = null; break;
     default: break;
   }

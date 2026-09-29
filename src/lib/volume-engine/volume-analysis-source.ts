@@ -258,8 +258,8 @@ function analyzeSection(message, tn) {
   var e1 = message.e1;
   var e2 = message.e2;
   var half = message.halfDiag;
-  var volMin = message.volMin;
-  var volSize = message.volSize;
+  var volMin = message.volMin || [0, 0, 0];
+  var volSize = message.volSize || [1, 1, 1];
   var scale = message.vectorScale || 1;
   var points = [];
   var offsets = [0];
@@ -309,43 +309,64 @@ function analyzeSection(message, tn) {
   return { result: result, transfer: transferList([posArr, offArr, speedArr]) };
 }
 
+function directionAt(nx, ny, nz, tn, volSize) {
+  var v = analysisVectorAt(nx, ny, nz, tn);
+  if (v.solid) return null;
+  var x = v.ux / volSize[0];
+  var y = v.uy / volSize[1];
+  var z = v.uz / volSize[2];
+  var l = Math.sqrt(x * x + y * y + z * z);
+  if (l < 1e-7) return null;
+  return { x: x / l, y: y / l, z: z / l, speed: Math.sqrt(v.ux * v.ux + v.uy * v.uy + v.uz * v.uz) };
+}
+
+function streamlineSeed(rand) {
+  if (sceneKind === 'cfd') {
+    // 入口释放：+X 来流面近地高度带，贴近真实风洞入口布种
+    return { x: 0.015 + 0.02 * rand(), y: 0.05 + 0.9 * rand(), z: 0.02 + 0.34 * rand() };
+  }
+  if (sceneKind === 'wind') {
+    return { x: 0.04 + 0.92 * rand(), y: 0.04 + 0.92 * rand(), z: 0.04 + 0.22 * rand() };
+  }
+  return { x: 0.04 + 0.92 * rand(), y: 0.04 + 0.92 * rand(), z: 0.04 + 0.5 * rand() };
+}
+
 function analyzeStreamlines(message, tn) {
-  var seedCount = message.seeds || 140;
-  var steps = message.steps || 150;
-  var step = message.step || 0.012;
+  var seedCount = message.seeds || 160;
+  var steps = message.steps || 220;
+  var step = message.step || 0.006;
   var channel = message.channel;
-  var volMin = message.volMin;
-  var volSize = message.volSize;
+  var volMin = message.volMin || [0, 0, 0];
+  var volSize = message.volSize || [1, 1, 1];
   var rand = mulberry32((params.seed || 1) + 4519 + Math.round(tn * 1000));
   var points = [];
   var offsets = [0];
   var speeds = [];
   for (var sIdx = 0; sIdx < seedCount; sIdx += 1) {
-    var nx = 0.04 + 0.92 * rand();
-    var ny = 0.04 + 0.92 * rand();
-    var nz = 0.04 + (sceneKind === 'wind' ? 0.22 : 0.5) * rand();
+    var seed = streamlineSeed(rand);
+    var nx = seed.x;
+    var ny = seed.y;
+    var nz = seed.z;
     var lineStart = points.length / 3;
     for (var s = 0; s < steps; s += 1) {
-      var vec = analysisVectorAt(nx, ny, nz, tn);
-      if (vec.solid) break;
-      var speed = Math.sqrt(vec.ux * vec.ux + vec.uy * vec.uy + vec.uz * vec.uz);
-      if (speed < 0.05) break;
-      var nvx = vec.ux / volSize[0];
-      var nvy = vec.uy / volSize[1];
-      var nvz = vec.uz / volSize[2];
-      var nl = Math.sqrt(nvx * nvx + nvy * nvy + nvz * nvz) || 1;
-      var mx = nx + (nvx / nl) * step * 0.5;
-      var my = ny + (nvy / nl) * step * 0.5;
-      var mz = nz + (nvz / nl) * step * 0.5;
-      var vec2 = analysisVectorAt(mx, my, mz, tn);
-      var sp2 = Math.sqrt(vec2.ux * vec2.ux + vec2.uy * vec2.uy + vec2.uz * vec2.uz) || 1;
-      nx += ((vec2.ux / volSize[0]) / (Math.sqrt((vec2.ux / volSize[0]) * (vec2.ux / volSize[0]) + (vec2.uy / volSize[1]) * (vec2.uy / volSize[1]) + (vec2.uz / volSize[2]) * (vec2.uz / volSize[2])) || 1)) * step;
-      ny += ((vec2.uy / volSize[1]) / (Math.sqrt((vec2.ux / volSize[0]) * (vec2.ux / volSize[0]) + (vec2.uy / volSize[1]) * (vec2.uy / volSize[1]) + (vec2.uz / volSize[2]) * (vec2.uz / volSize[2])) || 1)) * step;
-      nz += ((vec2.uz / volSize[2]) / (Math.sqrt((vec2.ux / volSize[0]) * (vec2.ux / volSize[0]) + (vec2.uy / volSize[1]) * (vec2.uy / volSize[1]) + (vec2.uz / volSize[2]) * (vec2.uz / volSize[2])) || 1)) * step;
+      var d1 = directionAt(nx, ny, nz, tn, volSize);
+      if (!d1) break;
+      var h = step;
+      // RK4：四个斜率估计，步长按归一化弧长
+      var a = directionAt(nx + d1.x * h * 0.5, ny + d1.y * h * 0.5, nz + d1.z * h * 0.5, tn, volSize) || d1;
+      var b = directionAt(nx + a.x * h * 0.5, ny + a.y * h * 0.5, nz + a.z * h * 0.5, tn, volSize) || a;
+      var c = directionAt(nx + b.x * h, ny + b.y * h, nz + b.z * h, tn, volSize) || b;
+      var dx = (d1.x + 2 * a.x + 2 * b.x + c.x) / 6;
+      var dy = (d1.y + 2 * a.y + 2 * b.y + c.y) / 6;
+      var dz = (d1.z + 2 * a.z + 2 * b.z + c.z) / 6;
+      var dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      nx += (dx / dl) * h;
+      ny += (dy / dl) * h;
+      nz += (dz / dl) * h;
       if (nx < 0 || nx > 1 || ny < 0 || ny > 1 || nz < 0 || nz > 1) break;
       points.push(volMin[0] + nx * volSize[0], volMin[1] + ny * volSize[1], volMin[2] + nz * volSize[2]);
-      speeds.push(sp2);
-      if (sp2 < 0.05) break;
+      speeds.push(d1.speed);
+      if (d1.speed < 0.05) break;
     }
     var lineEnd = points.length / 3;
     if (lineEnd - lineStart >= 2) offsets.push(lineEnd);
@@ -358,62 +379,98 @@ function analyzeStreamlines(message, tn) {
   return { result: result, transfer: transferList([posArr, offArr, speedArr]) };
 }
 
-function isoEdge(a, b, va, vb, iso, out) {
+function isoEdge(a, b, va, vb, na, nb, iso, pos, nrm) {
   var t = (iso - va) / ((vb - va) || 1e-9);
   if (t < 0) t = 0; else if (t > 1) t = 1;
-  out.push(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
+  pos.push(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
+  var gx = na[0] + (nb[0] - na[0]) * t;
+  var gy = na[1] + (nb[1] - na[1]) * t;
+  var gz = na[2] + (nb[2] - na[2]) * t;
+  var gl = Math.sqrt(gx * gx + gy * gy + gz * gz) || 1;
+  nrm.push(gx / gl, gy / gl, gz / gl);
 }
 
-function isoCrossing(p, v, iso, out) {
+function isoCrossing(p, v, g, iso, pos, nrm) {
   var ins = [];
   var outs = [];
   for (var i = 0; i < 4; i += 1) { if (v[i] > iso) ins.push(i); else outs.push(i); }
   if (ins.length === 0 || ins.length === 4) return false;
   if (ins.length === 1) {
     var a = ins[0];
-    isoEdge(p[a], p[outs[0]], v[a], v[outs[0]], iso, out);
-    isoEdge(p[a], p[outs[1]], v[a], v[outs[1]], iso, out);
-    isoEdge(p[a], p[outs[2]], v[a], v[outs[2]], iso, out);
+    isoEdge(p[a], p[outs[0]], v[a], v[outs[0]], g[a], g[outs[0]], iso, pos, nrm);
+    isoEdge(p[a], p[outs[1]], v[a], v[outs[1]], g[a], g[outs[1]], iso, pos, nrm);
+    isoEdge(p[a], p[outs[2]], v[a], v[outs[2]], g[a], g[outs[2]], iso, pos, nrm);
     return true;
   }
   if (ins.length === 3) {
     var d = outs[0];
-    isoEdge(p[d], p[ins[0]], v[d], v[ins[0]], iso, out);
-    isoEdge(p[d], p[ins[1]], v[d], v[ins[1]], iso, out);
-    isoEdge(p[d], p[ins[2]], v[d], v[ins[2]], iso, out);
+    isoEdge(p[d], p[ins[0]], v[d], v[ins[0]], g[d], g[ins[0]], iso, pos, nrm);
+    isoEdge(p[d], p[ins[1]], v[d], v[ins[1]], g[d], g[ins[1]], iso, pos, nrm);
+    isoEdge(p[d], p[ins[2]], v[d], v[ins[2]], g[d], g[ins[2]], iso, pos, nrm);
     return true;
   }
   var i0 = ins[0], i1 = ins[1], o0 = outs[0], o1 = outs[1];
-  isoEdge(p[i0], p[o0], v[i0], v[o0], iso, out);
-  isoEdge(p[o0], p[i1], v[o0], v[i1], iso, out);
-  isoEdge(p[i1], p[o1], v[i1], v[o1], iso, out);
-  isoEdge(p[o1], p[i0], v[o1], v[i0], iso, out);
+  isoEdge(p[i0], p[o0], v[i0], v[o0], g[i0], g[o0], iso, pos, nrm);
+  isoEdge(p[o0], p[i1], v[o0], v[i1], g[o0], g[i1], iso, pos, nrm);
+  isoEdge(p[i1], p[o1], v[i1], v[o1], g[i1], g[o1], iso, pos, nrm);
+  isoEdge(p[o1], p[i0], v[o1], v[i0], g[o1], g[i0], iso, pos, nrm);
   return true;
 }
 
 function analyzeIsoSurface(message, tn) {
   var channel = message.channel;
   var iso = message.iso != null ? message.iso : 35;
-  var volSize = message.volSize;
-  var res = message.res || 36;
-  var maxDim = Math.max(volSize[0], volSize[1], volSize[2]);
-  var cell = maxDim / res;
-  var nx = Math.max(3, Math.round(volSize[0] / cell));
-  var ny = Math.max(3, Math.round(volSize[1] / cell));
-  var nz = Math.max(3, Math.round(volSize[2] / cell));
+  var volSize = message.volSize || [1, 1, 1];
+  var base = message.res || 64;
+  // XY 采用基础分辨率，Z 依据体域高宽比独立取值并保底，消除垂向欠采样
+  var nx = Math.max(4, base);
+  var ny = Math.max(4, base);
+  var ratio = volSize[2] / Math.max(volSize[0], volSize[1]);
+  var nz = Math.max(10, Math.round(base * ratio));
   var nodeCount = (nx + 1) * (ny + 1) * (nz + 1);
   var grid = new Float32Array(nodeCount);
+  function nodeIndex(i, j, k) { return ((k * (ny + 1)) + j) * (nx + 1) + i; }
   for (var k = 0; k <= nz; k += 1) {
     var z = k / nz;
     for (var j = 0; j <= ny; j += 1) {
       var y = j / ny;
       for (var i = 0; i <= nx; i += 1) {
         var s = sampleField(i / nx, y, z, tn, channel);
-        grid[((k * (ny + 1)) + j) * (nx + 1) + i] = s.valid ? s.value : -99999;
+        grid[nodeIndex(i, j, k)] = s.valid ? s.value : -99999;
       }
     }
   }
-  function nodeIndex(i, j, k) { return ((k * (ny + 1)) + j) * (nx + 1) + i; }
+  // 物理空间中心差分梯度，作为各网格节点的法线（供着色平滑与法线插值）
+  var gnx = new Float32Array(nodeCount);
+  var gny = new Float32Array(nodeCount);
+  var gnz = new Float32Array(nodeCount);
+  var sx = volSize[0] / nx;
+  var sy = volSize[1] / ny;
+  var sz = volSize[2] / nz;
+  for (var gk = 0; gk <= nz; gk += 1) {
+    for (var gj = 0; gj <= ny; gj += 1) {
+      for (var gi = 0; gi <= nx; gi += 1) {
+        var idx = nodeIndex(gi, gj, gk);
+        var c = grid[idx];
+        if (c <= -90000) continue;
+        var im = gi > 0 ? gi - 1 : gi;
+        var ip = gi < nx ? gi + 1 : gi;
+        var jm = gj > 0 ? gj - 1 : gj;
+        var jp = gj < ny ? gj + 1 : gj;
+        var km = gk > 0 ? gk - 1 : gk;
+        var kp = gk < nz ? gk + 1 : gk;
+        var vx = grid[nodeIndex(ip, gj, gk)];
+        var vxm = grid[nodeIndex(im, gj, gk)];
+        var vy = grid[nodeIndex(gi, jp, gk)];
+        var vym = grid[nodeIndex(gi, jm, gk)];
+        var vz = grid[nodeIndex(gi, gj, kp)];
+        var vzm = grid[nodeIndex(gi, gj, km)];
+        if (vx > -90000 && vxm > -90000) gnx[idx] = (vx - vxm) / ((ip - im) * sx);
+        if (vy > -90000 && vym > -90000) gny[idx] = (vy - vym) / ((jp - jm) * sy);
+        if (vz > -90000 && vzm > -90000) gnz[idx] = (vz - vzm) / ((kp - km) * sz);
+      }
+    }
+  }
   var positions = [];
   var normals = [];
   var cor = [
@@ -424,36 +481,34 @@ function analyzeIsoSurface(message, tn) {
     [0, 5, 1, 6], [0, 1, 2, 6], [0, 2, 3, 6],
     [0, 3, 7, 6], [0, 7, 4, 6], [0, 4, 5, 6]
   ];
-  var poly = [];
   for (var ck = 0; ck < nz; ck += 1) {
     for (var cj = 0; cj < ny; cj += 1) {
       for (var ci = 0; ci < nx; ci += 1) {
         var cp = [];
         var cv = [];
+        var cg = [];
         for (var cIdx = 0; cIdx < 8; cIdx += 1) {
           var o = cor[cIdx];
           cp.push([(ci + o[0]) / nx, (cj + o[1]) / ny, (ck + o[2]) / nz]);
-          cv.push(grid[nodeIndex(ci + o[0], cj + o[1], ck + o[2])]);
+          var nd = nodeIndex(ci + o[0], cj + o[1], ck + o[2]);
+          cv.push(grid[nd]);
+          cg.push([gnx[nd], gny[nd], gnz[nd]]);
         }
         for (var t = 0; t < 6; t += 1) {
           var tet = tets[t];
-          poly.length = 0;
+          var pos = [];
+          var nrm = [];
           if (!isoCrossing([cp[tet[0]], cp[tet[1]], cp[tet[2]], cp[tet[3]]],
-            [cv[tet[0]], cv[tet[1]], cv[tet[2]], cv[tet[3]]], iso, poly)) continue;
-          var pn = poly.length / 3;
+            [cv[tet[0]], cv[tet[1]], cv[tet[2]], cv[tet[3]]],
+            [cg[tet[0]], cg[tet[1]], cg[tet[2]], cg[tet[3]]], iso, pos, nrm)) continue;
+          var pn = pos.length / 3;
           for (var tri = 1; tri < pn - 1; tri += 1) {
-            var ax = poly[0], ay = poly[1], az = poly[2];
-            var bx = poly[(tri) * 3], by = poly[(tri) * 3 + 1], bz = poly[(tri) * 3 + 2];
-            var cxx = poly[(tri + 1) * 3], cyy = poly[(tri + 1) * 3 + 1], czz = poly[(tri + 1) * 3 + 2];
-            var ux = bx - ax, uy = by - ay, uz = bz - az;
-            var vx = cxx - ax, vy = cyy - ay, vz = czz - az;
-            var nxx = uy * vz - uz * vy;
-            var nyy = uz * vx - ux * vz;
-            var nzz = ux * vy - uy * vx;
-            var nl = Math.sqrt(nxx * nxx + nyy * nyy + nzz * nzz) || 1;
-            nxx /= nl; nyy /= nl; nzz /= nl;
-            positions.push(ax, ay, az, bx, by, bz, cxx, cyy, czz);
-            normals.push(nxx, nyy, nzz, nxx, nyy, nzz, nxx, nyy, nzz);
+            positions.push(pos[0], pos[1], pos[2],
+              pos[tri * 3], pos[tri * 3 + 1], pos[tri * 3 + 2],
+              pos[(tri + 1) * 3], pos[(tri + 1) * 3 + 1], pos[(tri + 1) * 3 + 2]);
+            normals.push(nrm[0], nrm[1], nrm[2],
+              nrm[tri * 3], nrm[tri * 3 + 1], nrm[tri * 3 + 2],
+              nrm[(tri + 1) * 3], nrm[(tri + 1) * 3 + 1], nrm[(tri + 1) * 3 + 2]);
           }
         }
       }
@@ -461,8 +516,84 @@ function analyzeIsoSurface(message, tn) {
   }
   var posArr = new Float32Array(positions);
   var normArr = new Float32Array(normals);
-  var result = { positions: posArr, normals: normArr, count: positions.length / 9, res: res };
+  var result = { positions: posArr, normals: normArr, count: positions.length / 9, res: base, nz: nz };
   return { result: result, transfer: transferList([posArr, normArr]) };
+}
+
+function analyzeCfd(message, tn) {
+  var N = message.res || 40;
+  var inflow = params.inflow != null ? params.inflow : 6;
+  var ambient = params.ambientTemp != null ? params.ambientTemp : 300;
+  var sourceTemp = params.sourceTemp != null ? params.sourceTemp : 320;
+  var deltaT = Math.max(1e-3, sourceTemp - ambient);
+  var volSize = message.volSize || [1, 1, 1];
+  var speedSum = 0;
+  var speedCount = 0;
+  var speedMax = 0;
+  var speeds = new Float32Array(N * N * N);
+  var pMin = Infinity;
+  var pMax = -Infinity;
+  var tMax = ambient;
+  var plumeTop = 0;
+  var wakeMax = 0;
+  var bHeight = 0.3;
+  var boxes = ctx.buildings;
+  var refX = 0.5;
+  if (boxes.length) {
+    bHeight = 0;
+    for (var bi = 0; bi < boxes.length; bi += 1) {
+      if (boxes[bi].z1 > bHeight) bHeight = boxes[bi].z1;
+      refX = Math.min(refX, boxes[bi].x1);
+    }
+  }
+  for (var iz = 0; iz < N; iz += 1) {
+    var z = (iz + 0.5) / N;
+    for (var iy = 0; iy < N; iy += 1) {
+      var y = (iy + 0.5) / N;
+      for (var ix = 0; ix < N; ix += 1) {
+        var x = (ix + 0.5) / N;
+        if (cfdSolid(x, y, z)) continue;
+        var v = cfdVector(x, y, z, tn);
+        var sp = Math.sqrt(v.ux * v.ux + v.uy * v.uy + v.uz * v.uz);
+        speeds[speedCount] = sp;
+        speedCount += 1;
+        speedSum += sp;
+        if (sp > speedMax) speedMax = sp;
+        var p = 2.4 * (v.ref * v.ref - sp * sp);
+        if (p < -120) p = -120; else if (p > 120) p = 120;
+        if (p < pMin) pMin = p;
+        if (p > pMax) pMax = p;
+        var tp = cfdTemperature(x, y, z, tn);
+        if (tp > tMax) tMax = tp;
+        if (tp > ambient + 0.25 * deltaT && z > plumeTop) plumeTop = z;
+        // 尾流长度：顺风向速度恢复距离，以建筑高度归一
+        if (x > refX && Math.abs(y - 0.5) < 0.14 && z < bHeight) {
+          if (sp < 0.55 * Math.max(inflow, 0.1)) {
+            var len = (x - refX) * volSize[0];
+            if (len > wakeMax) wakeMax = len;
+          }
+        }
+      }
+    }
+  }
+  if (!speedCount) { pMin = 0; pMax = 0; }
+  var bHeightM = Math.max(1, bHeight * volSize[2]);
+  var result = {
+    inflow: inflow,
+    meanSpeed: speedCount ? speedSum / speedCount : 0,
+    maxSpeed: speedMax,
+    p95Speed: percentile(speeds, speedCount, 0.95),
+    pressureMin: pMin === Infinity ? 0 : pMin,
+    pressureMax: pMax === -Infinity ? 0 : pMax,
+    maxTemp: tMax,
+    overheat: tMax - ambient,
+    plumeTopM: plumeTop * volSize[2],
+    wakeLengthM: wakeMax,
+    wakeRatio: wakeMax / bHeightM,
+    buildingHeightM: bHeightM,
+    sampleCount: speedCount
+  };
+  return { result: result, transfer: [] };
 }
 
 function handleAnalyze(message) {
@@ -475,6 +606,7 @@ function handleAnalyze(message) {
   else if (message.mode === 'section') out = analyzeSection(message, tn);
   else if (message.mode === 'streamlines') out = analyzeStreamlines(message, tn);
   else if (message.mode === 'isosurface') out = analyzeIsoSurface(message, tn);
+  else if (message.mode === 'cfd') out = analyzeCfd(message, tn);
   else out = { result: {}, transfer: [] };
   self.postMessage(
     { type: 'analysisDone', epoch: message.epoch, requestId: message.requestId, mode: message.mode, result: out.result },

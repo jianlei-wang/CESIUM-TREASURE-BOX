@@ -21,6 +21,8 @@ import { channelOf, type SceneSpec } from './scenes'
 export type VolumeSceneOptions = {
   /** 覆盖 SceneSpec.params */
   params?: Record<string, number>
+  /** 工程几何包围盒（归一化体域坐标，每 5 个数一组 x0,x1,y0,y1,z1） */
+  geometry?: number[]
   tileSize?: number
   levels?: number
   particleFlow?: number
@@ -166,7 +168,7 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
           options.onStations?.(stations, instance)
         }
       },
-      { params: options.params, tileSize: options.tileSize, levels: options.levels, particleFlow: options.particleFlow }
+      { params: options.params, geometry: options.geometry, tileSize: options.tileSize, levels: options.levels, particleFlow: options.particleFlow }
     )
     engine.value = instance
     void instance.start()

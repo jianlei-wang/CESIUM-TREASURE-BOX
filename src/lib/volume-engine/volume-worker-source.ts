@@ -18,6 +18,7 @@ let sceneKind = '';
 let params = {};
 let ctx = null;
 let particleState = null;
+let geometry = null;
 
 self.onmessage = function (event) {
   const message = event.data;
@@ -125,11 +126,22 @@ function prepare(kind, p) {
     };
   }
   if (kind === 'cfd') {
-    return {
-      kind,
-      box: { x0: 0.34, x1: 0.66, y0: 0.3, y1: 0.7, z1: 0.55 },
-      source: { x: 0.3, y: 0.5 }
-    };
+    const boxes = [];
+    const on = p.obstacle == null ? true : p.obstacle > 0.5;
+    if (on && geometry && geometry.length >= 5) {
+      for (let i = 0; i + 4 < geometry.length; i += 5) {
+        boxes.push({
+          x0: geometry[i],
+          x1: geometry[i + 1],
+          y0: geometry[i + 2],
+          y1: geometry[i + 3],
+          z1: geometry[i + 4]
+        });
+      }
+    }
+    const sx = p.sourceX != null ? p.sourceX : 0.5;
+    const sy = p.sourceY != null ? p.sourceY : 0.5;
+    return { kind, buildings: boxes, source: { x: sx, y: sy } };
   }
   return { kind };
 }
@@ -138,6 +150,7 @@ function handleInit(message) {
   const started = performance.now();
   sceneKind = message.scene;
   params = message.params || {};
+  geometry = message.geometry || null;
   ctx = prepare(sceneKind, params);
   const extra = { buildTime: performance.now() - started };
   if (sceneKind === 'pm25') {
@@ -295,59 +308,118 @@ function geoProperty(nx, ny, nz, code, channel) {
   return clamp(Math.pow(10, base.perm + shift), 0.1, 1000);
 }
 
+function cfdSolid(nx, ny, nz) {
+  if (nz < 0) return true;
+  const boxes = ctx.buildings;
+  for (let i = 0; i < boxes.length; i += 1) {
+    const b = boxes[i];
+    if (nx >= b.x0 && nx <= b.x1 && ny >= b.y0 && ny <= b.y1 && nz <= b.z1) return true;
+  }
+  return false;
+}
+
+// 大气边界层风廓线：幂律，近地面 0.55 倍，高空趋于 1
+function cfdShear(nz) {
+  const zM = Math.max(nz, 0) * 300;
+  const s = Math.pow(Math.max(zM, 1) / 60, 0.16);
+  return 0.55 + 0.45 * Math.min(s, 1.6);
+}
+
 function cfdVector(nx, ny, nz, tn) {
   const inflow = params.inflow != null ? params.inflow : 6;
-  const b = ctx.box;
   const phase = tn * 6.283;
-  let ux = inflow;
+  const ref = Math.max(0.2, inflow * cfdShear(nz));
+  let ux = ref;
   let uy = 0;
   let uz = 0;
-  const inBox = nx > b.x0 && nx < b.x1 && ny > b.y0 && ny < b.y1 && nz < b.z1;
-  if (inBox) return { ux: 0, uy: 0, uz: 0, solid: 1 };
-  const nearFront = Math.exp(-Math.pow((nx - b.x0) / 0.09, 2)) * (ny > b.y0 - 0.08 && ny < b.y1 + 0.08 ? 1 : 0.3) * smoothstep(0, b.z1, nz) * (1 - smoothstep(b.z1, b.z1 + 0.15, nz));
-  ux *= 1 - 0.55 * nearFront;
-  const over = nx > b.x0 - 0.05 && nx < b.x1 + 0.12 && ny > b.y0 - 0.06 && ny < b.y1 + 0.06 && nz > b.z1 && nz < b.z1 + 0.35 ? 1.5 : 1;
-  ux *= over;
-  if (nx > b.x1) {
-    const edge = Math.exp(-Math.pow((nz - b.z1 * 0.5) / 0.35, 2));
-    const wd = Math.exp(-(nx - b.x1) / 0.22) * edge;
-    ux *= 1 - 0.78 * wd;
-    uy += Math.sin((nx - b.x1) * 14 + phase) * inflow * 0.18 * wd;
-    uz += 0.6 * inflow * 0.12 * Math.sin((nx - b.x1) * 10 + phase + 1.0) * wd;
+  let turb = 0;
+  const boxes = ctx.buildings;
+  for (let i = 0; i < boxes.length; i += 1) {
+    const b = boxes[i];
+    const hcx = (b.x0 + b.x1) * 0.5;
+    const hcy = (b.y0 + b.y1) * 0.5;
+    const hx = (b.x1 - b.x0) * 0.5 + 0.012;
+    const hy = (b.y1 - b.y0) * 0.5 + 0.012;
+    if (nz > b.z1 + 0.42) continue;
+    const spanY = Math.exp(-Math.pow((ny - hcy) / (hy * 1.7), 2));
+    const hEff = Math.max(b.z1, 0.05);
+    const spanZ = Math.exp(-Math.pow((nz - hEff * 0.55) / (hEff * 0.7 + 0.06), 2));
+    // 迎风滞止区：减速并抬升
+    const front = nx - b.x0;
+    if (front < 0.03 && front > -0.2) {
+      const stag = Math.exp(-Math.pow(front / 0.055, 2));
+      ux -= ref * 0.6 * stag * spanY * spanZ;
+    }
+    // 侧向绕流：沿建筑高度层向两侧加速
+    const lateral = Math.exp(-Math.pow((Math.abs(ny - hcy) - hy) / (hy * 0.9 + 0.03), 2));
+    uy += (ny >= hcy ? 1 : -1) * ref * 0.55 * lateral * spanZ * Math.exp(-Math.pow((nx - hcx) / (hx * 2.6), 2));
+    // 顶部越流
+    if (nz > b.z1 && nz < b.z1 + 0.35) {
+      const over = Math.exp(-Math.pow((nz - b.z1) / 0.1, 2)) * spanY;
+      ux += ref * 0.55 * over;
+      uz += ref * 0.14 * over;
+    }
+    // 尾流：速度亏损 + 卡门涡街横向摆动
+    if (nx > b.x1) {
+      const s = nx - b.x1;
+      const decay = Math.exp(-s / 0.4);
+      const wY = Math.exp(-Math.pow((ny - hcy) / (hy * 1.8), 2));
+      const wZ = Math.exp(-Math.pow((nz - hEff * 0.5) / (hEff * 0.8 + 0.07), 2));
+      const shed = Math.sin(phase + s * 20 + i * 1.7);
+      ux -= ref * 1.55 * decay * wY * wZ;
+      uy += ref * 0.4 * decay * wY * wZ * shed;
+      uz += ref * 0.1 * decay * wY * wZ * Math.sin(s * 14 + phase + i);
+      turb += decay * wY * wZ;
+    }
   }
-  const sideBand = Math.exp(-Math.pow((ny - 0.5) / 0.5, 2));
-  if (nx > b.x0 - 0.1 && nx < b.x1 + 0.15 && nz < b.z1 + 0.1) {
-    const sign = ny >= 0.5 ? 1 : -1;
-    uy += sign * (1 - sideBand) * inflow * 0.35 * Math.exp(-Math.pow((nx - 0.5) / 0.25, 2));
+  const amp = Math.min(0.4, turb) * ref;
+  if (amp > 0.001) {
+    ux += amp * 0.12 * Math.sin(nx * 21 + nz * 17 + phase);
+    uy += amp * 0.13 * Math.cos(ny * 19 + nz * 15 + phase * 0.9);
+    uz += amp * 0.1 * Math.sin((nx + ny) * 17 + phase) * (0.4 + nz);
   }
-  ux += 0.14 * inflow * Math.sin(nx * 11 + nz * 9 + phase);
-  uy += 0.14 * inflow * Math.cos(ny * 12 + nz * 8 + phase * 0.8);
-  uz += 0.1 * inflow * Math.sin((nx + ny) * 9 + phase * 1.3) * (0.3 + nz);
-  return { ux, uy, uz, solid: 0 };
+  return { ux, uy, uz, solid: 0, ref };
+}
+
+function cfdPressure(nx, ny, nz, tn, ref) {
+  const v = cfdVector(nx, ny, nz, tn);
+  const speed2 = v.ux * v.ux + v.uy * v.uy + v.uz * v.uz;
+  return clamp(2.4 * (ref * ref - speed2), -120, 120);
+}
+
+function cfdTemperature(nx, ny, nz, tn) {
+  const ambient = params.ambientTemp != null ? params.ambientTemp : 300;
+  const sourceTemp = params.sourceTemp != null ? params.sourceTemp : 320;
+  const heat = params.heat != null ? params.heat : 1;
+  const inflow = params.inflow != null ? params.inflow : 6;
+  const deltaT = Math.max(0, sourceTemp - ambient);
+  if (deltaT <= 0 || heat <= 0) return ambient;
+  const src = ctx.source;
+  const dx = nx - src.x;
+  if (dx < -0.03) return ambient;
+  const s = Math.max(dx, 0);
+  // 浮升高度：热强度越大越高，强来流把羽流压弯
+  const zTop = clamp((0.5 * heat) / (1 + Math.max(0, inflow - 6) / 10), 0.08, 0.62);
+  const zc = zTop * (1 - Math.exp(-s * 3.2));
+  const yc = src.y + 0.03 * Math.sin(s * 9 + tn * 6.283);
+  const sigmaY = 0.045 + 0.24 * s;
+  const sigmaZ = 0.04 + 0.11 * s + 0.05 * heat;
+  const gy = Math.exp(-Math.pow((ny - yc) / sigmaY, 2));
+  const gz = Math.exp(-Math.pow((nz - zc) / sigmaZ, 2));
+  const decay = Math.exp(-s * 0.9);
+  const near = Math.exp(-Math.pow(dx / 0.04, 2)) * Math.exp(-Math.pow((ny - src.y) / 0.05, 2)) * Math.exp(-Math.pow(nz / 0.05, 2));
+  const core = Math.max(near, gy * gz * decay);
+  const temporal = 0.85 + 0.15 * Math.sin(tn * 6.283);
+  return clamp(ambient + deltaT * heat * core * temporal, ambient - 20, ambient + 60);
 }
 
 function cfdValue(nx, ny, nz, tn, channel) {
+  if (cfdSolid(nx, ny, nz)) return { value: 0, valid: 0 };
   const v = cfdVector(nx, ny, nz, tn);
-  if (v.solid) return { value: 0, valid: 0 };
-  if (channel === 'pressure') {
-    const b = ctx.box;
-    const front = 90 * Math.exp(-Math.pow((nx - (b.x0 - 0.03)) / 0.06, 2)) * (ny > b.y0 - 0.1 && ny < b.y1 + 0.1 ? 1 : 0.25);
-    const wake = -70 * Math.exp(-(nx - b.x1) / 0.3) * (nx > b.x1 ? 1 : 0) * Math.exp(-Math.pow((nz - b.z1 * 0.6) / 0.4, 2));
-    return { value: clamp(front + wake, -120, 120), valid: 1 };
-  }
-  if (channel === 'temperature') {
-    const b = ctx.box;
-    const src = ctx.source;
-    const dx = nx - src.x;
-    const dy = ny - src.y;
-    const stream = dx + (nz * 0.6);
-    const core = Math.exp(-(dy * dy) / (2 * 0.06 * 0.06)) * Math.exp(-(Math.max(stream, 0) * Math.max(stream, 0)) / (2 * 0.16 * 0.16));
-    const rise = Math.exp(-Math.pow((nz - 0.08 - 0.5 * Math.max(stream, 0)) / 0.12, 2));
-    const t = 300 + (params.sourceTemp || 320 - 300) * core * rise * (0.8 + 0.2 * Math.sin(tn * 6.283));
-    return { value: clamp(t, 280, 340), valid: 1 };
-  }
+  if (channel === 'temperature') return { value: cfdTemperature(nx, ny, nz, tn), valid: 1 };
+  if (channel === 'pressure') return { value: cfdPressure(nx, ny, nz, tn, v.ref), valid: 1 };
   const speed = Math.sqrt(v.ux * v.ux + v.uy * v.uy + v.uz * v.uz);
-  return { value: clamp(speed, 0, 15), valid: 1 };
+  return { value: clamp(speed, 0, 20), valid: 1 };
 }
 
 /* ------------------------------------------------------------------ *
@@ -460,27 +532,43 @@ function handleSlice(message) {
  * 向量场粒子
  * ------------------------------------------------------------------ */
 
+// CFD 入口释放：粒子从 +X 来流面进入，仅覆盖近地来流高度带
+function cfdInletSeed(rand, state, i) {
+  state.positions[i * 3] = 0.012 + 0.018 * rand();
+  state.positions[i * 3 + 1] = 0.05 + 0.9 * rand();
+  state.positions[i * 3 + 2] = 0.02 + 0.3 * rand();
+}
+
 function handleParticleInit(message) {
   const count = Math.max(1, message.count);
   const rand = mulberry32((params.seed || 1) + 977);
   const positions = new Float32Array(count * 3);
   const ages = new Float32Array(count);
   const lives = new Float32Array(count);
+  const state = { count, positions, ages, lives };
   for (let i = 0; i < count; i += 1) {
-    positions[i * 3] = rand();
-    positions[i * 3 + 1] = rand();
-    positions[i * 3 + 2] = 0.02 + 0.9 * rand();
+    if (sceneKind === 'cfd') {
+      cfdInletSeed(rand, state, i);
+    } else {
+      positions[i * 3] = rand();
+      positions[i * 3 + 1] = rand();
+      positions[i * 3 + 2] = 0.02 + 0.9 * rand();
+    }
     ages[i] = rand() * 2.5;
     lives[i] = 2 + 2.5 * rand();
   }
-  particleState = { count, positions, ages, lives };
+  particleState = state;
   self.postMessage({ type: 'particleDone', count });
 }
 
 function respawn(state, i, rand) {
-  state.positions[i * 3] = rand() * 0.15;
-  state.positions[i * 3 + 1] = rand();
-  state.positions[i * 3 + 2] = 0.02 + 0.9 * rand();
+  if (sceneKind === 'cfd') {
+    cfdInletSeed(rand, state, i);
+  } else {
+    state.positions[i * 3] = rand() * 0.15;
+    state.positions[i * 3 + 1] = rand();
+    state.positions[i * 3 + 2] = 0.02 + 0.9 * rand();
+  }
   state.ages[i] = 0;
   state.lives[i] = 2 + 2.5 * rand();
 }

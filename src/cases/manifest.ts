@@ -255,6 +255,7 @@ import icon_video_plane from './video-plane/icon.webp'
 import icon_video_projection from './video-projection/icon.webp'
 import icon_viewshed from './viewshed/icon.webp'
 import icon_volcano_three from './volcano-three/icon.webp'
+import icon_volume_cfd from './volume-cfd/icon.webp'
 import icon_volume_cloud from './volume-cloud/icon.webp'
 import icon_voxel_strata from './voxel-strata/icon.jpg'
 import icon_wake_three from './wake-three/icon.webp'
@@ -842,7 +843,7 @@ export const demos: CaseMeta[] = [
   { id: "video-projection", title: "数据可视化-实时视频投影融合", category: "data", description: "依据摄像头内外参数实时求解视锥体与地形裁切面，以全屏后处理将视频纹理投影到真实地形表面，支持单路视频投影与多路视频融合叠加，视锥体线框、裁切边界、边缘羽化与深度羽化参数实时可调", tag: "视频投影", icon: icon_video_projection, updatedAt: "2026-09-12", available: true },
   { id: "viewshed", title: "空间分析-可视域分析", category: "analysis", description: "采用阴影映射的球面可视域分析，支持近/远截面、水平/垂直夹角、方向旋转与阴影分辨率等参数", tag: "空间分析", icon: icon_viewshed, updatedAt: "2026-08-27", available: true },
   { id: "volcano-three", title: "VFX 火山喷发", category: "particles", description: "程序化生成带放射状冲沟与锥体噪声的火山地形，顶部为碗状火山口与脉动熔岩湖，数条熔岩流沿冲沟自火山口向下延伸。喷口位于真实火山口内，分层叠加高速熔岩喷泉、受风切变弯曲的灰烬柱、顶部扩散的伞状灰羽、抛物线飞溅的暗色岩块与高空沉降落灰；随时间累积的灰烬毯逐渐覆盖锥体并向外铺展形成灰烬掩埋。熔岩量/速度/尺寸、灰烬量/寿命/体积、风切变、岩块量/重力、熔岩辉光与灰烬掩埋程度均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 地质", icon: icon_volcano_three, updatedAt: "2026-09-20", available: true },
-  { id: "volume-cfd", title: "工程可视化-CFD 多物理场体", category: "data", description: "把 CFD 单场表达升级为压力、速度、温度三变量联合体：Web Worker 以绕方块障碍物的势流近似解析生成三维多物理场，经多级瓦片 VoxelProvider 供给单个 VoxelPrimitive 做 GPU 光线步进，障碍物内部体素自动标记为无效。支持速度 / 压力 / 温度多变量切换与相适配色带、速度阈值分级（3/6/9 m/s）、值域与不透明度调节、任意方向剖切与切面导出、入射风速与热源温度调节、GPU 粒子流线与时间演化、屏幕误差与光线步长、最近邻采样，以及悬浮拾取各场数值。", tag: "CFD 体渲染", updatedAt: "2026-09-28", available: true },
+  { id: "volume-cfd", title: "工程仿真-CFD 多物理场体可视化", category: "data", description: "面向工程仿真的三维多物理场工作台：以程序化街区建筑白模为工程骨架，速度 / 压力 / 温度三场由同一解析流场模型一致生成，经多级瓦片 VoxelProvider 供给单个 VoxelPrimitive 做 GPU 光线步进，建筑内部体素自动标记为无效。支持迎风驻点高压、绕流加速、尾流回压低谷、热源热羽随流输运的联合表达，叠加仿真域、入口 / 出口边界、主风向与工程标注；提供 KPI 指标卡（来流 / 平均 / 峰值风速、压力极值、最高温度、超温区、热羽高度、尾流长度）、四组相机预设、速度 / 压力 / 温度多场切换、正负压双等值面、流线 / 粒子 / 剖面箭头三种向量表达、任意方向剖切、入射风速与热源温度调节与时间演化回放。", tag: "CFD 工程工作台", icon: icon_volume_cfd, updatedAt: "2026-09-29", available: true },
   { id: "volume-cloud", title: "空间分析-体积云效果", category: "effects", description: "采用光线步进的球面体积云后处理，支持云层高度/厚度/覆盖率/密度、高云、光照、相位与大气透视等参数实时调节", tag: "空间分析", icon: icon_volume_cloud, updatedAt: "2026-08-27", available: true },
   { id: "volume-geology", title: "地质可视化-三维地层属性体", category: "data", description: "在层状地层体素基础上扩展连续属性通道：Web Worker 按层状接触面与侵入体解析生成 6 类岩性分类体，并派生出孔隙率、渗透率、饱和度三套工程属性场，经多级瓦片 VoxelProvider 交给单个 VoxelPrimitive 渲染。支持岩性（分类色板）与属性（连续色带）双通道切换、地层起伏幅度与侵入体规模调节、任意方向剖切与切面导出、属性值域与不透明度调节、最近邻采样、屏幕误差与光线步长，以及悬浮拾取岩性分类或属性数值。", tag: "地层体渲染", updatedAt: "2026-09-28", available: true },
   { id: "volume-pm25", title: "环境可视化-三维 PM2.5 浓度体", category: "data", description: "把地面监测、气象场与模拟浓度组合成三维污染浓度体：Web Worker 以高斯烟羽模型沿风向解析生成浓度场，经多级瓦片 VoxelProvider 供给单个 VoxelPrimitive 做 GPU 光线步进，支持 PM2.5 / PM10 / NO₂ 多变量切换、空气质量色带与国标分级阈值（35/75/115/150/250）、浓度值域、不透明度、覆盖基底、任意方向剖切与切面导出、时间轴逐小时回放、污染源数量与风向调节，并在地表叠加以浓度着色的监测站点，支持悬浮拾取浓度与站点显隐。", tag: "污染体渲染", updatedAt: "2026-09-28", available: true },

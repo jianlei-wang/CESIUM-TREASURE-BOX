@@ -125,6 +125,8 @@ Entries discovered by the Agent during task execution should follow this format:
   - 给带 `heightReference` 的 polygon entity 动态更新 `hierarchy` 时，`GroundGeometryUpdater` 会创建 `TerrainOffsetProperty` 并调用 `PolygonGeometryUpdater._computeCenter` 计算质心；当 hierarchy 只有 1~2 个点或含重复点时面积退化产生 NaN，抛 `cartesian has a NaN component`。预览面应仅当顶点数 ≥3 且预览点与最后采集点不重复时才 `setValue` hierarchy。
   - 点击事件时序：MOUSE_MOVE 先于 LEFT_CLICK 触发，点击瞬间 `lastPreviewPos` 与刚采集的顶点位置重合，构建预览点位数组前需按 `Cartesian3.equals` 去重。
   - 实体显示开关的正确实现：实体始终创建、开关只切换 `show` 属性（如 `vertexEntities` 存实体引用、`watch(showX)` 统一 `point.show = ...`），不要依赖创建时机的条件判断。
+  - `Cesium.Primitive.modelMatrix` 在 `scene3DOnly` 且仅一个 geometryInstance 时会被 `PrimitivePipeline.transformToWorldCoordinates` **原地改写**（`Matrix4.multiplyTransformation(primitiveModelMatrix, instanceModelMatrix, primitiveModelMatrix)`，把实例平移乘进去）。切勿把共享的规范矩阵（如 `engine.getModelMatrix()` 的返回值）直接赋给它，必须 `Matrix4.clone(...)`；否则矩阵被污染，表现为体块与几何框错位、切换通道重建 primitive 后错位放大。
+  - `PolylineCollection.destroy()` 会逐条 polyline 调 `material.destroy()`；多条折线**共用同一个 `Material` 实例**时，`Viewer.destroy()` 第二次销毁会抛 `DeveloperError`，中断销毁链并使 `CesiumWidget._onTick` 读 `_dataSourceDisplay` 崩溃（返回列表白屏）。每条折线必须各自 `Material.fromType(...)`，不能复用材质对象。
 
 [User Instruction Summary]
 - Date: 2026-08-26

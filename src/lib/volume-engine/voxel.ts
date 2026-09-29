@@ -90,7 +90,7 @@ export function makeLutTexture(lut: Uint8Array): TextureUniform {
 
 const SHADING = `
   float ndotl = max(dot(normalize(fsInput.attributes.normalEC), normalize(vec3(0.3, 0.5, 0.8))), 0.0);
-  float shade = mix(1.0, 0.6 + 0.4 * ndotl, uShading);
+  float shade = mix(1.0, 0.56 + 0.44 * ndotl, uLighting);
 `
 
 /** 标量体着色器：VEC4 元数据 .r=数值、.g=有效掩膜，经传递函数纹理映射颜色与透明度 */
@@ -101,7 +101,11 @@ export function createScalarShader(initialLut: Uint8Array): CustomShader {
       uValueMin: { type: UniformType.FLOAT, value: 0 },
       uValueMax: { type: UniformType.FLOAT, value: 1 },
       uOpacity: { type: UniformType.FLOAT, value: 0.85 },
-      uShading: { type: UniformType.FLOAT, value: 0.45 }
+      uLighting: { type: UniformType.FLOAT, value: 0.45 },
+      /** 不透明度幂次压缩：>1 更集中于高值，避免低值糊成一片 */
+      uDensityGamma: { type: UniformType.FLOAT, value: 1.0 },
+      /** 低端软阈值宽度（归一化 0~1），用于柔和裁切 */
+      uThresholdSoft: { type: UniformType.FLOAT, value: 0.0 }
     },
     fragmentShaderText: `
       void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
@@ -113,8 +117,10 @@ export function createScalarShader(initialLut: Uint8Array): CustomShader {
         if (valid > 0.5) {
           float t = clamp((value - uValueMin) / max(0.000001, uValueMax - uValueMin), 0.0, 1.0);
           vec4 c = texture(uTransferFunction, vec2(t, 0.5));
+          float ramp = pow(clamp(c.a, 0.0, 1.0), max(0.05, uDensityGamma));
+          float gate = uThresholdSoft > 0.0001 ? smoothstep(0.0, uThresholdSoft, t) : 1.0;
           color = c.rgb;
-          alpha = uOpacity * c.a;
+          alpha = uOpacity * ramp * gate;
         }
         ${SHADING}
         material.diffuse = color * shade;
@@ -143,7 +149,7 @@ export function createCategoricalShader(categories: { code: number; color: [numb
     uniforms: {
       uCategoryLut: { type: UniformType.SAMPLER_2D, value: makeLutTexture(buildCategoryLut(categories)) },
       uOpacity: { type: UniformType.FLOAT, value: 0.9 },
-      uShading: { type: UniformType.FLOAT, value: 0.4 }
+      uLighting: { type: UniformType.FLOAT, value: 0.4 }
     },
     fragmentShaderText: `
       void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {

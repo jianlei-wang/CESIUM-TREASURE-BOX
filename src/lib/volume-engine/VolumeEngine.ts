@@ -33,6 +33,7 @@ import {
   Transforms,
   VoxelPrimitive,
   Math as CesiumMath,
+  type ImageryLayer,
   type PointPrimitive,
   type Polyline,
   type Viewer
@@ -120,6 +121,20 @@ export type EngineOptions = {
   particleFlow?: number
   /** 覆盖 SceneSpec.params 的场景生成参数 */
   params?: Record<string, number>
+  /** 场景工程几何：扁平化的归一化包围盒数组 [x0,x1,y0,y1,z1, ...]（CFD 建筑等） */
+  geometry?: number[]
+}
+
+/** 相机预设类型：工程总览 / 入口视角 / 顶视分析 / 尾流视角 */
+export type CameraPreset = 'overview' | 'inlet' | 'top' | 'wake'
+
+export type BackgroundMode = 'engineering' | 'satellite' | 'dim'
+
+/** 通用体渲染着色参数 */
+export type RenderParams = {
+  densityGamma?: number
+  thresholdSoft?: number
+  lighting?: number
 }
 
 type ClipState = { enabled: boolean; azimuth: number; tilt: number; offset: number; flip: boolean }
@@ -168,12 +183,18 @@ export class VolumeEngine {
   private primitive: VoxelPrimitive | undefined
   private clipCollection: ClippingPlaneCollection | undefined
   private handler: ScreenSpaceEventHandler | undefined
+  private imageryLayer: ImageryLayer | undefined
+  private sceneGeometry: number[] | undefined
+
+  private densityGamma = 1
+  private thresholdSoft = 0
+  private lighting = 0.45
 
   private analysisSeq = 0
   private pendingAnalysis = new Map<number, { resolve: (result: unknown) => void; reject: (error: Error) => void }>()
   private lineCollection: PolylineCollection | undefined
   private arrowCollection: PolylineCollection | undefined
-  private isoPrimitive: Primitive | undefined
+  private isoPrimitives = new Map<string, Primitive>()
   private markerCollection: PointPrimitiveCollection | undefined
 
   private bounds: Bounds
@@ -201,6 +222,7 @@ export class VolumeEngine {
     this.callbacks = callbacks
     this.options = options
     this.sceneParams = { ...spec.params, ...(options.params ?? {}) }
+    this.sceneGeometry = options.geometry ? [...options.geometry] : undefined
     this.channel = spec.defaultChannel
     this.tileSize = options.tileSize ?? spec.defaults.tileSize
     this.levels = options.levels ?? spec.defaults.levels
@@ -269,7 +291,9 @@ export class VolumeEngine {
         onStatus: (message) => this.callbacks.onStatus?.(message),
         onBasemapReady: () => this.callbacks.onStatus?.('')
       })
-      loadBingImagery(this.viewer, {})
+      loadBingImagery(this.viewer, {}, (layer) => {
+        this.imageryLayer = layer
+      })
       if (!this.viewer || this.viewer.isDestroyed()) return
       this.viewer.scene.requestRenderMode = true
       this.viewer.scene.maximumRenderTimeChange = Infinity
@@ -298,7 +322,13 @@ export class VolumeEngine {
   }
 
   private postInit(): void {
-    this.worker?.postMessage({ type: 'init', epoch: this.epoch, scene: this.spec.kind, params: { ...this.sceneParams } })
+    this.worker?.postMessage({
+      type: 'init',
+      epoch: this.epoch,
+      scene: this.spec.kind,
+      params: { ...this.sceneParams },
+      geometry: this.sceneGeometry ?? null
+    })
   }
 
   private onWorkerMessage(event: MessageEvent): void {
@@ -442,6 +472,7 @@ export class VolumeEngine {
     this.primitive = primitive
     this.refreshShader()
     this.refreshLut()
+    this.applyRenderParams()
   }
 
   private disposePrimitive(): void {
@@ -548,6 +579,24 @@ export class VolumeEngine {
     } else {
       this.shader.uniforms.uOpacity.value = this.opacity
     }
+  }
+
+  /** 通用体着色参数：密度压缩、低端软阈值、方向光照强度 */
+  setRenderParams(params: RenderParams): void {
+    if (params.densityGamma !== undefined) this.densityGamma = params.densityGamma
+    if (params.thresholdSoft !== undefined) this.thresholdSoft = params.thresholdSoft
+    if (params.lighting !== undefined) this.lighting = params.lighting
+    this.applyRenderParams()
+    this.viewer?.scene.requestRender()
+  }
+
+  private applyRenderParams(): void {
+    const shader = this.shader
+    if (!shader) return
+    if (shader.uniforms.uLighting) shader.uniforms.uLighting.value = this.lighting
+    if (this.shaderMode !== 'scalar') return
+    if (shader.uniforms.uDensityGamma) shader.uniforms.uDensityGamma.value = this.densityGamma
+    if (shader.uniforms.uThresholdSoft) shader.uniforms.uThresholdSoft.value = this.thresholdSoft
   }
 
   private refreshLut(): void {
@@ -767,7 +816,15 @@ export class VolumeEngine {
   /** 叠加折线 / 箭头（positions 为局部米坐标，offsets 为各折线起止索引） */
   setLines(
     result: LineOverlayResult | undefined,
-    options: { color?: string; width?: number; speedPalette?: string; speedMin?: number; speedMax?: number } = {}
+    options: {
+      color?: string
+      width?: number
+      speedPalette?: string
+      speedMin?: number
+      speedMax?: number
+      /** 沿线分段数（>1 时按局部速度逐段着色，形成沿线色变） */
+      segments?: number
+    } = {}
   ): void {
     const collection = this.ensureLineCollection()
     if (!collection) return
@@ -780,24 +837,46 @@ export class VolumeEngine {
     const min = options.speedMin ?? 0
     const max = options.speedMax ?? 1
     const fallback = Color.fromCssColorString(options.color ?? '#67e8f9')
+    const segments = Math.max(1, Math.min(40, Math.round(options.segments ?? 1)))
+    const colorAt = (speed: number): Color => {
+      if (!lut) return fallback
+      const t = clamp01((speed - min) / (max - min || 1))
+      const idx = Math.round(t * 255)
+      return new Color(lut[idx * 4] / 255, lut[idx * 4 + 1] / 255, lut[idx * 4 + 2] / 255, 0.95)
+    }
     const offsets = result.offsets
     for (let s = 0; s + 1 < offsets.length; s += 1) {
       const start = offsets[s]
       const end = offsets[s + 1]
-      if (end - start < 2) continue
-      const positions: Cartesian3[] = []
-      for (let i = start; i < end; i += 1) {
-        positions.push(new Cartesian3(result.positions[i * 3], result.positions[i * 3 + 1], result.positions[i * 3 + 2]))
+      const points = end - start
+      if (points < 2) continue
+      if (segments <= 1) {
+        const positions: Cartesian3[] = []
+        for (let i = start; i < end; i += 1) {
+          positions.push(new Cartesian3(result.positions[i * 3], result.positions[i * 3 + 1], result.positions[i * 3 + 2]))
+        }
+        collection.add({
+          positions,
+          material: Material.fromType('Color', { color: colorAt(result.speeds[start]) }),
+          width: options.width ?? 1.6
+        })
+        continue
       }
-      let material = Material.fromType('Color', { color: fallback })
-      if (lut) {
-        const t = clamp01((result.speeds[start] - min) / (max - min || 1))
-        const idx = Math.round(t * 255)
-        material = Material.fromType('Color', {
-          color: new Color(lut[idx * 4] / 255, lut[idx * 4 + 1] / 255, lut[idx * 4 + 2] / 255, 0.95)
+      const chunk = Math.max(1, Math.ceil((points - 1) / segments))
+      for (let c = 0; c < points - 1; c += chunk) {
+        const last = Math.min(points - 1, c + chunk)
+        const positions: Cartesian3[] = []
+        for (let i = c; i <= last; i += 1) {
+          const g = start + i
+          positions.push(new Cartesian3(result.positions[g * 3], result.positions[g * 3 + 1], result.positions[g * 3 + 2]))
+        }
+        if (positions.length < 2) continue
+        collection.add({
+          positions,
+          material: Material.fromType('Color', { color: colorAt(result.speeds[start + c]) }),
+          width: options.width ?? 1.6
         })
       }
-      collection.add({ positions, material, width: options.width ?? 1.6 })
     }
     this.viewer?.scene.requestRender()
   }
@@ -839,11 +918,22 @@ export class VolumeEngine {
     this.markerCollection = undefined
   }
 
-  /** 渲染等值面三角网（输入为归一化体域坐标 0~1，内部换算为局部米坐标） */
-  setIsosurface(positions: Float32Array, normals: Float32Array, color: [number, number, number], opacity = 0.6): void {
-    this.clearIsosurface()
+  /**
+   * 渲染等值面三角网（输入为归一化体域坐标 0~1，内部换算为局部米坐标）。
+   * 支持以 id 管理多张等值面（如压力正/负压面与温度等温面同时叠加）。
+   */
+  setIsosurface(
+    positions: Float32Array,
+    normals: Float32Array,
+    color: [number, number, number],
+    opacity = 0.6,
+    id = 'default'
+  ): void {
+    this.clearIsosurface(id)
     if (!this.viewer || this.viewer.isDestroyed() || !positions.length) return
-    const local = new Float32Array(positions.length)
+    // 位置必须用 DOUBLE：Cesium 仅在 DOUBLE 位置时通过 encodeAttribute 生成
+    // position3DHigh/position3DLow，而 PerInstanceColorAppearance 的顶点着色器要求该属性。
+    const local = new Float64Array(positions.length)
     const min = this.bounds.min
     const v = this.spec.volume
     for (let i = 0; i < positions.length; i += 3) {
@@ -853,7 +943,7 @@ export class VolumeEngine {
     }
     const attributes = {
       position: new GeometryAttribute({
-        componentDatatype: ComponentDatatype.FLOAT,
+        componentDatatype: ComponentDatatype.DOUBLE,
         componentsPerAttribute: 3,
         values: local
       })
@@ -879,18 +969,30 @@ export class VolumeEngine {
     const primitive = new Primitive({
       geometryInstances: instance,
       appearance: new PerInstanceColorAppearance({ translucent: true, closed: false, flat: normals.length !== positions.length }),
+      modelMatrix: Matrix4.clone(this.modelMatrix),
       asynchronous: false
     })
     this.viewer.scene.primitives.add(primitive)
-    this.isoPrimitive = primitive
+    this.isoPrimitives.set(id, primitive)
     this.viewer.scene.requestRender()
   }
 
-  clearIsosurface(): void {
-    if (this.isoPrimitive && this.viewer && !this.viewer.isDestroyed()) {
-      this.viewer.scene.primitives.remove(this.isoPrimitive)
+  /** 清除等值面：传入 id 只清除该张，省略则清除全部 */
+  clearIsosurface(id?: string): void {
+    if (!this.viewer || this.viewer.isDestroyed()) {
+      this.isoPrimitives.clear()
+      return
     }
-    this.isoPrimitive = undefined
+    if (id === undefined) {
+      this.isoPrimitives.forEach((primitive) => this.viewer?.scene.primitives.remove(primitive))
+      this.isoPrimitives.clear()
+      return
+    }
+    const primitive = this.isoPrimitives.get(id)
+    if (primitive) {
+      this.viewer.scene.primitives.remove(primitive)
+      this.isoPrimitives.delete(id)
+    }
   }
 
   /** 将归一化坐标（x/y 水平、z 垂直）换算为局部米坐标 */
@@ -1099,14 +1201,78 @@ export class VolumeEngine {
 
   /* ----------------------------- Camera ----------------------------- */
   resetCamera(duration: number): void {
+    this.flyToPreset('overview', duration)
+  }
+
+  /** 工程相机预设：总览 / 入口（沿主风向） / 顶视 / 尾流 */
+  flyToPreset(preset: CameraPreset, duration = 1): void {
     if (!this.viewer || this.viewer.isDestroyed()) return
-    const worldCenter = Matrix4.multiplyByPoint(this.modelMatrix, this.centerLocal, new Cartesian3())
     const v = this.spec.volume
-    const radius = 0.5 * Math.sqrt(v.width * v.width + v.depth * v.depth + v.height * v.height)
+    const worldCenter = Matrix4.multiplyByPoint(this.modelMatrix, this.centerLocal, new Cartesian3())
+    const diag2d = Math.hypot(v.width, v.depth)
+    const radius = 0.5 * Math.hypot(v.width, v.depth, v.height)
+    const table: Record<CameraPreset, { heading: number; pitch: number; range: number }> = {
+      overview: { heading: 35, pitch: -30, range: 1.02 * diag2d },
+      inlet: { heading: 90, pitch: -15, range: 0.78 * diag2d },
+      top: { heading: 0, pitch: -82, range: 0.98 * diag2d },
+      wake: { heading: 275, pitch: -22, range: 0.82 * diag2d }
+    }
+    const presetDef = table[preset]
     this.viewer.camera.flyToBoundingSphere(new BoundingSphere(worldCenter, radius), {
-      offset: new HeadingPitchRange(CesiumMath.toRadians(24), CesiumMath.toRadians(-32), radius * 2.1),
+      offset: new HeadingPitchRange(
+        CesiumMath.toRadians(presetDef.heading),
+        CesiumMath.toRadians(presetDef.pitch),
+        presetDef.range
+      ),
       duration
     })
+  }
+
+  /* ---------------------------- Scene hooks -------------------------- */
+
+  getViewer(): Viewer | undefined {
+    return this.viewer
+  }
+
+  getModelMatrix(): Matrix4 {
+    return Matrix4.clone(this.modelMatrix)
+  }
+
+  getBounds(): Bounds {
+    return this.bounds
+  }
+
+  /** 归一化体域坐标 → 世界坐标（供工程几何层叠加使用） */
+  worldFromNormalized(x: number, y: number, z: number): Cartesian3 {
+    return Matrix4.multiplyByPoint(this.modelMatrix, this.localFromNormalized(x, y, z), new Cartesian3())
+  }
+
+  requestRender(): void {
+    this.viewer?.scene.requestRender()
+  }
+
+  /** 工程底图模式：engineering 深色中性底 / satellite 弱化影像 / dim 极弱影像 */
+  setBackgroundMode(mode: BackgroundMode): void {
+    if (!this.viewer || this.viewer.isDestroyed()) return
+    const scene = this.viewer.scene
+    if (this.imageryLayer) {
+      this.imageryLayer.show = mode !== 'engineering'
+      this.imageryLayer.alpha = mode === 'satellite' ? 0.6 : mode === 'dim' ? 0.32 : 1
+    }
+    scene.globe.baseColor = Color.fromCssColorString(mode === 'engineering' ? '#0e1e2e' : '#152b4c')
+    scene.backgroundColor = Color.fromCssColorString(mode === 'engineering' ? '#0a1622' : '#000000')
+    scene.requestRender()
+  }
+
+  /** 兼容旧开关：开启＝工程深色底，关闭＝弱化影像 */
+  setEngineeringBackground(enabled: boolean): void {
+    this.setBackgroundMode(enabled ? 'engineering' : 'satellite')
+  }
+
+  /** 更新场景工程几何（归一化包围盒数组），并整体重建 */
+  setGeometry(geometry: number[] | undefined): void {
+    this.sceneGeometry = geometry ? [...geometry] : undefined
+    this.rebuild()
   }
 
   destroy(): void {

@@ -156,20 +156,29 @@ export const SCENES: Record<SceneKind, SceneSpec> = {
     title: '工程仿真-CFD 多物理场体可视化',
     tag: 'CFD / Multi-field',
     description:
-      '把 CFD 单场表达升级为压力、速度、温度三变量联合体，支持多变量切换、切片、阈值等值体、GPU 粒子流线与时间演化，可叠加街区障碍物几何。',
+      '面向工程仿真的三维多物理场工作台：以程序化街区建筑为工程骨架，速度 / 压力 / 温度三场由同一解析流场模型一致生成（迎风驻点高压、绕流加速、尾流回压低谷、热源热羽随流输运），叠加仿真域、入口 / 出口边界、主风向、入口粒子与流线、等值面、剖切与工程 KPI。',
     center: { lon: 116.39, lat: 39.91, height: 30 },
     volume: { width: 2000, depth: 2000, height: 300, base: 0 },
     channels: [
-      { key: 'speed', label: '速度', unit: 'm/s', min: 0, max: 15, palette: 'wind', mode: 'scalar', thresholds: [3, 6, 9], decimals: 2 },
+      { key: 'speed', label: '速度', unit: 'm/s', min: 0, max: 20, palette: 'wind', mode: 'scalar', thresholds: [4, 8, 12], decimals: 2 },
       { key: 'pressure', label: '压力', unit: 'Pa', min: -120, max: 120, palette: 'coolwarm', mode: 'scalar', decimals: 0 },
-      { key: 'temperature', label: '温度', unit: 'K', min: 280, max: 340, palette: 'thermal', mode: 'scalar', decimals: 1 }
+      { key: 'temperature', label: '温度', unit: 'K', min: 280, max: 360, palette: 'thermal', mode: 'scalar', decimals: 1 }
     ],
     defaultChannel: 'speed',
-    timeSteps: 10,
+    timeSteps: 12,
     timeStepUnit: 's',
-    vector: { label: '流场粒子', unit: 'm/s', min: 0, max: 15, palette: 'wind', defaultCount: 5000, defaultSize: 2 },
-    defaults: { tileSize: 16, levels: 4, sse: 12, stepSize: 1, nearest: false, opacity: 0.62, alphaFloor: 0.03 },
-    params: { seed: 20260928, inflow: 6, sourceTemp: 320, obstacle: 1 }
+    vector: { label: '流场粒子', unit: 'm/s', min: 0, max: 20, palette: 'wind', defaultCount: 4000, defaultSize: 3 },
+    defaults: { tileSize: 16, levels: 4, sse: 12, stepSize: 1, nearest: false, opacity: 0.6, alphaFloor: 0.03 },
+    params: {
+      seed: 20260928,
+      inflow: 6,
+      ambientTemp: 300,
+      sourceTemp: 320,
+      heat: 1,
+      sourceX: 0.22,
+      sourceY: 0.42,
+      obstacle: 1
+    }
   }
 }
 

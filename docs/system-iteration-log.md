@@ -5167,6 +5167,62 @@ https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer
 - 启用剖切后剖切预览 canvas 有效像素占比：雷达 0.096、风场 0.083、地层 0.202、CFD 0.081、PM2.5 低浓度区 0.005。
 - 领域分析按钮均可执行并回包：雷达回波顶高、PM2.5 超标体积、风场流线/层箭头、地层孔隙率属性统计、CFD 压力场/流线。
 
+### V2.16 海量动态多边形案例（浮点纹理 + GPU 双缓冲插值）
+
+**目标**：新增数据可视化分类案例「数据可视化-海量动态多边形」（`mass-dynamic-polygons`），随机生成 1 万以上面数据并按约 50ms 周期实时更新面位置，在保证渲染正确的同时具备优越性能；案例按用户要求不配置图标。
+
+**实施内容**：
+
+1. 案例结构：新增 `src/cases/mass-dynamic-polygons/`，含 `index.ts`（`id: 'mass-dynamic-polygons'`、`category: 'data'`、`tag: '海量数据'`、不配 icon）、`DynamicPolygonLayer.ts`（自定义 Primitive 渲染层）、`MassDynamicPolygonsDemo.vue`（控制面板与状态统计）。运行 `npm run sync`（291 条）与 `npm run case-list` 重新生成清单。
+2. 位置纹理方案：以 `Texture`（`PixelFormat.RGBA` / `PixelDatatype.FLOAT`，尺寸为 `ceil(sqrt(count))` 见方）双缓冲存储每个顶点的地理偏移，`copyFrom({ source: { width, height, arrayBufferView } })` 按周期整批上载；顶点着色器按 `mix(prevPos, currPos, u_mix)` 在 GPU 插值，`u_mix` 由「距上次上载的毫秒数 / interval」计算并 clamp 到 1。
+3. 单图元单 DrawCall：所有面合并为一份 `positions`（锚点）+ `st`（纹理坐标与顶点局部偏移，指向位置纹理单元与顶点序号）+ `colors`（顶点色）+ 索引缓冲，由一个 `DrawCommand`（`Pass.OPAQUE`、`PrimitiveType.TRIANGLES`、按 `count` 与顶点色）绘制；锚点经 `eastNorthUpToFixedFrame` 结合 ENU 偏移构造模型矩阵。
+4. 更新与重建分工：`setInterval` 每 interval ms 在 CPU 端按速度移动锚点并写入下一张位置纹理（ping-pong），下一帧 `flushUpload` 交换 `currentIndex`；结构参数（数量/形状/半径/区域边长/抬升/颜色模式/颜色）变化重建几何与纹理，动态参数（更新间隔/速度/暂停）调用 `setDynamic`，透明度调用 `setOpacity`，均不重建几何。
+5. 交互与统计：控制面板提供面数量（1 万/2 万/5 万/10 万）、面形状（三角形/四边形/五边形/混合）、更新间隔（20/50/100/200ms）、移动速度、暂停、面半径、区域边长、抬升、颜色模式（双色交替/单色/随机）、透明度与重新生成；状态行实时显示面数量、帧率、更新耗时与单次上载字节数。
+6. 生命周期：`onBeforeUnmount` 先销毁图层再销毁场景，避免上下文销毁后释放 GL 资源；图层销毁时移除 Primitive、停止定时器与统计循环并释放纹理。
+
+**验证标准**：
+
+- `npx vue-tsc -b --force` 与 `npm run build`（`vue-tsc -b && vite build`）均退出码 0。
+- 首页搜索可进入案例，Bing 底图与全部面正常渲染，运行无 pageerror 与着色器编译错误；默认 2 万面、10 万面时状态行分别显示约 20,022 / 100,172 个面，单次上载约 312.8KB / 1.53MB。
+- 暂停后连续两帧截图完全一致、恢复后连续两帧截图不同，证明位置更新仅在运行时发生；更新间隔 20/50/100/200ms、速度与暂停均实时生效。
+- 数量/形状/半径/区域/抬升/颜色/透明度调整后重建或即时生效，无报错。
+
+### V2.17 海量动态点与海量动态线案例（共享动态引擎抽取）
+
+**目标**：新增数据可视化分类案例「数据可视化-海量动态点」（`mass-dynamic-points`）与「数据可视化-海量动态线」（`mass-dynamic-lines`），分别实现 1 万以上点、线数据的实时位置更新，保证渲染正确与性能优越；两个案例均按用户要求不配置图标。同时把 V2.16 的动态多边形引擎下沉为可复用基类，消除三案例间的重复实现。
+
+**实施内容**：
+
+1. 共享动态引擎 `src/cases/mass-dynamic-lib/DynamicMassLayer.ts`：将「浮点纹理双缓冲 + GPU 插值 + 单 DrawCall」下沉为抽象基类 `DynamicMassLayer<TOptions>`，统一管理位置纹理 ping-pong、`setInterval` 周期移动与边界反弹、`setDynamic`/`setOpacity`/`rebuild`/`destroy`、帧率/耗时/上载字节统计；子类只需实现 `initCells()`（填充锚点与单位方向速度）与 `createContent()`（几何、着色器、渲染状态）。另提供 `createAlphaRenderState`、`makeAttributes`、`makeFloatAttribute`、`makeColorAttribute` 工具函数。
+2. `mass-dynamic-points`：`DynamicPointsLayer` 以 `PrimitiveType.POINTS` 渲染，顶点着色器按位置纹理插值锚点并写入 `gl_PointSize`，片元着色器用 `gl_PointCoord` 裁剪为圆形点精灵并做边缘/高光柔化；每点随机大小与颜色，支持数量（1/2/5/10 万）、点大小、更新间隔（20/50/100/200ms）、速度、暂停、区域、抬升、颜色模式与透明度。
+3. `mass-dynamic-lines`：`DynamicLinesLayer` 每条线占用两个纹理单元（两端锚点），几何按 4 顶点/线段展开，顶点着色器插值两端锚点后在投影空间按 `czm_viewport` 计算垂直方向偏移，展开为屏幕空间恒定像素宽度的四边形（`u_halfWidth`），片元着色器按横向坐标做边缘抗锯齿；支持线数量（1/2/5/10 万）、线宽、线段长度、更新间隔、速度、暂停、区域、抬升、颜色与透明度。
+4. `mass-dynamic-polygons` 迁移到基类：`DynamicPolygonLayer` 重写为子类，仅保留多边形几何/着色器与颜色解析；`MassDynamicPolygonsDemo.vue` 适配 `cellCount` 选项与 `entityCount` 统计字段。
+5. 修复子类实例字段在 `useDefineForClassFields: true` 下于 `super()` 返回后被字段初始化重置的问题：子类状态字段改用 `declare` 修饰（不产生运行时字段定义），使基类构造期间 `initCells()` 写入的数据在构造后仍然有效（此前线数量统计会显示为 0）。
+6. 运行 `npm run sync`（293 条）与 `npm run case-list` 重新生成 `src/cases/manifest.ts` 与 `CASE_LIST.md`。
+
+**验证标准**：
+
+- `npx vue-tsc -b --force` 与 `npm run build`（`vue-tsc -b && vite build`）均退出码 0。
+- 首页搜索可进入两个新案例，Bing 底图与点/线正常渲染，运行无 pageerror 与着色器编译错误。
+- 海量动态点默认 2 万点状态行显示约 20,022 个点、单次上载约 312.8KB；10 万点显示约 100,172 个点、约 1.53MB。海量动态线默认 2 万线显示 20,000 条、约 625.0KB；10 万线约 3.06MB。
+- 两个案例暂停后连续两帧截图完全一致、恢复后连续两帧截图不同，证明位置更新仅在运行时发生。
+- 迁移后的海量动态多边形案例行为与 V2.16 一致（默认 20,022 面、暂停冻结、10 万面正常）。
+
+### V2.18 海量动态点 / 线 / 面案例卡片 icon 补齐
+
+**目标**：按用户迭代反馈，为「数据可视化-海量动态点」「数据可视化-海量动态线」「数据可视化-海量动态多边形」三个案例补齐卡片 icon，分别采用用户上传的 image-1 / image-2 / image-3，并遵循项目 icon 尺寸规范。
+
+**实施内容**：
+
+1. 三张上传原图（约 1540×1056）用 `sharp` 按项目规范缩放为 300px 宽、保持原始宽高比的 WebP（quality 82），写入各案例目录 `icon.webp`：`src/cases/mass-dynamic-points/icon.webp`（300×206）、`src/cases/mass-dynamic-lines/icon.webp`（300×200）、`src/cases/mass-dynamic-polygons/icon.webp`（300×206），禁止直接提交原始大图。
+2. 三个 `index.ts` 均新增 `import icon from './icon.webp'` 并在 `DemoCard` 写入 `icon` 字段，卡片不再显示"暂无截图"占位。
+3. 运行 `npm run sync`（293 条）与 `npm run case-list` 重新生成 `src/cases/manifest.ts` 与 `CASE_LIST.md`，manifest 对应三案例已引用各自 icon。
+
+**验证标准**：
+
+- `npm run build`（`vue-tsc -b && vite build`）退出码 0，三张 icon 资源均被 Vite 产出。
+- headless（Playwright + chromium/swiftshader）首页搜索三案例，卡片 `img` 命中各自 `icon.webp`、`naturalWidth×naturalHeight` 为 300×206 / 300×200 / 300×206、`complete=true` 且无占位，页面 0 关键错误。
+
 ## 后续迭代记录方式
 
 每次系统迭代按以下顺序追加内容：

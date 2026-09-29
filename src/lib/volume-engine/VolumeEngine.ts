@@ -13,16 +13,28 @@ import {
   ClippingPlane,
   ClippingPlaneCollection,
   Color,
+  ColorGeometryInstanceAttribute,
+  ComponentDatatype,
   CustomShader,
+  Geometry,
+  GeometryAttribute,
+  GeometryAttributes,
+  GeometryInstance,
   HeadingPitchRange,
+  Material,
   Matrix4,
+  PerInstanceColorAppearance,
   PointPrimitiveCollection,
+  PolylineCollection,
+  Primitive,
+  PrimitiveType,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Transforms,
   VoxelPrimitive,
   Math as CesiumMath,
   type PointPrimitive,
+  type Polyline,
   type Viewer
 } from 'cesium'
 import { createMapScene, destroyScene, loadBingImagery } from '../cesium-scene'
@@ -37,6 +49,7 @@ import {
   type Bounds
 } from './voxel'
 import { VOLUME_WORKER_SOURCE } from './volume-worker-source'
+import { VOLUME_ANALYSIS_SOURCE } from './volume-analysis-source'
 
 export type EngineStats = {
   tilesReady: number
@@ -51,6 +64,10 @@ export type PickedInfo = {
   sampleIndex: number
   channel: string
   categorical: boolean
+  /** 拾取点对应的经纬度 / 高度（若可得） */
+  lon?: number
+  lat?: number
+  height?: number
 }
 
 export type SliceResult = {
@@ -62,6 +79,28 @@ export type SliceResult = {
 export type StationsResult = {
   positions: Float32Array
   values: Float32Array
+}
+
+/** 分析请求：mode 决定分析类型，其余字段按 mode 传参 */
+export type AnalyzeRequest = { mode: string } & Record<string, unknown>
+
+/** 通用折线 / 箭头叠加结果（局部米坐标） */
+export type LineOverlayResult = {
+  positions: Float32Array
+  offsets: Uint32Array
+  speeds: Float32Array
+}
+
+const EMPTY_LINES: LineOverlayResult = {
+  positions: new Float32Array(0),
+  offsets: new Uint32Array([0]),
+  speeds: new Float32Array(0)
+}
+
+export { EMPTY_LINES }
+
+function clamp01(value: number): number {
+  return value < 0 ? 0 : value > 1 ? 1 : value
 }
 
 export type EngineCallbacks = {
@@ -94,6 +133,8 @@ export class VolumeEngine {
   timeStep = 0
 
   clip: ClipState = { enabled: false, azimuth: 45, tilt: 0, offset: 0, flip: false }
+  /** 高度带裁剪（归一化 0~1 相对体域高度），用于回波顶/逆温层顶/地层顶底等分析 */
+  clipHeight = { enabled: false, min: 0.15, max: 0.85 }
 
   tileSize: number
   levels: number
@@ -125,9 +166,15 @@ export class VolumeEngine {
   private shader: CustomShader | undefined
   private shaderMode: 'scalar' | 'categorical' | undefined
   private primitive: VoxelPrimitive | undefined
-  private clipPlane: ClippingPlane | undefined
   private clipCollection: ClippingPlaneCollection | undefined
   private handler: ScreenSpaceEventHandler | undefined
+
+  private analysisSeq = 0
+  private pendingAnalysis = new Map<number, { resolve: (result: unknown) => void; reject: (error: Error) => void }>()
+  private lineCollection: PolylineCollection | undefined
+  private arrowCollection: PolylineCollection | undefined
+  private isoPrimitive: Primitive | undefined
+  private markerCollection: PointPrimitiveCollection | undefined
 
   private bounds: Bounds
   private modelMatrix: Matrix4
@@ -242,7 +289,7 @@ export class VolumeEngine {
   /* ----------------------------- Worker ----------------------------- */
 
   private createWorker(): void {
-    const blob = new Blob([VOLUME_WORKER_SOURCE], { type: 'application/javascript' })
+    const blob = new Blob([VOLUME_WORKER_SOURCE, VOLUME_ANALYSIS_SOURCE], { type: 'application/javascript' })
     this.workerUrl = URL.createObjectURL(blob)
     const worker = new Worker(this.workerUrl)
     worker.onmessage = (event: MessageEvent) => this.onWorkerMessage(event)
@@ -267,8 +314,17 @@ export class VolumeEngine {
       stations?: StationsResult
       positions?: Float32Array
       speeds?: Float32Array
+      result?: unknown
     }
     if (!message || (message.epoch !== undefined && message.epoch !== this.epoch)) return
+    if (message.type === 'analysisDone') {
+      const pending = this.pendingAnalysis.get(message.requestId as number)
+      if (pending) {
+        this.pendingAnalysis.delete(message.requestId as number)
+        pending.resolve(message.result)
+      }
+      return
+    }
     if (message.type === 'initDone') {
       this.buildTime = Math.round(message.buildTime ?? 0)
       if (message.stations) {
@@ -376,11 +432,10 @@ export class VolumeEngine {
       this.emitStats()
       this.viewer?.scene.requestRender()
     })
-    this.clipPlane = new ClippingPlane(new Cartesian3(0, 0, 1), 0)
     this.clipCollection = new ClippingPlaneCollection({
       modelMatrix: this.modelMatrix,
-      enabled: this.clip.enabled && this.clipActive(),
-      planes: [this.clipPlane]
+      enabled: false,
+      planes: []
     })
     primitive.clippingPlanes = this.clipCollection
     this.viewer.scene.primitives.add(primitive)
@@ -394,13 +449,8 @@ export class VolumeEngine {
       this.viewer.scene.primitives.remove(this.primitive)
     }
     this.primitive = undefined
-    this.clipPlane = undefined
     this.clipCollection = undefined
     this.tilesReady = 0
-  }
-
-  private clipActive(): boolean {
-    return true
   }
 
   private readyMessage(): string {
@@ -543,8 +593,13 @@ export class VolumeEngine {
     this.callbacks.onStatus?.('正在重建体数据…')
     this.disposePrimitive()
     this.disposeParticles()
+    this.clearLines()
+    this.clearOverlayPoints()
+    this.clearIsosurface()
     this.pendingTiles.forEach((pending) => pending.reject(new Error('rebuild')))
     this.pendingTiles.clear()
+    this.pendingAnalysis.forEach((pending) => pending.reject(new Error('rebuild')))
+    this.pendingAnalysis.clear()
     if (this.worker) {
       this.worker.terminate()
       this.worker = undefined
@@ -595,21 +650,40 @@ export class VolumeEngine {
     if (requestPreview) this.requestSlice(false)
   }
 
+  /** 高度带裁剪：normalized min/max 相对体域高度（0~1），截去带外体元素 */
+  setHeightClip(min: number, max: number, enabled = true): void {
+    this.clipHeight.min = Math.max(0, Math.min(1, Math.min(min, max)))
+    this.clipHeight.max = Math.max(0, Math.min(1, Math.max(min, max)))
+    this.clipHeight.enabled = enabled
+    this.updateClipPlane()
+  }
+
   updateClipPlane(): void {
-    if (!this.clipCollection || !this.clipPlane || !this.viewer || this.viewer.isDestroyed()) return
-    const n = this.clipNormal()
-    const p = this.clipPlanePoint(n)
-    let nx = n.x
-    let ny = n.y
-    let nz = n.z
-    if (this.clip.flip) {
-      nx = -nx
-      ny = -ny
-      nz = -nz
+    if (!this.clipCollection || !this.viewer || this.viewer.isDestroyed()) return
+    const collection = this.clipCollection
+    collection.removeAll()
+    if (this.clip.enabled) {
+      const n = this.clipNormal()
+      const p = this.clipPlanePoint(n)
+      let nx = n.x
+      let ny = n.y
+      let nz = n.z
+      if (this.clip.flip) {
+        nx = -nx
+        ny = -ny
+        nz = -nz
+      }
+      collection.add(new ClippingPlane(new Cartesian3(nx, ny, nz), -(nx * p.x + ny * p.y + nz * p.z)))
     }
-    this.clipPlane.normal = new Cartesian3(nx, ny, nz)
-    this.clipPlane.distance = -(nx * p.x + ny * p.y + nz * p.z)
-    this.clipCollection.enabled = this.clip.enabled && this.clipActive()
+    if (this.clipHeight.enabled) {
+      const v = this.spec.volume
+      const zMin = v.base + this.clipHeight.min * v.height
+      const zMax = v.base + this.clipHeight.max * v.height
+      // 保留 z ∈ [zMin, zMax]：法线 +z 裁掉下方，法线 -z 裁掉上方
+      collection.add(new ClippingPlane(new Cartesian3(0, 0, 1), -zMin))
+      collection.add(new ClippingPlane(new Cartesian3(0, 0, -1), zMax))
+    }
+    collection.enabled = this.clip.enabled || this.clipHeight.enabled
     this.viewer.scene.requestRender()
   }
 
@@ -649,6 +723,183 @@ export class VolumeEngine {
     })
   }
 
+  /* ---------------------------- Analysis ---------------------------- */
+
+  /** 向 Worker 提交一次领域分析请求（统计 / 回波顶高 / 廓线 / 剖面箭头 / 流线 / 等值面） */
+  analyze<T = unknown>(request: AnalyzeRequest): Promise<T> {
+    const worker = this.worker
+    if (!worker) return Promise.resolve(undefined as unknown as T)
+    return new Promise<T>((resolve, reject) => {
+      const requestId = (this.analysisSeq += 1)
+      this.pendingAnalysis.set(requestId, { resolve: resolve as (result: unknown) => void, reject })
+      worker.postMessage({
+        type: 'analyze',
+        epoch: this.epoch,
+        requestId,
+        timeStep: this.timeStep,
+        timeSteps: this.spec.timeSteps,
+        channel: this.channel,
+        ...request
+      })
+    })
+  }
+
+  /* ---------------------------- Overlays ---------------------------- */
+
+  private ensureLineCollection(): PolylineCollection | undefined {
+    if (!this.viewer || this.viewer.isDestroyed()) return undefined
+    if (!this.lineCollection) {
+      this.lineCollection = new PolylineCollection({ modelMatrix: this.modelMatrix })
+      this.viewer.scene.primitives.add(this.lineCollection)
+    }
+    return this.lineCollection
+  }
+
+  private ensureMarkerCollection(): PointPrimitiveCollection | undefined {
+    if (!this.viewer || this.viewer.isDestroyed()) return undefined
+    if (!this.markerCollection) {
+      this.markerCollection = new PointPrimitiveCollection({ modelMatrix: this.modelMatrix })
+      this.viewer.scene.primitives.add(this.markerCollection)
+    }
+    return this.markerCollection
+  }
+
+  /** 叠加折线 / 箭头（positions 为局部米坐标，offsets 为各折线起止索引） */
+  setLines(
+    result: LineOverlayResult | undefined,
+    options: { color?: string; width?: number; speedPalette?: string; speedMin?: number; speedMax?: number } = {}
+  ): void {
+    const collection = this.ensureLineCollection()
+    if (!collection) return
+    collection.removeAll()
+    if (!result || !result.positions.length || result.offsets.length < 2) {
+      this.viewer?.scene.requestRender()
+      return
+    }
+    const lut = options.speedPalette ? buildTransferLut(options.speedPalette) : undefined
+    const min = options.speedMin ?? 0
+    const max = options.speedMax ?? 1
+    const fallback = Color.fromCssColorString(options.color ?? '#67e8f9')
+    const offsets = result.offsets
+    for (let s = 0; s + 1 < offsets.length; s += 1) {
+      const start = offsets[s]
+      const end = offsets[s + 1]
+      if (end - start < 2) continue
+      const positions: Cartesian3[] = []
+      for (let i = start; i < end; i += 1) {
+        positions.push(new Cartesian3(result.positions[i * 3], result.positions[i * 3 + 1], result.positions[i * 3 + 2]))
+      }
+      let material = Material.fromType('Color', { color: fallback })
+      if (lut) {
+        const t = clamp01((result.speeds[start] - min) / (max - min || 1))
+        const idx = Math.round(t * 255)
+        material = Material.fromType('Color', {
+          color: new Color(lut[idx * 4] / 255, lut[idx * 4 + 1] / 255, lut[idx * 4 + 2] / 255, 0.95)
+        })
+      }
+      collection.add({ positions, material, width: options.width ?? 1.6 })
+    }
+    this.viewer?.scene.requestRender()
+  }
+
+  setLineOverlaysVisible(visible: boolean): void {
+    if (this.lineCollection) this.lineCollection.show = visible
+    this.viewer?.scene.requestRender()
+  }
+
+  clearLines(): void {
+    if (this.lineCollection && this.viewer && !this.viewer.isDestroyed()) {
+      this.viewer.scene.primitives.remove(this.lineCollection)
+    }
+    this.lineCollection = undefined
+  }
+
+  /** 叠加标记点（局部米坐标），用于强对流核心 / 钻孔 / 监测站等 */
+  setOverlayPoints(points: { position: Cartesian3; color: Color; pixelSize?: number }[]): void {
+    const collection = this.ensureMarkerCollection()
+    if (!collection) return
+    collection.removeAll()
+    for (const point of points) {
+      collection.add({
+        position: point.position,
+        pixelSize: point.pixelSize ?? 9,
+        color: point.color,
+        outlineColor: Color.fromCssColorString('#081428'),
+        outlineWidth: 2,
+        disableDepthTestDistance: 0
+      })
+    }
+    this.viewer?.scene.requestRender()
+  }
+
+  clearOverlayPoints(): void {
+    if (this.markerCollection && this.viewer && !this.viewer.isDestroyed()) {
+      this.viewer.scene.primitives.remove(this.markerCollection)
+    }
+    this.markerCollection = undefined
+  }
+
+  /** 渲染等值面三角网（输入为归一化体域坐标 0~1，内部换算为局部米坐标） */
+  setIsosurface(positions: Float32Array, normals: Float32Array, color: [number, number, number], opacity = 0.6): void {
+    this.clearIsosurface()
+    if (!this.viewer || this.viewer.isDestroyed() || !positions.length) return
+    const local = new Float32Array(positions.length)
+    const min = this.bounds.min
+    const v = this.spec.volume
+    for (let i = 0; i < positions.length; i += 3) {
+      local[i] = min[0] + positions[i] * v.width
+      local[i + 1] = min[1] + positions[i + 1] * v.depth
+      local[i + 2] = min[2] + positions[i + 2] * v.height
+    }
+    const attributes = {
+      position: new GeometryAttribute({
+        componentDatatype: ComponentDatatype.FLOAT,
+        componentsPerAttribute: 3,
+        values: local
+      })
+    } as unknown as GeometryAttributes
+    if (normals.length === positions.length) {
+      attributes.normal = new GeometryAttribute({
+        componentDatatype: ComponentDatatype.FLOAT,
+        componentsPerAttribute: 3,
+        values: normals
+      })
+    }
+    const geometry = new Geometry({
+      attributes,
+      primitiveType: PrimitiveType.TRIANGLES,
+      boundingSphere: new BoundingSphere(this.centerLocal, this.halfDiag)
+    })
+    const instance = new GeometryInstance({
+      geometry,
+      attributes: {
+        color: ColorGeometryInstanceAttribute.fromColor(new Color(color[0], color[1], color[2], opacity))
+      }
+    })
+    const primitive = new Primitive({
+      geometryInstances: instance,
+      appearance: new PerInstanceColorAppearance({ translucent: true, closed: false, flat: normals.length !== positions.length }),
+      asynchronous: false
+    })
+    this.viewer.scene.primitives.add(primitive)
+    this.isoPrimitive = primitive
+    this.viewer.scene.requestRender()
+  }
+
+  clearIsosurface(): void {
+    if (this.isoPrimitive && this.viewer && !this.viewer.isDestroyed()) {
+      this.viewer.scene.primitives.remove(this.isoPrimitive)
+    }
+    this.isoPrimitive = undefined
+  }
+
+  /** 将归一化坐标（x/y 水平、z 垂直）换算为局部米坐标 */
+  localFromNormalized(x: number, y: number, z: number): Cartesian3 {
+    const min = this.bounds.min
+    const v = this.spec.volume
+    return new Cartesian3(min[0] + x * v.width, min[1] + y * v.depth, min[2] + z * v.height)
+  }
+
   /* ----------------------------- Pick ------------------------------- */
 
   private pick(position: Cartesian2): void {
@@ -667,14 +918,37 @@ export class VolumeEngine {
       return
     }
     const property = cell.getProperty('color') as Float32Array | number[] | undefined
+    const geo = this.pickGeographic(position)
     this.callbacks.onPicked?.({
       value: property ? Number(property[0]) : 0,
       valid: property ? Number(property[1]) > 0.5 : false,
       tileIndex: cell.tileIndex,
       sampleIndex: cell.sampleIndex,
       channel: this.channel,
-      categorical: this.activeChannel.mode === 'categorical'
+      categorical: this.activeChannel.mode === 'categorical',
+      lon: geo?.lon,
+      lat: geo?.lat,
+      height: geo?.height
     })
+  }
+
+  private pickGeographic(position: Cartesian2): { lon: number; lat: number; height: number } | undefined {
+    if (!this.viewer || this.viewer.isDestroyed()) return undefined
+    const scene = this.viewer.scene
+    let world: Cartesian3 | undefined
+    try {
+      world = scene.pickPosition(position)
+    } catch {
+      world = undefined
+    }
+    if (!world || !this.viewer) return undefined
+    const carto = scene.globe.ellipsoid.cartesianToCartographic(world)
+    if (!carto) return undefined
+    return {
+      lon: CesiumMath.toDegrees(carto.longitude),
+      lat: CesiumMath.toDegrees(carto.latitude),
+      height: carto.height
+    }
   }
 
   /* --------------------------- Particles ---------------------------- */
@@ -842,8 +1116,13 @@ export class VolumeEngine {
     this.handler = undefined
     this.pendingTiles.forEach((pending) => pending.reject(new Error('dispose')))
     this.pendingTiles.clear()
+    this.pendingAnalysis.forEach((pending) => pending.reject(new Error('dispose')))
+    this.pendingAnalysis.clear()
     this.disposeParticles()
     this.clearSurfacePoints()
+    this.clearLines()
+    this.clearOverlayPoints()
+    this.clearIsosurface()
     if (this.worker) {
       this.worker.terminate()
       this.worker = undefined

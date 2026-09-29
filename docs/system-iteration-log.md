@@ -5142,6 +5142,31 @@ https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer
 - 每个案例的剖切预览 canvas 均渲染出有效像素（雷达约 0.096、风场约 0.083、地层约 0.202、CFD 约 0.081、PM2.5 低浓度区约 0.005），图例渐变正常，统计行完整。
 - 风场与 CFD 默认开启向量粒子且可关闭/再开启；多变量案例切换通道后色带与图例随之更新。
 
+### V2.15 体渲染 5 案例场景化 UI 重构（差异化交互与领域分析）
+
+**背景**：V2.14 的 5 个体渲染案例共用通用组件，交互与版式高度同质化，不足以承载各场景的信息表达。本次把 5 个案例改为按场景定制的版式与领域分析。
+
+**实施内容**：
+
+1. Worker 端新增领域分析源码 `src/lib/volume-engine/volume-analysis-source.ts`（拼接在 `volume-worker-source.ts` 之后，同一 Blob 内共享作用域），新增 `analyze` 消息与 `analysisDone` 回包：
+   - `stats` 统计（min/max/mean/p50/p95 + 32 桶直方图）、`radar` 回波顶高网格与强对流核心、`pm25` 超标体积/AQI 分档/暴露人口、`profile` 垂直廓线、`section` 剖面矢量箭头、`streamlines` RK2 流线、`isosurface` Marching Tetrahedra 等值面；结果经 Transferable 零拷贝回传。
+2. `VolumeEngine.ts` 扩展：新增 `analyze<T>()`（按 requestId 维护 Promise 队列）、叠加 API（折线集合、箭头/叠加点、等值面）、经纬度与高度拾取 `pickGeographic`、高度带裁剪 `setHeightClip`；`updateClipPlane` 重写为按需重建 `ClippingPlaneCollection`（高度带用上下两个平面）。
+3. 新增组合式函数 `src/lib/volume-engine/useVolumeScene.ts`：统一封装引擎生命周期、剖切预览绘制与 PNG 下载、参数响应式状态及全部控制方法，案例只负责组合自身版式。
+4. 5 个案例重写为差异化 UI（各自专属控件与图例）：
+   - 三维气象雷达回波体：dBZ 分级、回波顶高与强对流核心列表、高度带、时序时间轴、经纬度拾取。
+   - 三维 PM2.5 浓度体：通道分段、AQI 超标体积分析、水平高度层、监测站点叠加、暴露人口估算。
+   - 三维风场向量体：标量场 + 粒子/流线/层箭头切换、垂直廓线画布、u/v/w 分量。
+   - 三维地层属性体：分类/标量通道、顶底裁剪、属性直方图、等值面。
+   - CFD 多物理场体：速度/压力/温度三场切换、等值面、粒子/流线/剖面箭头。
+5. 修复 `VolumeShell.vue` 的 `showClipPanel` 缺陷：该属性为 Boolean 类型，未显式传入时按 Vue 布尔转换取 `false`，使剖切预览面板被隐藏、剖切预览 canvas 缺失；改用 `withDefaults(..., { showClipPanel: true })`。
+
+**验证标准**：
+
+- `npm run build`（`vue-tsc -b && vite build`）退出码 0。
+- 5 个案例均可进入、状态行以 `✓` 结尾（128³ 等效分辨率、16³/瓦片、4 级 LOD）、3D 画布正常尺寸渲染、运行无 pageerror。
+- 启用剖切后剖切预览 canvas 有效像素占比：雷达 0.096、风场 0.083、地层 0.202、CFD 0.081、PM2.5 低浓度区 0.005。
+- 领域分析按钮均可执行并回包：雷达回波顶高、PM2.5 超标体积、风场流线/层箭头、地层孔隙率属性统计、CFD 压力场/流线。
+
 ## 后续迭代记录方式
 
 每次系统迭代按以下顺序追加内容：

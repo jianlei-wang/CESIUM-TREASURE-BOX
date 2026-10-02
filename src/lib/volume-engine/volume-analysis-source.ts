@@ -92,25 +92,41 @@ function analyzeRadar(message, tn) {
   var G = message.res || 44;
   var V = message.vertical || 48;
   var channel = message.channel;
-  var threshold = message.threshold != null ? message.threshold : 20;
+  var topThreshold = message.topThreshold != null ? message.topThreshold : (message.threshold != null ? message.threshold : 20);
+  var coreThreshold = message.coreThreshold != null ? message.coreThreshold : 45;
+  var volSize = message.volSize || [1, 1, 1];
+  var footprintAreaKm2 = (volSize[0] * volSize[1]) / 1e6;
   var topGrid = new Float32Array(G * G);
+  var columnMax = new Float32Array(G * G);
   var maxTop = 0;
   var topSum = 0;
   var topCount = 0;
+  var maxDbz = 0;
+  var area20 = 0, area35 = 0, area45 = 0;
+  var topValues = [];
   for (var iy = 0; iy < G; iy += 1) {
     var y = (iy + 0.5) / G;
     for (var ix = 0; ix < G; ix += 1) {
       var x = (ix + 0.5) / G;
       var top = 0;
+      var cMax = 0;
       for (var iz = V - 1; iz >= 0; iz -= 1) {
         var s = sampleField(x, y, (iz + 0.5) / V, tn, channel);
-        if (s.valid && s.value >= threshold) { top = (iz + 0.5) / V; break; }
+        var val = s.valid ? s.value : 0;
+        if (val > cMax) cMax = val;
+        if (val > maxDbz) maxDbz = val;
+        if (top === 0 && val >= topThreshold) top = (iz + 0.5) / V;
       }
       topGrid[iy * G + ix] = top;
+      columnMax[iy * G + ix] = cMax;
+      if (cMax >= 20) area20 += 1;
+      if (cMax >= 35) area35 += 1;
+      if (cMax >= 45) area45 += 1;
       if (top > maxTop) maxTop = top;
-      if (top > 0) { topSum += top; topCount += 1; }
+      if (top > 0) { topSum += top; topCount += 1; topValues.push(top); }
     }
   }
+  var p95Top = percentile(topValues, topValues.length, 0.95);
   // 强对流核心：3D 粗网格上取高值并做最小间距去重
   var C = 26;
   var candidates = [];
@@ -121,7 +137,7 @@ function analyzeRadar(message, tn) {
       for (var cx = 0; cx < C; cx += 1) {
         var xx = (cx + 0.5) / C;
         var sc = sampleField(xx, yy, zz, tn, channel);
-        if (sc.valid && sc.value >= 45) candidates.push({ x: xx, y: yy, z: zz, v: sc.value });
+        if (sc.valid && sc.value >= coreThreshold) candidates.push({ x: xx, y: yy, z: zz, v: sc.value });
       }
     }
   }
@@ -141,22 +157,78 @@ function analyzeRadar(message, tn) {
   }
   var corePos = new Float32Array(cores.length * 3);
   var corePeak = new Float32Array(cores.length);
+  var coreTop = new Float32Array(cores.length);
   for (var k = 0; k < cores.length; k += 1) {
     corePos[k * 3] = cores[k].x;
     corePos[k * 3 + 1] = cores[k].y;
     corePos[k * 3 + 2] = cores[k].z;
     corePeak[k] = cores[k].v;
+    // 该核心所在列的回波顶高
+    var gi = Math.max(0, Math.min(G - 1, Math.floor(cores[k].x * G)));
+    var gj = Math.max(0, Math.min(G - 1, Math.floor(cores[k].y * G)));
+    coreTop[k] = topGrid[gj * G + gi];
   }
   var result = {
     grid: G,
+    maxDbz: maxDbz,
     maxTop: maxTop,
     meanTop: topCount ? topSum / topCount : 0,
+    p95Top: p95Top,
     topGrid: topGrid,
+    columnMax: columnMax,
+    footprint: {
+      area20Km2: footprintAreaKm2 * (area20 / (G * G)),
+      area35Km2: footprintAreaKm2 * (area35 / (G * G)),
+      area45Km2: footprintAreaKm2 * (area45 / (G * G))
+    },
+    topThreshold: topThreshold,
+    coreThreshold: coreThreshold,
     corePos: corePos,
     corePeak: corePeak,
+    coreTop: coreTop,
     coreCount: cores.length
   };
-  return { result: result, transfer: transferList([topGrid, corePos, corePeak]) };
+  return { result: result, transfer: transferList([topGrid, columnMax, corePos, corePeak, coreTop]) };
+}
+
+// 时间演变趋势：在较粗网格上逐时间步统计 最大 dBZ / 最高顶高 / ≥35dBZ 面积
+function analyzeRadarTrend(message) {
+  var steps = message.steps || 12;
+  var N = message.res || 18;
+  var V = message.vertical || 16;
+  var channel = message.channel;
+  var topThreshold = message.topThreshold != null ? message.topThreshold : 20;
+  var volSize = message.volSize || [1, 1, 1];
+  var footprintAreaKm2 = (volSize[0] * volSize[1]) / 1e6;
+  var maxDbz = new Float32Array(steps);
+  var maxTopKm = new Float32Array(steps);
+  var area35Km2 = new Float32Array(steps);
+  var topHeightKm = volSize[2] / 1000;
+  for (var t = 0; t < steps; t += 1) {
+    var tn = steps > 1 ? t / (steps - 1) : 0;
+    var mDbz = 0, mTop = 0, a35 = 0;
+    for (var iy = 0; iy < N; iy += 1) {
+      var y = (iy + 0.5) / N;
+      for (var ix = 0; ix < N; ix += 1) {
+        var x = (ix + 0.5) / N;
+        var cMax = 0, top = 0;
+        for (var iz = V - 1; iz >= 0; iz -= 1) {
+          var s = sampleField(x, y, (iz + 0.5) / V, tn, channel);
+          var val = s.valid ? s.value : 0;
+          if (val > cMax) cMax = val;
+          if (top === 0 && val >= topThreshold) top = (iz + 0.5) / V;
+        }
+        if (cMax > mDbz) mDbz = cMax;
+        if (top > mTop) mTop = top;
+        if (cMax >= 35) a35 += 1;
+      }
+    }
+    maxDbz[t] = mDbz;
+    maxTopKm[t] = mTop * topHeightKm;
+    area35Km2[t] = footprintAreaKm2 * (a35 / (N * N));
+  }
+  var result = { steps: steps, maxDbz: maxDbz, maxTopKm: maxTopKm, area35Km2: area35Km2 };
+  return { result: result, transfer: transferList([maxDbz, maxTopKm, area35Km2]) };
 }
 
 function analyzePm25(message, tn) {
@@ -310,32 +382,76 @@ function analyzeSection(message, tn) {
 }
 
 function directionAt(nx, ny, nz, tn, volSize) {
+  // 越界采样（RK4 中间估计可能略微越界）直接判为无方向：
+  // 否则 Math.pow(负数, 0.6) 会产生 NaN 并沿积分链污染整条流线。
+  if (nx < 0 || nx > 1 || ny < 0 || ny > 1 || nz < 0 || nz > 1) return null;
   var v = analysisVectorAt(nx, ny, nz, tn);
   if (v.solid) return null;
   var x = v.ux / volSize[0];
   var y = v.uy / volSize[1];
   var z = v.uz / volSize[2];
   var l = Math.sqrt(x * x + y * y + z * z);
-  if (l < 1e-7) return null;
+  if (!(l >= 1e-7)) return null;
   return { x: x / l, y: y / l, z: z / l, speed: Math.sqrt(v.ux * v.ux + v.uy * v.uy + v.uz * v.uz) };
 }
 
-function streamlineSeed(rand) {
+function streamlineSeed(rand, levels, index, seedCount) {
+  var bandCount = Math.max(1, Math.round(levels || 1));
   if (sceneKind === 'cfd') {
     // 入口释放：+X 来流面近地高度带，贴近真实风洞入口布种
     return { x: 0.015 + 0.02 * rand(), y: 0.05 + 0.9 * rand(), z: 0.02 + 0.34 * rand() };
   }
   if (sceneKind === 'wind') {
-    return { x: 0.04 + 0.92 * rand(), y: 0.04 + 0.92 * rand(), z: 0.04 + 0.22 * rand() };
+    // 多高度分层布种：按 index 比例做幂次映射，低空更密、高空更疏，形成层次分明的流线族
+    var total = seedCount && seedCount > 1 ? seedCount : bandCount;
+    var u = (index + 0.5) / total;
+    if (u > 1) u = 1;
+    var z = 0.06 + 0.9 * Math.pow(u, 1.45);
+    // 离散到若干高度带：按 u 的幂次映射使低空带更密、高空带更疏
+    if (bandCount > 1) {
+      var band = Math.floor(Math.pow(u, 1.35) * bandCount);
+      if (band > bandCount - 1) band = bandCount - 1;
+      z = 0.06 + 0.9 * (band / (bandCount - 1));
+      z += (rand() - 0.5) * 0.06;
+    }
+    // 近地/近顶再混入少量带外种子，保持三维覆盖
+    if (rand() < 0.18) z = 0.05 + 0.9 * rand();
+    return { x: 0.04 + 0.92 * rand(), y: 0.04 + 0.92 * rand(), z: z < 0.03 ? 0.03 : z > 0.97 ? 0.97 : z };
   }
   return { x: 0.04 + 0.92 * rand(), y: 0.04 + 0.92 * rand(), z: 0.04 + 0.5 * rand() };
+}
+
+// 从种子点沿场方向积分半支流线（sign=1 顺流、-1 逆流），结果写入 outPts / outSpd
+function traceHalf(x, y, z, sign, tn, volSize, step, steps, outPts, outSpd) {
+  for (var s = 0; s < steps; s += 1) {
+    var d1 = directionAt(x, y, z, tn, volSize);
+    if (!d1) break;
+    var h = step * sign;
+    // RK4：四个斜率估计，步长按归一化弧长
+    var a = directionAt(x + d1.x * h * 0.5, y + d1.y * h * 0.5, z + d1.z * h * 0.5, tn, volSize) || d1;
+    var b = directionAt(x + a.x * h * 0.5, y + a.y * h * 0.5, z + a.z * h * 0.5, tn, volSize) || a;
+    var c = directionAt(x + b.x * h, y + b.y * h, z + b.z * h, tn, volSize) || b;
+    var dx = (d1.x + 2 * a.x + 2 * b.x + c.x) / 6;
+    var dy = (d1.y + 2 * a.y + 2 * b.y + c.y) / 6;
+    var dz = (d1.z + 2 * a.z + 2 * b.z + c.z) / 6;
+    if (!isFinite(dx) || !isFinite(dy) || !isFinite(dz)) break;
+    var dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+    x += (dx / dl) * h;
+    y += (dy / dl) * h;
+    z += (dz / dl) * h;
+    if (x < 0 || x > 1 || y < 0 || y > 1 || z < 0 || z > 1) break;
+    outPts.push(x, y, z);
+    outSpd.push(d1.speed);
+    if (d1.speed < 0.05) break;
+  }
 }
 
 function analyzeStreamlines(message, tn) {
   var seedCount = message.seeds || 160;
   var steps = message.steps || 220;
   var step = message.step || 0.006;
-  var channel = message.channel;
+  var levels = message.levels || 1;
+  var bidirectional = message.bidirectional !== false;
   var volMin = message.volMin || [0, 0, 0];
   var volSize = message.volSize || [1, 1, 1];
   var rand = mulberry32((params.seed || 1) + 4519 + Math.round(tn * 1000));
@@ -343,34 +459,54 @@ function analyzeStreamlines(message, tn) {
   var offsets = [0];
   var speeds = [];
   for (var sIdx = 0; sIdx < seedCount; sIdx += 1) {
-    var seed = streamlineSeed(rand);
-    var nx = seed.x;
-    var ny = seed.y;
-    var nz = seed.z;
+    var seed = streamlineSeed(rand, levels, sIdx, seedCount);
+    var seedD = directionAt(seed.x, seed.y, seed.z, tn, volSize);
+    if (!seedD) continue;
     var lineStart = points.length / 3;
-    for (var s = 0; s < steps; s += 1) {
-      var d1 = directionAt(nx, ny, nz, tn, volSize);
-      if (!d1) break;
-      var h = step;
-      // RK4：四个斜率估计，步长按归一化弧长
-      var a = directionAt(nx + d1.x * h * 0.5, ny + d1.y * h * 0.5, nz + d1.z * h * 0.5, tn, volSize) || d1;
-      var b = directionAt(nx + a.x * h * 0.5, ny + a.y * h * 0.5, nz + a.z * h * 0.5, tn, volSize) || a;
-      var c = directionAt(nx + b.x * h, ny + b.y * h, nz + b.z * h, tn, volSize) || b;
-      var dx = (d1.x + 2 * a.x + 2 * b.x + c.x) / 6;
-      var dy = (d1.y + 2 * a.y + 2 * b.y + c.y) / 6;
-      var dz = (d1.z + 2 * a.z + 2 * b.z + c.z) / 6;
-      var dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-      nx += (dx / dl) * h;
-      ny += (dy / dl) * h;
-      nz += (dz / dl) * h;
-      if (nx < 0 || nx > 1 || ny < 0 || ny > 1 || nz < 0 || nz > 1) break;
-      points.push(volMin[0] + nx * volSize[0], volMin[1] + ny * volSize[1], volMin[2] + nz * volSize[2]);
-      speeds.push(d1.speed);
-      if (d1.speed < 0.05) break;
+
+    var fwdPts = [];
+    var fwdSpd = [];
+    traceHalf(seed.x, seed.y, seed.z, 1, tn, volSize, step, steps, fwdPts, fwdSpd);
+
+    if (bidirectional) {
+      var bwdPts = [];
+      var bwdSpd = [];
+      traceHalf(seed.x, seed.y, seed.z, -1, tn, volSize, step, steps, bwdPts, bwdSpd);
+      // 逆流半支倒序：远端 → 种子
+      for (var i = bwdSpd.length - 1; i >= 0; i -= 1) {
+        points.push(
+          volMin[0] + bwdPts[i * 3] * volSize[0],
+          volMin[1] + bwdPts[i * 3 + 1] * volSize[1],
+          volMin[2] + bwdPts[i * 3 + 2] * volSize[2]
+        );
+        speeds.push(bwdSpd[i]);
+      }
     }
+
+    // 种子点
+    points.push(
+      volMin[0] + seed.x * volSize[0],
+      volMin[1] + seed.y * volSize[1],
+      volMin[2] + seed.z * volSize[2]
+    );
+    speeds.push(seedD.speed);
+
+    // 顺流半支
+    for (var k = 0; k < fwdSpd.length; k += 1) {
+      points.push(
+        volMin[0] + fwdPts[k * 3] * volSize[0],
+        volMin[1] + fwdPts[k * 3 + 1] * volSize[1],
+        volMin[2] + fwdPts[k * 3 + 2] * volSize[2]
+      );
+      speeds.push(fwdSpd[k]);
+    }
+
     var lineEnd = points.length / 3;
     if (lineEnd - lineStart >= 2) offsets.push(lineEnd);
-    else points.length = lineStart * 3;
+    else {
+      points.length = lineStart * 3;
+      speeds.length = lineStart;
+    }
   }
   var posArr = new Float32Array(points);
   var offArr = new Uint32Array(offsets);
@@ -520,6 +656,93 @@ function analyzeIsoSurface(message, tn) {
   return { result: result, transfer: transferList([posArr, normArr]) };
 }
 
+// 地质层位统计：逐层厚度、平均孔隙率/饱和度、渗透率均值与 P95，并回传构造起伏栅格
+function analyzeGeology(message, tn) {
+  var N = message.res || 48;
+  var V = message.vres || 64;
+  var contacts = ctx.contacts;
+  var layerCount = contacts.length + 1;
+  var count = new Float32Array(layerCount + 1);
+  var porSum = new Float32Array(layerCount + 1);
+  var satSum = new Float32Array(layerCount + 1);
+  var permMeanSum = new Float32Array(layerCount + 1);
+  var permList = [];
+  for (var li = 0; li <= layerCount; li += 1) permList.push([]);
+  var total = 0;
+  for (var iz = 0; iz < V; iz += 1) {
+    var z = (iz + 0.5) / V;
+    for (var iy = 0; iy < N; iy += 1) {
+      var y = (iy + 0.5) / N;
+      for (var ix = 0; ix < N; ix += 1) {
+        var x = (ix + 0.5) / N;
+        var code = geoLayer(x, y, z);
+        var por = geoProperty(x, y, z, code, 'porosity');
+        var sat = geoProperty(x, y, z, code, 'saturation');
+        var perm = geoProperty(x, y, z, code, 'permeability');
+        count[code] += 1;
+        porSum[code] += por;
+        satSum[code] += sat;
+        permMeanSum[code] += perm;
+        if (permList[code].length < 40000) permList[code].push(perm);
+        total += 1;
+      }
+    }
+  }
+  var layers = [];
+  for (var c = 1; c <= layerCount; c += 1) {
+    var cnt = count[c];
+    var arr = permList[c];
+    layers.push({
+      code: c,
+      fraction: total ? cnt / total : 0,
+      thicknessNorm: total ? cnt / (V * N * N) : 0,
+      porosity: cnt ? porSum[c] / cnt : 0,
+      saturation: cnt ? satSum[c] / cnt : 0,
+      permMean: cnt ? permMeanSum[c] / cnt : 0,
+      permP95: arr.length ? percentile(arr, arr.length, 0.95) : 0
+    });
+  }
+  // 构造起伏栅格：前端据此推算各层界埋深（层界埋深 = 接触面 - 起伏）
+  var relief = new Float32Array(N * N);
+  for (var ry = 0; ry < N; ry += 1) {
+    for (var rx = 0; rx < N; rx += 1) {
+      relief[ry * N + rx] = geoShift((rx + 0.5) / N, (ry + 0.5) / N);
+    }
+  }
+  var result = {
+    res: N,
+    contacts: contacts.slice(0),
+    layers: layers,
+    relief: relief
+  };
+  return { result: result, transfer: transferList([relief]) };
+}
+
+// 地质剖面：沿 A-B 直线逐点垂向采样岩性码与属性值，供前端绘制专业剖面图
+function analyzeGeologyProfile(message, tn) {
+  var a = message.a || [0.08, 0.5];
+  var b = message.b || [0.92, 0.5];
+  var steps = message.steps || 160;
+  var levels = message.levels || 96;
+  var channel = message.channel || 'litho';
+  var litho = new Uint8Array(steps * levels);
+  var values = new Float32Array(steps * levels);
+  for (var s = 0; s < steps; s += 1) {
+    var t = steps > 1 ? s / (steps - 1) : 0;
+    var nx = a[0] + (b[0] - a[0]) * t;
+    var ny = a[1] + (b[1] - a[1]) * t;
+    for (var l = 0; l < levels; l += 1) {
+      var nz = 1 - (l + 0.5) / levels;
+      var code = geoLayer(nx, ny, nz);
+      var idx = l * steps + s;
+      litho[idx] = code;
+      values[idx] = channel === 'litho' ? code : geoProperty(nx, ny, nz, code, channel);
+    }
+  }
+  var result = { steps: steps, levels: levels, litho: litho, values: values, a: a, b: b, channel: channel };
+  return { result: result, transfer: transferList([litho, values]) };
+}
+
 function analyzeCfd(message, tn) {
   var N = message.res || 40;
   var inflow = params.inflow != null ? params.inflow : 6;
@@ -601,11 +824,14 @@ function handleAnalyze(message) {
   var out;
   if (message.mode === 'stats') out = analyzeStats(message, tn);
   else if (message.mode === 'radar') out = analyzeRadar(message, tn);
+  else if (message.mode === 'radarTrend') out = analyzeRadarTrend(message);
   else if (message.mode === 'pm25') out = analyzePm25(message, tn);
   else if (message.mode === 'profile') out = analyzeProfile(message, tn);
   else if (message.mode === 'section') out = analyzeSection(message, tn);
   else if (message.mode === 'streamlines') out = analyzeStreamlines(message, tn);
   else if (message.mode === 'isosurface') out = analyzeIsoSurface(message, tn);
+  else if (message.mode === 'geology') out = analyzeGeology(message, tn);
+  else if (message.mode === 'geologyProfile') out = analyzeGeologyProfile(message, tn);
   else if (message.mode === 'cfd') out = analyzeCfd(message, tn);
   else out = { result: {}, transfer: [] };
   self.postMessage(

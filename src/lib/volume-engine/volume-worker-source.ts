@@ -20,6 +20,11 @@ let ctx = null;
 let particleState = null;
 let geometry = null;
 
+// 时间步瓦片缓存：播放 / 拖动时间轴时避免重复解析采样
+var tileCache = new Map();
+var tileCacheEpoch = -1;
+var TILE_CACHE_MAX = 240;
+
 self.onmessage = function (event) {
   const message = event.data;
   if (!message) return;
@@ -30,7 +35,7 @@ self.onmessage = function (event) {
     case 'particleInit': handleParticleInit(message); break;
     case 'particleTick': handleParticleTick(message); break;
     case 'analyze': handleAnalyze(message); break;
-    case 'dispose': particleState = null; ctx = null; break;
+    case 'dispose': particleState = null; ctx = null; tileCache.clear(); break;
     default: break;
   }
 };
@@ -74,8 +79,8 @@ function prepare(kind, p) {
     const count = Math.max(1, Math.round(p.cells || 6));
     for (let i = 0; i < count; i += 1) {
       cells.push({
-        x: 0.16 + 0.68 * rand(),
-        y: 0.16 + 0.68 * rand(),
+        x: 0.22 + 0.56 * rand(),
+        y: 0.22 + 0.56 * rand(),
         sig: 0.045 + 0.095 * rand(),
         peak: 46 + 22 * rand(),
         top: 0.5 + 0.46 * rand(),
@@ -119,10 +124,13 @@ function prepare(kind, p) {
     return { kind, vortices };
   }
   if (kind === 'geology') {
+    // 地层层序：自地表向下的归一化埋深接触面（接触面之上为上一层）
+    // 1 表土层 / 2 砂岩 / 3 页岩 / 4 石灰岩 / 5 花岗岩 / 6 基岩
+    var radius = p.intrusion != null ? p.intrusion : 0.12;
     return {
       kind,
-      contacts: [0.16, 0.31, 0.47, 0.63, 0.8],
-      intrusion: { x: 0.66, y: 0.46, z: 0.32, r: p.intrusion || 0.12 }
+      contacts: [0.09, 0.22, 0.4, 0.6, 0.8],
+      intrusion: { x: 0.64, y: 0.42, depth: 0.58, rx: radius, rz: radius * 1.35 }
     };
   }
   if (kind === 'cfd') {
@@ -151,6 +159,8 @@ function handleInit(message) {
   sceneKind = message.scene;
   params = message.params || {};
   geometry = message.geometry || null;
+  tileCache.clear();
+  tileCacheEpoch = message.epoch;
   ctx = prepare(sceneKind, params);
   const extra = { buildTime: performance.now() - started };
   if (sceneKind === 'pm25') {
@@ -203,8 +213,42 @@ function radarValue(nx, ny, nz, tn) {
   let dbz = best;
   if (best > 6) dbz += 13 * Math.exp(-Math.pow((nz - 0.12) / 0.028, 2));
   if (nz < 0.008) dbz += 6 * Math.exp(-((nx - 0.5) * (nx - 0.5) + (ny - 0.5) * (ny - 0.5)) / 0.002);
+
+  // 雷达坐标系：以雷达站为中心的极坐标 + 波束几何
+  const g = radarGeometry(nx, ny, nz, tn);
+  dbz *= 0.55 + 0.45 * g.coverage;
   if (dbz < 4) dbz = 0;
-  return clamp(dbz, 0, 70);
+  const value = clamp(dbz, 0, 70);
+  return {
+    value: value,
+    valid: g.coverage > 0.015 && value > 3 ? 1 : 0,
+    coverage: g.coverage,
+    density: smoothstep(5, 50, value),
+    quality: g.quality
+  };
+}
+
+/* 雷达覆盖场：距离圈、波束抬升、体域边界淡出、站顶静锥区与螺旋雨带纹理 */
+function radarGeometry(nx, ny, nz, tn) {
+  const dxs = nx - 0.5;
+  const dys = ny - 0.5;
+  const rn = Math.min(1.45, Math.sqrt(dxs * dxs + dys * dys) / 0.5);
+  const az = Math.atan2(dys, dxs);
+  // 可探测高度随距离下降（近站可及 20km，远端仅低层）
+  const zHi = clamp(1.02 - 0.6 * rn, 0.14, 1.0);
+  const top = 1 - smoothstep(zHi - 0.14, zHi + 0.05, nz);
+  const bottom = smoothstep(-0.01, 0.05, nz);
+  // 站顶静锥区
+  const coneHole = 1 - 0.85 * Math.exp(-Math.pow(rn / 0.11, 2)) * smoothstep(0.5, 0.92, nz);
+  // 径向衰减
+  const atten = params.attenuation != null ? params.attenuation : 0.35;
+  const radial = 0.82 + 0.18 * Math.exp(-atten * rn);
+  // 体域边界淡出
+  const boundary = 1 - smoothstep(0.9, 1.4, rn);
+  // 螺旋雨带纹理
+  const bands = 0.74 + 0.26 * Math.sin(rn * 9 - az * 2 + tn * 1.6);
+  const coverage = clamp(top * bottom * coneHole * radial * boundary * bands, 0, 1);
+  return { coverage: coverage, quality: clamp(radial * boundary, 0, 1) };
 }
 
 function pm25Value(nx, ny, nz, tn, channel) {
@@ -235,10 +279,11 @@ function pm25Value(nx, ny, nz, tn, channel) {
 
 function windVector(nx, ny, nz) {
   const sp = params.baseSpeed != null ? params.baseSpeed : 9;
-  const baseDir = ((params.baseDir != null ? params.baseDir : 235) * Math.PI) / 180;
+  // 气象风向：baseDir 为来向，水平流速矢量指向下游（+180°）
+  const flowDir = ((params.baseDir != null ? params.baseDir : 235) * Math.PI) / 180 + Math.PI;
   const shear = 0.4 + 0.6 * Math.pow(nz, 0.6);
   const meander = 0.14 * Math.sin(nx * 3.1 + nz * 2.0) + 0.1 * Math.cos(ny * 2.7);
-  const dir = baseDir + meander;
+  const dir = flowDir + meander;
   let ux = Math.cos(dir) * sp * shear;
   let uy = Math.sin(dir) * sp * shear;
   let uz = 0;
@@ -262,50 +307,124 @@ function windVector(nx, ny, nz) {
 function windValue(nx, ny, nz, channel) {
   const v = windVector(nx, ny, nz);
   if (channel === 'w') return clamp(v.uz, -3, 3);
-  return clamp(Math.sqrt(v.ux * v.ux + v.uy * v.uy + v.uz * v.uz), 0, 20);
+  // 保留真实风速，不做 20 m/s 上限截断；显示范围由图例 / 通道值域单独控制
+  const speed = Math.sqrt(v.ux * v.ux + v.uy * v.uy + v.uz * v.uz);
+  return speed > 0 ? speed : 0;
+}
+
+/* ---- 地质结构：倾斜 + 褶皱 + 断层共享同一个构造位移场 ---- */
+
+// 构造起伏（归一化埋深偏移）：地层倾斜 + 背斜/向斜褶皱
+function geoRelief(nx, ny) {
+  var dip = params.dip != null ? params.dip : 0.06;
+  var dipDir = ((params.dipDir != null ? params.dipDir : 35) * Math.PI) / 180;
+  var along = (nx - 0.5) * Math.cos(dipDir) + (ny - 0.5) * Math.sin(dipDir);
+  var dipTerm = -dip * along;
+  var foldAmp = params.foldAmp != null ? params.foldAmp : 0.05;
+  var fold = foldAmp * Math.sin(nx * 4.084) * Math.cos(ny * 3.456);
+  return dipTerm + fold;
+}
+
+// 断层：沿一条直线产生空间阶跃位移，使层位与属性一起错断
+function geoFaultShift(nx, ny) {
+  var throwAmt = params.faultThrow != null ? params.faultThrow : 0.06;
+  if (throwAmt < 0.0005) return 0;
+  var dir = ((params.faultDir != null ? params.faultDir : 118) * Math.PI) / 180;
+  var dist = (nx - 0.5) * Math.cos(dir) + (ny - 0.5) * Math.sin(dir);
+  var step = smoothstep(-0.02, 0.02, dist) - 0.5;
+  return -throwAmt * step;
+}
+
+function geoShift(nx, ny) {
+  return geoRelief(nx, ny) + geoFaultShift(nx, ny);
+}
+
+// 侵入体强度：椭球岩浆体，中心处为 1，向外平滑衰减
+function geoHeat(nx, ny, nz) {
+  var it = ctx.intrusion;
+  var d = 1 - nz;
+  var ex = (nx - it.x) / (it.rx * 1.6);
+  var ey = (ny - it.y) / (it.rx * 1.6);
+  var ez = (d - it.depth) / (it.rz * 1.6);
+  var q = ex * ex + ey * ey + ez * ez;
+  return q < 12 ? Math.exp(-q) : 0;
 }
 
 function geoLayer(nx, ny, nz) {
-  const und = (params.undulation != null ? params.undulation : 0.06) * Math.sin(nx * 5.5) * Math.cos(ny * 4.5);
-  const h = nz + und;
-  const c = ctx.contacts;
-  let code;
-  if (h < c[0]) code = 1;
-  else if (h < c[1]) code = 2;
-  else if (h < c[2]) code = 3;
-  else if (h < c[3]) code = 4;
-  else if (h < c[4]) code = 5;
+  var d = 1 - nz; // 自地表向下的归一化埋深
+  var dd = d + geoShift(nx, ny);
+  var c = ctx.contacts;
+  var code;
+  if (dd < c[0]) code = 1;
+  else if (dd < c[1]) code = 2;
+  else if (dd < c[2]) code = 3;
+  else if (dd < c[3]) code = 4;
+  else if (dd < c[4]) code = 5;
   else code = 6;
-  const it = ctx.intrusion;
-  const dx = nx - it.x;
-  const dy = ny - it.y;
-  const dz = (nz - (1 - it.z)) * 0.9;
-  if (dx * dx + dy * dy + dz * dz < it.r * it.r) code = 5;
+  // 侵入体穿层：椭球岩浆体覆盖原岩性
+  if (geoHeat(nx, ny, nz) > 0.32) code = 5;
   return code;
 }
 
-const GEO_PROP = {
-  1: { porosity: 0.3, saturation: 0.35, perm: 1.0 },
-  2: { porosity: 0.22, saturation: 0.5, perm: 2.2 },
-  3: { porosity: 0.12, saturation: 0.68, perm: -0.5 },
-  4: { porosity: 0.18, saturation: 0.55, perm: 1.4 },
-  5: { porosity: 0.07, saturation: 0.3, perm: -1.0 },
-  6: { porosity: 0.03, saturation: 0.25, perm: -1.6 }
+// 沉积相约束的岩性属性基准（孔隙率 / 饱和度 / 渗透率对数）
+var GEO_FACIES = {
+  1: { por: 30, sat: 38, permLog: 1.4 },
+  2: { por: 22, sat: 52, permLog: 2.4 },
+  3: { por: 11, sat: 66, permLog: -0.4 },
+  4: { por: 17, sat: 54, permLog: 1.3 },
+  5: { por: 6, sat: 30, permLog: -0.9 },
+  6: { por: 3, sat: 26, permLog: -1.6 }
 };
 
+// 低频连续性：模拟大尺度空间渐变
+function geoLowFreq(nx, ny, nz) {
+  return (
+    Math.sin(nx * 3.1 + ny * 2.3 + nz * 1.7) * 0.6 +
+    Math.cos(nx * 1.7 - ny * 2.9 + nz * 2.1) * 0.4
+  );
+}
+
+// 高频细节：仅保留少量，避免颗粒噪声
+function geoHighFreq(nx, ny, nz) {
+  return Math.sin(nx * 17.3 + ny * 15.1 + nz * 21.7);
+}
+
+// 砂岩储层甜点：沿构造脊分布的透镜状高孔高渗体
+function geoReservoir(nx, ny, nz) {
+  var d = 1 - nz;
+  var ridge = Math.sin(nx * 5.5 + 0.7) * Math.cos(ny * 4.1 - 0.3);
+  var band = Math.exp(-Math.pow((d - 0.3) / 0.07, 2));
+  var lens = Math.exp(-Math.pow(ridge / 0.5, 2));
+  return band * lens;
+}
+
+// 高渗通道：砂岩层内沿弯曲河道的一维连通条带
+function geoHighPerm(nx, ny, nz) {
+  var d = 1 - nz;
+  var river = Math.exp(-Math.pow((ny - (0.35 + 0.25 * Math.sin(nx * 4.2))) / 0.06, 2));
+  var band = Math.exp(-Math.pow((d - 0.27) / 0.06, 2));
+  return river * band;
+}
+
 function geoProperty(nx, ny, nz, code, channel) {
-  const base = GEO_PROP[code] || GEO_PROP[3];
-  const noise = 0.5 + 0.5 * Math.sin(nx * 13.3 + ny * 11.1 + nz * 17.7);
+  var base = GEO_FACIES[code] || GEO_FACIES[3];
+  var low = geoLowFreq(nx, ny, nz);
+  var high = geoHighFreq(nx, ny, nz);
+  var d = 1 - nz;
+  var reserv = code === 2 ? geoReservoir(nx, ny, nz) : 0;
+  var heat = geoHeat(nx, ny, nz);
   if (channel === 'porosity') {
-    const v = base.porosity * (0.75 + 0.5 * noise) + 0.02 * nz;
-    return clamp(v * 100, 0, 35);
+    var v = base.por + low * 3.4 + high * 0.7 + reserv * 9 - 3.5 * d - heat * 5;
+    return clamp(v, 0.5, 35);
   }
   if (channel === 'saturation') {
-    const v = base.saturation * (0.85 + 0.3 * noise) + 0.1 * (1 - nz);
-    return clamp(v * 100, 0, 100);
+    var owc = smoothstep(0.62, 0.74, d);
+    var v2 = base.sat + low * 5 + high * 1.2 + owc * 26 - heat * 12;
+    return clamp(v2, 0, 100);
   }
-  const shift = (noise - 0.5) * 0.6 - 0.5 * nz;
-  return clamp(Math.pow(10, base.perm + shift), 0.1, 1000);
+  var permHigh = geoHighPerm(nx, ny, nz) * (code === 2 ? 1 : 0.25);
+  var lk = base.permLog + low * 0.55 + high * 0.12 + reserv * 0.9 - 0.6 * d + permHigh - heat * 1.4;
+  return clamp(Math.pow(10, lk), 0.1, 1000);
 }
 
 function cfdSolid(nx, ny, nz) {
@@ -427,7 +546,7 @@ function cfdValue(nx, ny, nz, tn, channel) {
  * ------------------------------------------------------------------ */
 
 function sampleScalar(kind, nx, ny, nz, tn, channel) {
-  if (kind === 'radar') return { value: radarValue(nx, ny, nz, tn), valid: 1 };
+  if (kind === 'radar') return radarValue(nx, ny, nz, tn);
   if (kind === 'pm25') return { value: pm25Value(nx, ny, nz, tn, channel), valid: 1 };
   if (kind === 'wind') return { value: windValue(nx, ny, nz, channel), valid: 1 };
   if (kind === 'cfd') return cfdValue(nx, ny, nz, tn, channel);
@@ -437,8 +556,8 @@ function sampleScalar(kind, nx, ny, nz, tn, channel) {
 function sampleField(nx, ny, nz, tn, channel) {
   if (sceneKind === 'geology') {
     const code = geoLayer(nx, ny, nz);
-    if (channel === 'litho') return { value: code, valid: 1, categorical: true };
-    return { value: geoProperty(nx, ny, nz, code, channel), valid: 1 };
+    if (channel === 'litho') return { value: code, valid: 1, categorical: true, layer: code };
+    return { value: geoProperty(nx, ny, nz, code, channel), valid: 1, layer: code };
   }
   return sampleScalar(sceneKind, nx, ny, nz, tn, channel);
 }
@@ -448,6 +567,21 @@ function sampleField(nx, ny, nz, tn, channel) {
  * ------------------------------------------------------------------ */
 
 function handleTile(message) {
+  if (message.epoch !== tileCacheEpoch) { tileCache.clear(); tileCacheEpoch = message.epoch; }
+  const cacheKey = message.channel + '|' + message.mode + '|' + message.timeStep + '|' + message.tileSize + '|' +
+    message.tileLevel + '|' + message.tileX + ',' + message.tileY + ',' + message.tileZ;
+  const cached = tileCache.get(cacheKey);
+  if (cached) {
+    // 命中缓存：发送副本并转移其 buffer，缓存本体保留
+    const hit = cached.slice(0);
+    tileCache.delete(cacheKey);
+    tileCache.set(cacheKey, cached);
+    self.postMessage(
+      { type: 'tileDone', epoch: message.epoch, requestId: message.requestId, metadata: hit },
+      [hit.buffer]
+    );
+    return;
+  }
   const D = message.tileSize;
   const dim = D + 2;
   const total = dim * dim * dim;
@@ -472,13 +606,19 @@ function handleTile(message) {
           continue;
         }
         const s = sampleField(clamp(wx, 0, 1), clamp(wy, 0, 1), clamp(wz, 0, 1), tn, channel);
-        // 标量：.r=数值；分类：.r=分类码；.g 统一为有效掩膜
+        // VEC4 约定：.r=数值/分类码；.g=覆盖度(或缺省有效掩膜)；.b=体密度；.a=数据质量（地质案例改存地层码）
         metadata[idx] = s.value;
-        metadata[idx + 1] = s.valid ? 1 : 0;
+        metadata[idx + 1] = s.coverage != null ? s.coverage : (s.valid ? 1 : 0);
+        metadata[idx + 2] = s.density != null ? s.density : 1;
+        metadata[idx + 3] = s.layer != null ? s.layer : (s.quality != null ? s.quality : (s.valid ? 1 : 0));
       }
     }
   }
 
+  // 写入 LRU 缓存（发送转移原数组，缓存保存副本）
+  if ((sceneKind === 'radar' || sceneKind === 'geology') && tileCache.size < TILE_CACHE_MAX) {
+    tileCache.set(cacheKey, metadata.slice(0));
+  }
   self.postMessage(
     { type: 'tileDone', epoch: message.epoch, requestId: message.requestId, metadata },
     [metadata.buffer]

@@ -81,6 +81,10 @@ const okStatus = () => props.status.startsWith('✓')
       控制面板
     </button>
 
+    <div v-if="$slots.dock" class="vol-dock-slot">
+      <slot name="dock"></slot>
+    </div>
+
     <div v-if="props.picked" class="vol-pick">
       <div class="vol-pick-title">{{ props.picked.title }}</div>
       <template v-if="props.picked.rows.length">
@@ -431,6 +435,19 @@ const okStatus = () => props.status.startsWith('✓')
   overflow-y: auto;
   width: 100%;
 }
+.vol-dock-slot {
+  position: absolute;
+  top: 12px;
+  right: calc(22px + min(276px, calc(100% - 24px)));
+  bottom: 12px;
+  z-index: 11;
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+}
+.vol-dock-slot > * {
+  pointer-events: auto;
+}
 .vol-legend-bar {
   height: 10px;
   border-radius: 3px;
@@ -506,6 +523,9 @@ const okStatus = () => props.status.startsWith('✓')
     right: 12px;
     width: auto;
     max-height: 66%;
+  }
+  .vol-dock-slot {
+    display: none;
   }
   .vol-pick {
     bottom: auto;

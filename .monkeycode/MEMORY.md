@@ -807,6 +807,7 @@ Entries discovered by the Agent during task execution should follow this format:
   - 判定「参数无感」是通道失效还是输入为 0 的诊断法（常量替代法）：在页面里基于 `tileset.customShader.fragmentShaderText` 做字符串替换构造变体 —— 把可疑表达式换成常量（`ambient` → `vec3(0.5)`、`base` → `vec3(1.0)`、`emissive` → `vec3(0.5)`），若换常量后画面变化而原表达式无变化，即可断定该输入恒为 0 而非通道无效；每次变体后读 `scene.context.shaderCache.numberOfShaders` 确认新着色器已编译。注意逐段替换后原 shader 末尾的赋值会覆盖前置插入语句。
   - `npm run build`（vite build）在本机 2 核/8 GiB 环境会触发 node 默认堆上限 OOM（`FATAL ERROR: Reached heap limit`，约 1.4 GB）；改用 `NODE_OPTIONS=--max-old-space-size=3072 npm run build` 可成功（约 1m50s）。构建须用 background terminal 并设置 cpu/memory 限制。
   - 复核（2026-09-22，V6 系统DEMO）：以 `background_terminal_create` 设 `cpu_percent=200`、`memory_percent=55`（memory.max 4.28 GiB，叠加运行中的 dev server 峰值 1.13 GiB 仍在总内存 85% 预算内）执行原生 `npm run build` 连续两次成功，实测 vue-tsc + vite 整链路峰值约 2.52 GiB、耗时约 1m45s，无需 NODE_OPTIONS。故优先直接用受限后台终端跑 `npm run build`，仅在出现 `FATAL ERROR: Reached heap limit` 时才加 `--max-old-space-size=3072`。
+  - 补充（2026-09-30，V6.47.7）：`memory_percent=45`（memory.max 3.5 GiB）在 vite「rendering chunks」阶段会以 exit 134 `FatalProcessOutOfMemory` 中止（实测峰值仅约 2.42 GiB，说明 cgroup 上限偏低会压低 V8 默认堆上限而非真正耗尽物理内存）；改为 `memory_percent=60` + `NODE_OPTIONS=--max-old-space-size=3072` 后连续成功（峰值约 2.84 GiB、约 1m48s）。构建前若刚跑过 headless Chromium，建议确认其进程已退出再构建，避免叠加内存压力。
   - 只想单独做 TS 门禁（不跑 vite）时，可临时建 `.tsconfig.firecheck.json`（`extends: ./tsconfig.app.json` + `include: ["src/cases/<case>/**/*.ts"]`）后 `npx tsc -p .tsconfig.firecheck.json`；因 tsc 不识别 `.vue`，index.ts 里 `import('./XxxDemo.vue')` 的 TS2307 属预期噪音，最终门禁仍以 `npm run build`（vue-tsc）为准。
 
 [Project Knowledge Summary]
@@ -956,5 +957,35 @@ Entries discovered by the Agent during task execution should follow this format:
   - 首次尝试用 `page.evaluate` 里 `fetch('/src/**')` + 动态 `import` 挂载案例组件不可行：需先 `page.goto(origin)`，否则相对 URL 解析失败；且会触发 Vite 对模块请求返回 403/404。走真实 UI 点击最稳。
   - Cesium 网格/矢量叠加层禁用贴地分类图元：`GroundPrimitive` / `GroundPolylinePrimitive` / `HeightReference.CLAMP_TO_GROUND` 标注会在**每帧**重新做地面分类，相机拉近到贴地阈值（本项目 120km）后单元数上千即会把帧率从 140 打到个位数，且大批实例下会抛 `DeveloperError` 使网格整体消失。无地形椭球底图上改用「普通 `Primitive`（`height` 抬升）+ `PolylineCollection` + `HeightReference.NONE` 标注」即可视觉贴合且无逐帧开销。**抬升量及「轮廓 / 标注 / 选中高亮相对网格」的附加偏移都必须按屏幕像素折算**（米每像素 × 少量像素，再设世界米上限），固定米数偏移（旧版 line+6/标注+40/选中+70）在高层级（相机贴近，米每像素 <1）会放大成数十~上百像素，表现为 ID 标注与拾取高亮偏离单元；本项目 `DggsCaseShell` 现用 `clamp(metersPerPixel*1.5, 0.1, 220)` 作基础抬升、各叠加层偏移取 `min(原固定米数, 像素折算值)`，标注另设 `disableDepthTestDistance = Infinity` 免依赖抬高避免遮挡。另注意 `PolygonGeometry` 的 `perPositionHeight` 默认 false，顶点自带高度会被忽略，抬升必须显式传 `height`。
   - Cesium 拾取要「与所见一致」应直接拾取渲染实例而非反算坐标：给 `GeometryInstance` / `PolylineCollection.add` 传 `id: 单元ID`，`scene.pick(position).id` 即命中单元（配合 `Set<string>` 校验归属），只在未命中时回退 `camera.pickEllipsoid` 反算。不要用 `scene.pickPosition`：它读深度缓冲，受已渲染图元抬升影响产生偏差，且 `MOUSE_MOVE` 高频调用代价高（光标经纬度用纯数学的 `pickEllipsoid` 即可）。
+
+[Project Knowledge Summary]
+- Date: 2026-09-30
+- Context: Discovered by Agent while fixing the volume-geology case where adjusting structural parameters moved the camera and duplicated overlays
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - `VolumeEngine` 的 `setParams()` 会 `rebuild()`：销毁旧 Worker、重建 Worker 并 `postInit()`，Worker 回传 `initDone` 时引擎会再次触发 `callbacks.onReady`。因此案例里 `useVolumeScene` 的 `onReady` 回调**会在每次参数重建后再次执行**；若在其中做叠加层安装、`flyToView`/`resetCamera` 等一次性初始化，就会出现「叠加层重复安装内存泄漏 + 用户视角被拉回预设」。
+  - 正确做法：案例组件内用一次性守卫（如 `let initialized=false; if (initialized) return; initialized=true`）把首次初始化与后续重建回调区分开；重建后引擎已保留 `hiddenLayers`、背景、地表显隐等状态（`createPrimitive` 内 `applyLayerVisibility` 会重放），叠加层图元与 primitive 无关也无需重建，故后续回调通常无需任何操作。
+  - 技巧：给 `window.__geoState` 这类诊断对象加一个 `readyCount` 计数即可在 headless 中断言「onReady 是否被重复触发」，配合记录 `camera`（`viewer.camera.heading/pitch/positionCartographic.height`）断言视角是否漂移。
+  - 地质案例「属性异常区」等值面依赖连续属性标量通道：默认通道 `litho` 为 categorical，`runAnomaly` 在 `isScalar=false` 时会直接清除等值面，表现为「切换后看不到内容」。启用异常体时应先自动切到默认可量属性通道（`porosity`）再计算。
+
+[Project Knowledge Summary]
+- Date: 2026-10-01
+- Context: Discovered by Agent while fixing a Cesium runtime crash in 气象可视化-三维风场向量体 (src/cases/volume-wind)
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - Cesium 报 `An error occurred while rendering. Rendering has stopped.` + `RangeError: Failed to set the 'length' property on 'Array': Invalid array length`（栈顶 `View.updateFrustums`）时，根因几乎总是某个图元的 bounding volume 含 NaN/Infinity：`createPotentiallyVisibleSet` 用 bounding volume 距离求 near/far，NaN/Inf 使 `numFrustums` 变 NaN/Inf，`frustumCommandsList.length = numFrustums` 即抛 RangeError。优先检查刚加入 `scene.primitives` 的 `PolylineCollection`/`PointPrimitiveCollection`/`LabelCollection`/`VoxelPrimitive` 坐标是否有限（`VoxelPrimitive` 的 bounding volume 来自 `_shape.boundingSphere`，源头是 `minBounds/maxBounds` 与 `modelMatrix`）。
+  - `VolumeEngine.setLines`（流线/箭头叠加）坐标来自 Worker 分析结果；`analyzeStreamlines` 的 RK4 中间估计会采样到归一化域 [0,1] 之外，风切变 `Math.pow(nz, 0.6)` 对负 nz 产生 NaN，而 `directionAt(...) || d1` 只兜底 `null` 不兜底 NaN，NaN 沿积分链污染整条流线，最终以 NaN 顶点进入 `PolylineCollection` 触发上述崩溃。修复：`directionAt` 入口对 nx/ny/nz 越界即 `return null`（中间斜率回退为 d1），并在步长累加前加 `isFinite` 兜底 break。
+  - 定位手法：用 headless playwright 走「分类→卡片」进入案例并监听 `page.on('console'/'pageerror')` 复现 Cesium 堆栈；二分法逐段注释 `onReady` 里的 `createGpuLayer`/`createSkeleton`/`refreshOverlay`/`runProfile` 锁定触发路径，再在 `engine.setLines` 前统计 `result.positions` 的 `Number.isFinite` 计数确认 NaN（本次 93690 个坐标里 17565 个非有限）。
+
+[Project Knowledge Summary]
+- Date: 2026-10-01
+- Context: Discovered by Agent while fixing 气象可视化-三维风场向量体 GPU 粒子拖尾喷出体域边界 + 帧率低 (src/lib/vector-field-engine + src/cases/volume-wind)
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - `WindLayer3D`（原 wind-layer-3d）的 `viewerParameters.pixelSize` 默认按「可见数据范围/数据总范围」比例算（`1000*visibleRatio`，封顶 1000）。这套启发式是为**全球尺度**风场（数据跨度上千公里、相机视距上万公里）标定的；局地体域（本项目 wind 仅 8000m×8000m×1000m、相机视距约 6km）沿用后 pixelSize 被高估约 75 倍，而像素尺度同时进入两处：① 顶点着色器 `lengthFactor = mix(lineLength)*pixelSize` 决定拖尾在**裁剪空间**的延伸长度；② 计算着色器 `speedScaleFactor = (pixelSize+50)*speedFactor` 决定每帧位移。结果拖尾被拉成横跨整个视野的巨型扇面（表现为「流线冲出区域边界」），且大面积半透明叠加 + 片元双纹理采样造成重度过绘制、帧率骤降。
+  - 修复：新增 `WindLayerOptions.pixelSizeMode: 'data' | 'screen'`（默认 `'data'` 不改变全球案例行为）。`'screen'` 时按相机到体域中心的距离估真实米/像素 `2*distance*tan(fovy/2)/canvasHeight` 写入 pixelSize，使拖尾长度与粒子在图面上的移动速度都与缩放无关（屏幕像素恒定，`lineLength` 即拖尾像素长度）。volume-wind 用 `pixelSizeMode:'screen'` + `lineLength:{min:32,max:168}`。
+  - 排查确认手法（可复用）：在案例里临时把 GPU 图层开关关掉截图对比，即可判定越界图元来自 GPGPU 层还是 Worker 流线层；本机 headless SwiftShader 渲染 <1 FPS，`camera.flyTo*` 的 tween 因帧推进极慢而几乎不动（表现为「点相机预设按钮后相机不动」），不要据此判断相机逻辑有 bug，改用真实 GPU 或按几何推理。
+  - 构建门禁补充：本次 `memory_percent=45`（memory.max 3.5GiB）在 vite「rendering chunks」期以 `FatalProcessOutOfMemory` 中止（V8 报 heap limit ~1.7GB）；改 `memory_percent=60` + `NODE_OPTIONS=--max-old-space-size=3072` 一次通过（`✓ built in 1m41s`，vue-tsc 亦通过）。
+
 
 

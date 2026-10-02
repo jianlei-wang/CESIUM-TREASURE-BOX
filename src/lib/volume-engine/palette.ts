@@ -68,6 +68,11 @@ export type TransferOptions = {
   threshold?: number
   /** 不透明度整体上限 */
   alphaMax?: number
+  /**
+   * 双向发散量中心（归一化 0~1）。设置后不透明度以该点为中心对称上升，
+   * 中心接近全透明、正负两端接近全不透明，用于垂直速度等正负物理量。
+   */
+  divergingCenter?: number
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -99,11 +104,18 @@ export function buildTransferLut(paletteKey: string, options: TransferOptions = 
   const gamma = Math.max(0.05, options.alphaGamma ?? 1)
   const threshold = clamp(options.threshold ?? 0, 0, 0.999)
   const alphaMax = clamp(options.alphaMax ?? 1, 0, 1)
+  const divergingCenter = options.divergingCenter
   const lut = new Uint8Array(256 * 4)
   for (let i = 0; i < 256; i += 1) {
     const t = i / 255
     const [r, g, b] = lerpStops(stops, t)
-    const ramp = t <= threshold ? 0 : Math.pow((t - threshold) / (1 - threshold), gamma)
+    let ramp: number
+    if (divergingCenter !== undefined) {
+      const reach = Math.max(divergingCenter, 1 - divergingCenter) || 1
+      ramp = Math.pow(Math.abs(t - divergingCenter) / reach, gamma)
+    } else {
+      ramp = t <= threshold ? 0 : Math.pow((t - threshold) / (1 - threshold), gamma)
+    }
     lut[i * 4] = r
     lut[i * 4 + 1] = g
     lut[i * 4 + 2] = b
@@ -118,6 +130,93 @@ export function gradientCss(paletteKey: string): string {
   return `linear-gradient(90deg, ${stops.map((s) => `rgb(${s[0]}, ${s[1]}, ${s[2]})`).join(', ')})`
 }
 
+/**
+ * 雷达业务分级色带：颜色表达等级，透明度表达“存在感”。
+ * 以 dBZ 断点定义，避免连续插值把弱回波与强回波糊成一片。
+ */
+export type RadarBand = { dbz: number; color: Stop; alpha: number }
+
+export const RADAR_BANDS: RadarBand[] = [
+  { dbz: 0, color: [4, 16, 40], alpha: 0.0 },
+  { dbz: 5, color: [8, 44, 96], alpha: 0.02 },
+  { dbz: 20, color: [0, 120, 220], alpha: 0.08 },
+  { dbz: 30, color: [0, 205, 175], alpha: 0.18 },
+  { dbz: 35, color: [46, 220, 66], alpha: 0.26 },
+  { dbz: 40, color: [232, 224, 40], alpha: 0.4 },
+  { dbz: 45, color: [255, 150, 24], alpha: 0.56 },
+  { dbz: 50, color: [255, 44, 30], alpha: 0.72 },
+  { dbz: 55, color: [206, 24, 112], alpha: 0.86 },
+  { dbz: 65, color: [255, 128, 220], alpha: 0.94 },
+  { dbz: 70, color: [255, 255, 255], alpha: 0.98 }
+]
+
+export type RadarLutOptions = {
+  min?: number
+  max?: number
+  /** 低于该值完全透明（数据单位） */
+  threshold?: number
+  /** 整体不透明度上限 */
+  alphaMax?: number
+}
+
+export function radarColorAt(dbz: number, min = 0, max = 70): Stop {
+  const t = clamp((dbz - min) / (max - min || 1), 0, 1)
+  const target = t * 70
+  if (target <= RADAR_BANDS[0].dbz) return RADAR_BANDS[0].color
+  for (let i = 0; i < RADAR_BANDS.length - 1; i += 1) {
+    const a = RADAR_BANDS[i]
+    const b = RADAR_BANDS[i + 1]
+    if (target <= b.dbz) {
+      const local = (target - a.dbz) / (b.dbz - a.dbz || 1)
+      return [
+        Math.round(a.color[0] + (b.color[0] - a.color[0]) * local),
+        Math.round(a.color[1] + (b.color[1] - a.color[1]) * local),
+        Math.round(a.color[2] + (b.color[2] - a.color[2]) * local)
+      ]
+    }
+  }
+  return RADAR_BANDS[RADAR_BANDS.length - 1].color
+}
+
+/** 业务分级传递函数：分段 RGB + 分段 Alpha（256×1 RGBA） */
+export function buildRadarTransferLut(options: RadarLutOptions = {}): Uint8Array {
+  const min = options.min ?? 0
+  const max = options.max ?? 70
+  const alphaMax = clamp(options.alphaMax ?? 1, 0, 1)
+  const threshold = options.threshold ?? 0
+  const span = max - min || 1
+  const lut = new Uint8Array(256 * 4)
+  for (let i = 0; i < 256; i += 1) {
+    const dbz = min + (i / 255) * span
+    const color = radarColorAt(dbz, min, max)
+    let alpha: number
+    if (dbz <= threshold) {
+      alpha = 0
+    } else {
+      const target = clamp((dbz - min) / span, 0, 1) * 70
+      if (target <= RADAR_BANDS[0].dbz) alpha = RADAR_BANDS[0].alpha
+      else if (target >= RADAR_BANDS[RADAR_BANDS.length - 1].dbz) alpha = RADAR_BANDS[RADAR_BANDS.length - 1].alpha
+      else {
+        alpha = RADAR_BANDS[RADAR_BANDS.length - 1].alpha
+        for (let b = 0; b < RADAR_BANDS.length - 1; b += 1) {
+          const lo = RADAR_BANDS[b]
+          const hi = RADAR_BANDS[b + 1]
+          if (target <= hi.dbz) {
+            const local = (target - lo.dbz) / (hi.dbz - lo.dbz || 1)
+            alpha = lo.alpha + (hi.alpha - lo.alpha) * local
+            break
+          }
+        }
+      }
+    }
+    lut[i * 4] = color[0]
+    lut[i * 4 + 1] = color[1]
+    lut[i * 4 + 2] = color[2]
+    lut[i * 4 + 3] = Math.round(255 * clamp(alpha * alphaMax, 0, 1))
+  }
+  return lut
+}
+
 export type CategoryDef = {
   code: number
   label: string
@@ -126,12 +225,12 @@ export type CategoryDef = {
 
 /** 地层岩性分类色板（源自 geological-voxel 的分层配色） */
 export const LITHOLOGY_CATEGORIES: CategoryDef[] = [
-  { code: 1, label: '表土层', color: [139, 69, 19] },
-  { code: 2, label: '砂岩', color: [210, 180, 140] },
-  { code: 3, label: '页岩', color: [192, 192, 192] },
-  { code: 4, label: '石灰岩', color: [128, 128, 128] },
-  { code: 5, label: '花岗岩', color: [105, 105, 105] },
-  { code: 6, label: '基岩', color: [75, 0, 130] }
+  { code: 1, label: '表土层', color: [193, 154, 107] },
+  { code: 2, label: '砂岩', color: [233, 196, 106] },
+  { code: 3, label: '页岩', color: [112, 128, 144] },
+  { code: 4, label: '石灰岩', color: [160, 190, 190] },
+  { code: 5, label: '花岗岩', color: [214, 120, 120] },
+  { code: 6, label: '基岩', color: [92, 84, 112] }
 ]
 
 export function categoryColor(code: number): Stop {

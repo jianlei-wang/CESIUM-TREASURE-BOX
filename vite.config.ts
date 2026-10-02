@@ -42,7 +42,7 @@ const CESIUM_SYMBOLS = [
   'PolylineCollection', 'PolylineColorAppearance', 'PolylineDashMaterialProperty',
   'PolylineGeometry', 'PolylineGlowMaterialProperty', 'PolylineGraphics', 'PolylineMaterialAppearance',
   'PolylineOutlineMaterialProperty',   'PostProcessStage', 'PostProcessStageComposite', 'PostProcessStageSampleMode', 'Primitive', 'PrimitiveCollection', 'PrimitiveType',
-  'PropertyBag', 'Quaternion', 'Ray',   'Rectangle', 'RectangleGeometry', 'ReferenceFrame', 'RenderState', 'Renderbuffer', 'RenderbufferFormat', 'Resource', 'SampledPositionProperty',
+  'PropertyBag', 'Quaternion', 'Ray',   'Rectangle', 'RectangleGeometry', 'RectangleGraphics', 'ReferenceFrame', 'RenderState', 'Renderbuffer', 'RenderbufferFormat', 'Resource', 'SampledPositionProperty',
   'VelocityOrientationProperty',
   'SampledProperty', 'Sampler', 'Scene', 'SceneMode', 'SceneTransforms',
   'ScreenSpaceEventHandler', 'ScreenSpaceEventType', 'ShaderProgram', 'ShaderSource',

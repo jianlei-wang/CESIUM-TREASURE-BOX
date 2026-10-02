@@ -197,6 +197,59 @@ export function createRadarShader(initialLut: Uint8Array): CustomShader {
   })
 }
 
+/**
+ * PM2.5 体着色器：VEC4 元数据 .r=浓度、.g=有效掩膜、.b=浓度梯度、.a=置信度。
+ * 在传递函数的基础上：
+ *   - 梯度边界增强：烟羽锋面/污染边界处提高不透明度，让高浓度核心与边界更清晰；
+ *   - 置信度调制：边界层以上/远离污染源的低置信度体元素适度减淡，避免伪影；
+ *   - 高浓度核心轻微提亮，强化污染中心的空间识别。
+ */
+export function createPm25Shader(initialLut: Uint8Array): CustomShader {
+  return new CustomShader({
+    uniforms: {
+      uTransferFunction: { type: UniformType.SAMPLER_2D, value: makeLutTexture(initialLut) },
+      uValueMin: { type: UniformType.FLOAT, value: 0 },
+      uValueMax: { type: UniformType.FLOAT, value: 1 },
+      uOpacity: { type: UniformType.FLOAT, value: 0.72 },
+      uLighting: { type: UniformType.FLOAT, value: 0.4 },
+      uDensityGamma: { type: UniformType.FLOAT, value: 1.25 },
+      uThresholdSoft: { type: UniformType.FLOAT, value: 0.0 },
+      /** 梯度边界增强强度 */
+      uEdgeGain: { type: UniformType.FLOAT, value: 0.55 },
+      /** 低置信度处保留的最低不透明度比例 */
+      uConfidenceFloor: { type: UniformType.FLOAT, value: 0.35 },
+      /** Beer-Lambert 消光系数：越大高密度核心越致密 */
+      uExtinction: { type: UniformType.FLOAT, value: 2.2 }
+    },
+    fragmentShaderText: `
+      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+        vec4 meta = fsInput.metadata.color;
+        float value = meta.r;
+        float valid = meta.g;
+        float grad = clamp(meta.b, 0.0, 1.0);
+        float confidence = clamp(meta.a, 0.0, 1.0);
+        vec3 color = vec3(0.0);
+        float alpha = 0.0;
+        if (valid > 0.5) {
+          float t = clamp((value - uValueMin) / max(0.000001, uValueMax - uValueMin), 0.0, 1.0);
+          vec4 c = texture(uTransferFunction, vec2(t, 0.5));
+          // 传递函数 alpha 视为光学密度，按 Beer-Lambert 1-exp(-ρσ) 转为消光，
+          // 低浓度近乎透明、高浓度密度饱和，避免线性映射造成的体块感。
+          float density = pow(clamp(c.a, 0.0, 1.0), max(0.05, uDensityGamma));
+          float extinction = 1.0 - exp(-density * max(0.0, uExtinction));
+          float gate = uThresholdSoft > 0.0001 ? smoothstep(0.0, uThresholdSoft, t) : 1.0;
+          float edge = 1.0 + uEdgeGain * smoothstep(0.05, 0.65, grad);
+          color = min(vec3(1.0), c.rgb * (1.0 + 0.22 * smoothstep(0.4, 1.0, t)));
+          alpha = uOpacity * extinction * gate * mix(uConfidenceFloor, 1.0, confidence) * edge;
+        }
+        ${SHADING}
+        material.diffuse = color * shade;
+        material.alpha = clamp(alpha, 0.0, 1.0);
+      }
+    `
+  })
+}
+
 /** 分类体着色器：VEC4 元数据 .r=分类码、.g=有效掩膜，经分类色板纹理映射颜色 */
 export function buildCategoryLut(categories: { code: number; color: [number, number, number] }[]): Uint8Array {
   const lut = new Uint8Array(LUT_WIDTH * 4)

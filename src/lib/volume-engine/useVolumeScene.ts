@@ -65,6 +65,8 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
     flip: false,
     timeStep: 0,
     playing: false,
+    /** 回放倍速 1 / 2 / 4 */
+    playSpeed: 1,
     particleVisible: !!spec.vector,
     particleCount: spec.vector?.defaultCount ?? 3000,
     particleSize: spec.vector?.defaultSize ?? 3
@@ -237,17 +239,27 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
     engine.value?.setTimeStep(step)
   }
 
+  function startPlayTimer(): void {
+    if (playTimer) clearInterval(playTimer)
+    playTimer = setInterval(() => {
+      setTimeStep((ui.timeStep + 1) % spec.timeSteps)
+    }, Math.max(120, Math.round(1000 / Math.max(0.25, ui.playSpeed))))
+  }
+
   function togglePlay(): void {
     ui.playing = !ui.playing
-    if (playTimer) {
+    if (ui.playing) {
+      startPlayTimer()
+    } else if (playTimer) {
       clearInterval(playTimer)
       playTimer = undefined
     }
-    if (ui.playing) {
-      playTimer = setInterval(() => {
-        setTimeStep((ui.timeStep + 1) % spec.timeSteps)
-      }, 1000)
-    }
+  }
+
+  /** 回放倍速：播放中切换立即生效 */
+  function setPlaySpeed(speed: number): void {
+    ui.playSpeed = speed
+    if (ui.playing) startPlayTimer()
   }
 
   function setPreset(tileSize: number, levels: number): void {
@@ -337,6 +349,7 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
     setHorizontalLayer,
     setTimeStep,
     togglePlay,
+    setPlaySpeed,
     setPreset,
     setParticlesVisible,
     setParticleCount,

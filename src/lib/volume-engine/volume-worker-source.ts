@@ -69,6 +69,247 @@ const LITHO_COLORS = {
 };
 
 /* ------------------------------------------------------------------ *
+ * PM2.5 领域配置：体域物理尺度与固定污染源清单
+ * ------------------------------------------------------------------ */
+
+var PM25_WIDTH = 40000;
+var PM25_HEIGHT = 2500;
+
+// 固定源清单：位置/类型/源高在任何参数下保持一致，仅“启用数量”可调，
+// 保证调整源数量时既有污染源不跳变、空间格局可追踪。
+var PM25_SOURCE_DEFS = [
+  { id: 'S01', name: '东部电厂烟囱', type: 'stack', x: 0.30, y: 0.34, height: 0.10, strength: 1.00, phase: 0.0 },
+  { id: 'S02', name: '化工园区烟囱', type: 'stack', x: 0.25, y: 0.47, height: 0.12, strength: 0.92, phase: 0.7 },
+  { id: 'S03', name: '钢铁厂烟囱', type: 'stack', x: 0.37, y: 0.24, height: 0.09, strength: 0.96, phase: 1.4 },
+  { id: 'S04', name: '中心城区面源', type: 'area', x: 0.52, y: 0.50, height: 0.012, strength: 0.72, phase: 0.3 },
+  { id: 'S05', name: '老城面源', type: 'area', x: 0.44, y: 0.58, height: 0.010, strength: 0.62, phase: 2.1 },
+  { id: 'S06', name: '城北面源', type: 'area', x: 0.57, y: 0.63, height: 0.011, strength: 0.55, phase: 3.2 },
+  { id: 'S07', name: '绕城高速', type: 'road', x: 0.42, y: 0.44, height: 0.004, strength: 0.52, phase: 0.9, heading: 30, length: 0.52 },
+  { id: 'S08', name: '东西主干道', type: 'road', x: 0.55, y: 0.40, height: 0.004, strength: 0.46, phase: 1.8, heading: 115, length: 0.42 },
+  { id: 'S09', name: '港口物流通道', type: 'road', x: 0.30, y: 0.66, height: 0.004, strength: 0.40, phase: 2.5, heading: 70, length: 0.36 },
+  { id: 'S10', name: '远郊面源', type: 'area', x: 0.67, y: 0.30, height: 0.010, strength: 0.34, phase: 4.1 }
+];
+
+var PM25_STATION_KINDS = ['urban', 'urban', 'traffic', 'industry', 'urban', 'background'];
+
+function preparePm25(p) {
+  var defs = PM25_SOURCE_DEFS;
+  var active = p.activeSources != null ? p.activeSources : (p.sources != null ? p.sources : 5);
+  active = Math.max(1, Math.min(defs.length, Math.round(active)));
+  var sources = [];
+  for (var i = 0; i < active; i += 1) {
+    var d = defs[i];
+    sources.push({
+      id: d.id,
+      name: d.name,
+      type: d.type,
+      index: i,
+      x: d.x,
+      y: d.y,
+      height: d.height,
+      strength: d.strength,
+      phase: d.phase,
+      heading: d.heading || 0,
+      length: d.length || 0
+    });
+  }
+  var stations = [];
+  var rand = mulberry32(((p.seed || 1) + 7919) >>> 0);
+  for (var s = 0; s < 36; s += 1) {
+    var kind = PM25_STATION_KINDS[Math.floor(rand() * PM25_STATION_KINDS.length)];
+    var idNum = (s + 1 < 10 ? '0' : '') + (s + 1);
+    var bias = kind === 'background' ? 0.82 : (kind === 'industry' ? 1.18 : (kind === 'traffic' ? 1.12 : 0.94 + 0.12 * rand()));
+    stations.push({
+      index: s,
+      id: 'ST' + idNum,
+      name: '监测站 ST' + idNum,
+      kind: kind,
+      x: 0.06 + 0.88 * rand(),
+      y: 0.06 + 0.88 * rand(),
+      bias: bias,
+      residual: 0
+    });
+  }
+  return { kind: 'pm25', sources: sources, stations: stations, diagnosticsReady: false };
+}
+
+/* ---- PM2.5 辅助函数 ---- */
+
+function hash01(n) {
+  var x = Math.sin(n * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/* 监测同化：由确定性观测噪声 + 站点类型系统偏差生成残差，供时空订正使用 */
+function computePm25StationDiagnostics() {
+  var tn = 0.25;
+  for (var i = 0; i < ctx.stations.length; i += 1) {
+    var st = ctx.stations[i];
+    var raw = pm25Raw(st.x, st.y, 0.012, tn, 'pm25').conc;
+    var noise = (hash01(i * 97.13 + 11.7) - 0.5) * 14;
+    var observed = clamp(raw * st.bias + noise, 0, 600);
+    st.residual = observed - raw;
+  }
+  ctx.diagnosticsReady = true;
+}
+
+function pm25StationObserved(i, raw, tn) {
+  var st = ctx.stations[i];
+  var noise = (hash01(i * 97.13 + tn * 53.7 + 11.7) - 0.5) * 14;
+  return clamp(raw * st.bias + noise, 0, 600);
+}
+
+function pm25StationCorrection(nx, ny) {
+  var num = 0;
+  var den = 0;
+  for (var i = 0; i < ctx.stations.length; i += 1) {
+    var st = ctx.stations[i];
+    var dx = nx - st.x;
+    var dy = ny - st.y;
+    var w = 1 / (dx * dx + dy * dy + 0.006);
+    num += w * st.residual;
+    den += w;
+  }
+  return den > 0 ? num / den : 0;
+}
+
+/* 气象条件：风向（来向）缓慢摆动、风速阵性脉动、边界层高度与稳定度 */
+function pm25Meteorology(tn) {
+  var from = params.windFrom != null ? params.windFrom : (params.windDir != null ? params.windDir : 235);
+  var baseSpeed = params.windSpeed != null ? params.windSpeed : 4.5;
+  var meander = 0.20 * Math.sin(tn * 6.283 * 0.5 + 0.7) + 0.07 * Math.sin(tn * 6.283 * 2.3 + 1.1);
+  var dirFrom = from + meander * 16;
+  var flow = (dirFrom * Math.PI) / 180 + Math.PI;
+  var gust = 1 + 0.18 * Math.sin(tn * 6.283 * 1.5 + 0.4);
+  return {
+    wx: Math.cos(flow),
+    wy: Math.sin(flow),
+    speed: baseSpeed * gust,
+    from: dirFrom,
+    blh: params.blh != null ? params.blh : 0.35,
+    stability: params.stability != null ? params.stability : 0.5
+  };
+}
+
+/* 边界层风廓线：幂律，10 m 处为 1，1500 m 处约 1.9（风切变随高度增强输运） */
+function pm25Shear(nz) {
+  var zM = Math.max(nz, 0.0005) * PM25_HEIGHT;
+  return Math.min(2.6, Math.pow(Math.max(zM, 2) / 10, 0.16));
+}
+
+/* 混合层盖：边界层内充分混合，边界层顶以上浓度快速衰减 */
+function pm25Mix(nz, blh) {
+  var top = smoothstep(blh + 0.16, blh - 0.02, nz);
+  return 0.10 + 0.90 * top;
+}
+
+/* 污染物类型 → 排放权重与大气寿命系数（道路源 NO2/PM10 权重高且寿命短） */
+function pm25Emission(type, channel) {
+  if (channel === 'pm10') {
+    var w10 = type === 'road' ? 1.7 : (type === 'area' ? 1.05 : 0.6);
+    return { weight: w10, life: type === 'road' ? 0.75 : 0.9 };
+  }
+  if (channel === 'no2') {
+    var wno = type === 'road' ? 1.9 : (type === 'stack' ? 1.15 : 0.45);
+    return { weight: wno, life: type === 'road' ? 0.6 : 0.85 };
+  }
+  return { weight: 1, life: type === 'road' ? 0.85 : 1 };
+}
+
+function pm25Background(channel, nz, tn) {
+  var base = params.background != null ? params.background : 22;
+  var diurnal = 1 + 0.18 * Math.sin(tn * 6.283 - 1.4);
+  if (channel === 'pm10') return (base * 1.8 + 12) * diurnal * (1 - 0.35 * nz);
+  if (channel === 'no2') return (base * 0.4 + 6) * (1 + 0.25 * Math.sin(tn * 6.283 - 2.2)) * (1 - 0.5 * nz);
+  return base * diurnal * (1 - 0.42 * nz);
+}
+
+/*
+ * 单个源的高斯烟羽项：下风向输运 + 侧向扩散 + 垂向扩散。
+ * 风速参与“拉伸 / 稀释 / 收窄”三个作用，稳定度控制扩散强弱，
+ * 边界层高度约束垂向混合范围，源高与浮力抬升决定羽流中心高度。
+ */
+function pm25SourceTerm(s, nx, ny, nz, tn, met, channel) {
+  var dx = nx - s.x;
+  var dy = ny - s.y;
+  // 风切变：高度越高风速越大，同一水平位置在高层的等效下风向距离被拉长，
+  // 使羽流中心随高度向下风向倾斜，形成“随高度改变的输运方向”。
+  var shear = pm25Shear(nz);
+  var down = (dx * met.wx + dy * met.wy) * shear;
+  var cross = -dx * met.wy + dy * met.wx;
+
+  var stretch = clamp(met.speed / 4.5, 0.4, 2.4);
+  var dilution = Math.pow(4.5 / Math.max(1.6, met.speed), 0.6);
+  var stabMix = 1.25 - 0.65 * met.stability;
+  var windNarrow = 1 / (0.55 + 0.45 * stretch);
+
+  // 污染物独立扩散参数：粗颗粒（PM10）横向更宽、垂向沉降更快；
+  // NO₂ 反应性气体寿命短、扩散更窄，避免三通道退化为同一烟羽的等比缩放。
+  var dispY = channel === 'pm10' ? 1.25 : (channel === 'no2' ? 0.85 : 1);
+  var dispZ = channel === 'pm10' ? 1.15 : (channel === 'no2' ? 0.8 : 1);
+
+  var em = pm25Emission(s.type, channel);
+  var pulse = channel === 'pm25'
+    ? 1 + 0.35 * Math.sin(s.phase + tn * 6.283 - 1.2)
+    : 0.62 + 0.38 * Math.sin(s.phase + tn * 6.283);
+
+  var sigY = (0.045 + 0.26 * Math.max(down, 0)) * windNarrow * stabMix * dispY;
+  var sigZ = (0.03 + 0.16 * Math.max(down, 0)) * windNarrow * stabMix * dispZ;
+
+  var he = s.height;
+  if (s.type === 'stack') he += 0.09 * s.strength / Math.max(0.7, stretch);
+  if (s.type === 'area') { sigY += 0.06; sigZ += 0.05; }
+  if (s.type === 'road') sigY += 0.085;
+
+  var within = down > 0.005 || s.type === 'area';
+  var conc = 0;
+  var near = 0;
+
+  if (within) {
+    var decayLen = (s.type === 'road' ? 0.42 : 0.62) * (0.6 + 0.4 * stretch);
+    var decay = Math.exp(-Math.max(down, 0) / decayLen / em.life);
+    var lateral = Math.exp(-(cross * cross) / (2 * sigY * sigY + 1e-6));
+    var vertical = Math.exp(-Math.pow((nz - he) / (sigZ + 0.02), 2));
+    var amp = (s.strength * pulse * em.weight * 24 * dilution) / (sigY + 0.03);
+    conc = amp * lateral * vertical * decay * pm25Mix(nz, met.blh);
+  }
+
+  // 面源近域补充：不设下风向门限，保证城区面源在地面形成连片高值
+  if (s.type === 'area') {
+    var nd = Math.sqrt(dx * dx + dy * dy);
+    near = s.strength * em.weight * 34 * Math.exp(-(nd * nd) / (2 * 0.09 * 0.09)) * pm25Mix(nz, met.blh);
+  }
+  return { conc: conc, near: near };
+}
+
+function pm25ChannelMax(channel) {
+  if (channel === 'pm10') return 500;
+  if (channel === 'no2') return 200;
+  return 300;
+}
+
+/* 原始浓度场（不含监测订正），供站点诊断与主采样共用，避免循环依赖 */
+function pm25Raw(nx, ny, nz, tn, channel) {
+  var met = pm25Meteorology(tn);
+  var conc = pm25Background(channel, nz, tn);
+  var minDist = 10;
+  for (var i = 0; i < ctx.sources.length; i += 1) {
+    var s = ctx.sources[i];
+    var t = pm25SourceTerm(s, nx, ny, nz, tn, met, channel);
+    conc += t.conc + t.near;
+    var dx = nx - s.x;
+    var dy = ny - s.y;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d < minDist) minDist = d;
+  }
+  var correct = params.correct != null ? params.correct : 0;
+  if (correct > 0.5 && channel === 'pm25' && ctx.diagnosticsReady) {
+    conc += pm25StationCorrection(nx, ny) * 0.85;
+  }
+  return { conc: conc, minDist: minDist, met: met };
+}
+
+/* ------------------------------------------------------------------ *
  * 场景上下文构建
  * ------------------------------------------------------------------ */
 
@@ -93,22 +334,7 @@ function prepare(kind, p) {
     return { kind, cells };
   }
   if (kind === 'pm25') {
-    const sources = [];
-    const count = Math.max(1, Math.round(p.sources || 4));
-    for (let i = 0; i < count; i += 1) {
-      sources.push({
-        x: 0.2 + 0.6 * rand(),
-        y: 0.2 + 0.6 * rand(),
-        emit: 0.7 + 0.9 * rand(),
-        phase: rand() * 6.283
-      });
-    }
-    const stations = [];
-    const stationCount = 36;
-    for (let i = 0; i < stationCount; i += 1) {
-      stations.push({ x: 0.06 + 0.88 * rand(), y: 0.06 + 0.88 * rand() });
-    }
-    return { kind, sources, stations };
+    return preparePm25(p);
   }
   if (kind === 'wind') {
     const vortices = [];
@@ -164,6 +390,7 @@ function handleInit(message) {
   ctx = prepare(sceneKind, params);
   const extra = { buildTime: performance.now() - started };
   if (sceneKind === 'pm25') {
+    computePm25StationDiagnostics();
     const stationPos = new Float32Array(ctx.stations.length * 2);
     const stationVal = new Float32Array(ctx.stations.length);
     let max = 0;
@@ -171,7 +398,8 @@ function handleInit(message) {
       const s = ctx.stations[i];
       stationPos[i * 2] = s.x;
       stationPos[i * 2 + 1] = s.y;
-      const v = sampleField(s.x, s.y, 0.01, 0, 'pm25');
+      const raw = pm25Raw(s.x, s.y, 0.012, 0.25, 'pm25').conc;
+      const v = pm25StationObserved(i, raw, 0.25);
       stationVal[i] = v;
       if (v > max) max = v;
     }
@@ -252,29 +480,19 @@ function radarGeometry(nx, ny, nz, tn) {
 }
 
 function pm25Value(nx, ny, nz, tn, channel) {
-  const dir = ((params.windDir || 225) * Math.PI) / 180 + 0.25 * Math.sin(tn * 6.283);
-  const wx = Math.cos(dir);
-  const wy = Math.sin(dir);
-  const blh = params.blh || 0.35;
-  const background = params.background != null ? params.background : 20;
-  let conc = background * (1 - 0.45 * nz);
-  for (let i = 0; i < ctx.sources.length; i += 1) {
-    const s = ctx.sources[i];
-    const dx = nx - s.x;
-    const dy = ny - s.y;
-    const down = dx * wx + dy * wy;
-    if (down < 0.01) continue;
-    const cross = -dx * wy + dy * wx;
-    const sigY = 0.035 + 0.26 * down;
-    const sigZ = 0.022 + 0.095 * down;
-    const pulse = 0.8 + 0.2 * Math.sin(s.phase + tn * 6.283);
-    const vert = Math.exp(-Math.pow(nz - 0.05, 2) / (2 * sigZ * sigZ));
-    const mix = nz < blh ? 1 : Math.exp(-Math.pow((nz - blh) / 0.05, 2)) * 0.85;
-    conc += ((s.emit * pulse * 26) / (sigY + 0.03)) * Math.exp(-(cross * cross) / (2 * sigY * sigY)) * vert * mix;
-  }
-  if (channel === 'pm10') return clamp(conc * 1.7 + 14, 0, 500);
-  if (channel === 'no2') return clamp(conc * 0.42 + 8, 0, 200);
-  return clamp(conc, 0, 300);
+  const r = pm25Raw(nx, ny, nz, tn, channel);
+  const max = pm25ChannelMax(channel);
+  const value = clamp(r.conc, 0, max);
+  const mix = pm25Mix(nz, r.met.blh);
+  const proximity = Math.exp(-r.minDist / 0.28);
+  const confidence = clamp(0.30 + 0.55 * mix + 0.35 * proximity, 0, 1);
+  return {
+    value: value,
+    valid: 1,
+    coverage: 1,
+    density: clamp(value / max, 0, 1),
+    quality: confidence
+  };
 }
 
 function windVector(nx, ny, nz) {
@@ -547,7 +765,7 @@ function cfdValue(nx, ny, nz, tn, channel) {
 
 function sampleScalar(kind, nx, ny, nz, tn, channel) {
   if (kind === 'radar') return radarValue(nx, ny, nz, tn);
-  if (kind === 'pm25') return { value: pm25Value(nx, ny, nz, tn, channel), valid: 1 };
+  if (kind === 'pm25') return pm25Value(nx, ny, nz, tn, channel);
   if (kind === 'wind') return { value: windValue(nx, ny, nz, channel), valid: 1 };
   if (kind === 'cfd') return cfdValue(nx, ny, nz, tn, channel);
   return { value: 0, valid: 0 };
@@ -615,8 +833,27 @@ function handleTile(message) {
     }
   }
 
+  // PM2.5 元数据后处理：把浓度梯度写入 .b（烟羽锋面/边界增强），.a 保留置信度
+  if (sceneKind === 'pm25' && !categorical) {
+    const span = pm25ChannelMax(channel) * 0.05;
+    const row = dim * 4;
+    const plane = dim * dim * 4;
+    for (let iz = 1; iz < dim - 1; iz += 1) {
+      for (let iy = 1; iy < dim - 1; iy += 1) {
+        for (let ix = 1; ix < dim - 1; ix += 1) {
+          const c0 = ((iz * dim + iy) * dim + ix) * 4;
+          const gx = metadata[c0 + 4] - metadata[c0 - 4];
+          const gy = metadata[c0 + row] - metadata[c0 - row];
+          const gz = metadata[c0 + plane] - metadata[c0 - plane];
+          const grad = Math.sqrt(gx * gx + gy * gy + gz * gz) * scaleLevel;
+          metadata[c0 + 2] = clamp(grad / Math.max(1, span), 0, 1);
+        }
+      }
+    }
+  }
+
   // 写入 LRU 缓存（发送转移原数组，缓存保存副本）
-  if ((sceneKind === 'radar' || sceneKind === 'geology') && tileCache.size < TILE_CACHE_MAX) {
+  if ((sceneKind === 'radar' || sceneKind === 'geology' || sceneKind === 'pm25') && tileCache.size < TILE_CACHE_MAX) {
     tileCache.set(cacheKey, metadata.slice(0));
   }
   self.postMessage(

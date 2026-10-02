@@ -41,10 +41,11 @@ import {
   type Viewer
 } from 'cesium'
 import { createMapScene, destroyScene, loadBingImagery } from '../cesium-scene'
-import { buildRadarTransferLut, buildTransferLut, gradientCss, PALETTES } from './palette'
+import { buildPm25TransferLut, buildRadarTransferLut, buildTransferLut, gradientCss, PALETTES } from './palette'
 import { channelOf, type ChannelSpec, type SceneSpec } from './scenes'
 import {
   createCategoricalShader,
+  createPm25Shader,
   createRadarShader,
   createScalarShader,
   createVolumeProvider,
@@ -77,6 +78,12 @@ export type PickedInfo = {
   local?: [number, number, number]
   /** 拾取点在体域归一化坐标 0~1（x→w, y→d, z→h），可与向量场采样直接对齐 */
   norm?: [number, number, number]
+  /**
+   * 拾取射线（体域归一化空间：origin 可位于体域外，direction 已按体域尺寸归一）。
+   * VoxelPrimitive 的半透明体素不写入深度缓冲，scene.pickPosition 常返回 undefined，
+   * 此时用该射线在 Worker 内步进定位首个可见采样点，保证拾取数值与画面一致。
+   */
+  ray?: { origin: [number, number, number]; direction: [number, number, number] }
 }
 
 export type SliceResult = {
@@ -143,6 +150,12 @@ export type RenderParams = {
   densityGamma?: number
   thresholdSoft?: number
   lighting?: number
+  /** PM2.5 边界增强强度 */
+  pm25EdgeGain?: number
+  /** PM2.5 低置信度区域保留的最低不透明度比例 */
+  pm25ConfidenceFloor?: number
+  /** PM2.5 Beer-Lambert 消光系数（高密度核心致密度） */
+  pm25Extinction?: number
 }
 
 type ClipState = { enabled: boolean; azimuth: number; tilt: number; offset: number; flip: boolean }
@@ -187,7 +200,9 @@ export class VolumeEngine {
   private buildTime = 0
 
   private shader: CustomShader | undefined
-  private shaderMode: 'scalar' | 'categorical' | 'radar' | undefined
+  private shaderMode: 'scalar' | 'categorical' | 'radar' | 'pm25' | undefined
+  /** 最近一次写入 GPU 的传递函数字节；内容不变时跳过重建贴图，避免重建后一帧白闪 */
+  private lutCache: Uint8Array | undefined
   private primitive: VoxelPrimitive | undefined
   private clipCollection: ClippingPlaneCollection | undefined
   private handler: ScreenSpaceEventHandler | undefined
@@ -199,6 +214,9 @@ export class VolumeEngine {
   private densityGamma = 1
   private thresholdSoft = 0
   private lighting = 0.45
+  private pm25EdgeGain = 0.55
+  private pm25ConfidenceFloor = 0.35
+  private pm25Extinction = 2.2
   /** 对数映射：渗透率等跨数量级属性用 */
   private logScale = false
   /** 垂向夸张系数：仅改变体域垂向拉伸，不改变水平几何 */
@@ -440,18 +458,25 @@ export class VolumeEngine {
 
   private ensureShader(): CustomShader {
     const mode = this.activeChannel.mode
-    const variant: 'scalar' | 'categorical' | 'radar' =
-      mode === 'categorical' ? 'categorical' : (this.spec.kind === 'radar' ? 'radar' : 'scalar')
+    const variant: 'scalar' | 'categorical' | 'radar' | 'pm25' =
+      mode === 'categorical'
+        ? 'categorical'
+        : (this.spec.kind === 'radar' ? 'radar' : (this.spec.kind === 'pm25' ? 'pm25' : 'scalar'))
     if (!this.shader || this.shaderMode !== variant) {
       const layerGating = this.spec.kind === 'geology'
       if (variant === 'categorical') {
         this.shader = createCategoricalShader(this.spec.categories ?? [], { layerGating })
       } else if (variant === 'radar') {
         this.shader = createRadarShader(buildTransferLut(this.paletteKey, { alphaFloor: this.alphaFloor }))
+      } else if (variant === 'pm25') {
+        this.shader = createPm25Shader(
+          buildPm25TransferLut({ min: this.valueMin, max: this.valueMax, threshold: this.thresholdData ?? Math.max(this.valueMin, 10), alphaFloor: this.alphaFloor })
+        )
       } else {
         this.shader = createScalarShader(buildTransferLut(this.paletteKey, { alphaFloor: this.alphaFloor }), { layerGating })
       }
       this.shaderMode = variant
+      this.lutCache = undefined
     }
     return this.shader
   }
@@ -664,6 +689,9 @@ export class VolumeEngine {
     if (params.densityGamma !== undefined) this.densityGamma = params.densityGamma
     if (params.thresholdSoft !== undefined) this.thresholdSoft = params.thresholdSoft
     if (params.lighting !== undefined) this.lighting = params.lighting
+    if (params.pm25EdgeGain !== undefined) this.pm25EdgeGain = params.pm25EdgeGain
+    if (params.pm25ConfidenceFloor !== undefined) this.pm25ConfidenceFloor = params.pm25ConfidenceFloor
+    if (params.pm25Extinction !== undefined) this.pm25Extinction = params.pm25Extinction
     this.applyRenderParams()
     this.viewer?.scene.requestRender()
   }
@@ -675,6 +703,9 @@ export class VolumeEngine {
     if (this.shaderMode === 'categorical') return
     if (shader.uniforms.uDensityGamma) shader.uniforms.uDensityGamma.value = this.densityGamma
     if (shader.uniforms.uThresholdSoft) shader.uniforms.uThresholdSoft.value = this.thresholdSoft
+    if (shader.uniforms.uEdgeGain) shader.uniforms.uEdgeGain.value = this.pm25EdgeGain
+    if (shader.uniforms.uConfidenceFloor) shader.uniforms.uConfidenceFloor.value = this.pm25ConfidenceFloor
+    if (shader.uniforms.uExtinction) shader.uniforms.uExtinction.value = this.pm25Extinction
   }
 
   private buildScalarLut(thresholdNorm: number): Uint8Array {
@@ -684,6 +715,16 @@ export class VolumeEngine {
         max: this.valueMax,
         threshold: this.thresholdData,
         alphaMax: 1
+      })
+    }
+    if (this.shaderMode === 'pm25') {
+      return buildPm25TransferLut({
+        min: this.valueMin,
+        max: this.valueMax,
+        threshold: this.thresholdData ?? Math.max(this.valueMin, 10),
+        alphaMax: 1,
+        alphaGamma: this.densityGamma,
+        alphaFloor: this.alphaFloor
       })
     }
     return buildTransferLut(this.paletteKey, {
@@ -699,8 +740,13 @@ export class VolumeEngine {
     const span = this.valueMax - this.valueMin || 1
     const thresholdNorm = this.thresholdData !== undefined ? (this.thresholdData - this.valueMin) / span : 0
     const lut = this.buildScalarLut(thresholdNorm)
+    if (this.lutCache && this.lutCache.length === lut.length && this.lutCache.every((v, i) => v === lut[i])) {
+      this.viewer?.scene.requestRender()
+      return
+    }
+    this.lutCache = lut.slice()
     this.shader.setUniform('uTransferFunction', makeLutTexture(lut))
-    this.viewer?.scene.requestRender()
+    this.requestRenderSettled()
   }
 
   /** 供案例在剖切面预览 canvas 上映射颜色时使用 */
@@ -1190,8 +1236,30 @@ export class VolumeEngine {
       lat: geo?.lat,
       height: geo?.height,
       local: local?.local,
-      norm: local?.norm
+      norm: local?.norm,
+      ray: local?.norm ? undefined : this.pickRayNorm(position)
     })
+  }
+
+  /**
+   * 屏幕像素 → 体域归一化射线。半透明体素不写深度缓冲时 scene.pickPosition 返回
+   * undefined，用该射线在 Worker 内步进可定位首个可见采样点。
+   */
+  private pickRayNorm(position: Cartesian2): { origin: [number, number, number]; direction: [number, number, number] } | undefined {
+    if (!this.viewer || this.viewer.isDestroyed()) return undefined
+    const ray = this.viewer.camera.getPickRay(position)
+    if (!ray) return undefined
+    const inverse = Matrix4.inverseTransformation(this.modelMatrix, new Matrix4())
+    const origin = Matrix4.multiplyByPoint(inverse, ray.origin, new Cartesian3())
+    const dir = Matrix4.multiplyByPointAsVector(inverse, ray.direction, new Cartesian3())
+    const nx = (origin.x - this.volMin[0]) / (this.volSize[0] || 1)
+    const ny = (origin.y - this.volMin[1]) / (this.volSize[1] || 1)
+    const nz = (origin.z - this.volMin[2]) / (this.volSize[2] || 1)
+    const dx = dir.x / (this.volSize[0] || 1)
+    const dy = dir.y / (this.volSize[1] || 1)
+    const dz = dir.z / (this.volSize[2] || 1)
+    const len = Math.hypot(dx, dy, dz) || 1
+    return { origin: [nx, ny, nz], direction: [dx / len, dy / len, dz / len] }
   }
 
   /** 世界坐标 → 体域局部米坐标与归一化坐标（与向量场采样空间对齐） */
@@ -1449,6 +1517,22 @@ export class VolumeEngine {
 
   requestRender(): void {
     this.viewer?.scene.requestRender()
+  }
+
+  /**
+   * 跨帧请求渲染若干次。requestRenderMode 下贴图/资源上传存在一帧滞后，
+   * 单次 requestRender 会先用默认纹理（白）绘制一帧且不再继续请求，
+   * 表现为“更新后不变、拖动视角才刷新”。跨帧连请求可确保立即显示最新贴图。
+   */
+  requestRenderSettled(frames = 3): void {
+    let remaining = Math.max(1, Math.floor(frames))
+    const tick = (): void => {
+      if (!this.viewer || this.viewer.isDestroyed()) return
+      this.viewer.scene.requestRender()
+      remaining -= 1
+      if (remaining > 0) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
   }
 
   /** 体域局部 ENU → 世界坐标的变换矩阵副本（供工程骨架层叠加使用） */

@@ -236,6 +236,87 @@ export const GEOLOGY_CONFIG: GeologyConfig = {
   anomalyThresholds: [0.5, 0.65, 0.8, 0.9]
 }
 
+export type Pm25SourceType = 'stack' | 'area' | 'road'
+
+/** PM2.5 污染源业务定义（位置与类型与 Worker 内的固定源清单保持一致） */
+export type Pm25SourceDef = {
+  id: string
+  name: string
+  type: Pm25SourceType
+  code: string
+  /** 归一化平面位置（相对体域中心，0~1） */
+  x: number
+  y: number
+  /** 道路源走向（度） */
+  heading?: number
+  /** 道路源长度（归一化） */
+  length?: number
+}
+
+export type Pm25CameraPreset = 'overview' | 'plume' | 'top' | 'ground' | 'station' | 'core' | 'vertical' | 'source'
+
+export type Pm25Config = {
+  /** 固定污染源清单，可启用前 N 个 */
+  sources: Pm25SourceDef[]
+  /** 浓度分级断点（μg/m³），与 palette 的 PM25_CLASSES 一致 */
+  classBreaks: number[]
+  /** 关键等值面浓度（μg/m³） */
+  isoLevels: number[]
+  /** 分析默认参数 */
+  analysis: {
+    defaultThreshold: number
+    defaultPopDensity: number
+    footprintGrid: number
+    trendSteps: number
+    stationCount: number
+  }
+  camera: Record<Pm25CameraPreset, { label: string; heading: number; pitch: number; rangeFactor: number }>
+  /** 单个时间步代表的小时数，用于时间轴小时标签 */
+  timeStepHours: number
+  /** 污染层顶高参考（m），用于剖面参考与默认边界层高度展示 */
+  refTopM: number
+}
+
+/**
+ * PM2.5 专属配置：集中管理固定污染源清单、浓度分级、等值面浓度、分析默认值与相机预设，
+ * 业务组件只引用本对象，不再散落魔法数字。
+ */
+export const PM25_CONFIG: Pm25Config = {
+  sources: [
+    { id: 'S01', name: '东部电厂烟囱', type: 'stack', code: 'IND', x: 0.30, y: 0.34 },
+    { id: 'S02', name: '化工园区烟囱', type: 'stack', code: 'IND', x: 0.25, y: 0.47 },
+    { id: 'S03', name: '钢铁厂烟囱', type: 'stack', code: 'IND', x: 0.37, y: 0.24 },
+    { id: 'S04', name: '中心城区面源', type: 'area', code: 'URB', x: 0.52, y: 0.50 },
+    { id: 'S05', name: '老城面源', type: 'area', code: 'URB', x: 0.44, y: 0.58 },
+    { id: 'S06', name: '城北面源', type: 'area', code: 'URB', x: 0.57, y: 0.63 },
+    { id: 'S07', name: '绕城高速', type: 'road', code: 'TRA', x: 0.42, y: 0.44, heading: 30, length: 0.52 },
+    { id: 'S08', name: '东西主干道', type: 'road', code: 'TRA', x: 0.55, y: 0.40, heading: 115, length: 0.42 },
+    { id: 'S09', name: '港口物流通道', type: 'road', code: 'TRA', x: 0.30, y: 0.66, heading: 70, length: 0.36 },
+    { id: 'S10', name: '远郊面源', type: 'area', code: 'BGD', x: 0.67, y: 0.30 }
+  ],
+  classBreaks: [35, 75, 115, 150, 250],
+  isoLevels: [35, 75, 150, 250],
+  analysis: {
+    defaultThreshold: 75,
+    defaultPopDensity: 1600,
+    footprintGrid: 96,
+    trendSteps: 24,
+    stationCount: 36
+  },
+  camera: {
+    overview: { label: '全局', heading: 30, pitch: -28, rangeFactor: 1.05 },
+    plume: { label: '下风向羽流', heading: 235, pitch: -20, rangeFactor: 0.72 },
+    top: { label: '俯视', heading: 0, pitch: -80, rangeFactor: 0.95 },
+    ground: { label: '近地', heading: 40, pitch: -10, rangeFactor: 0.6 },
+    station: { label: '监测站', heading: 60, pitch: -14, rangeFactor: 0.52 },
+    core: { label: '污染核心', heading: 25, pitch: -24, rangeFactor: 0.44 },
+    vertical: { label: '垂直结构', heading: 90, pitch: -6, rangeFactor: 0.8 },
+    source: { label: '源区', heading: 300, pitch: -16, rangeFactor: 0.5 }
+  },
+  timeStepHours: 1,
+  refTopM: 875
+}
+
 export const SCENES: Record<SceneKind, SceneSpec> = {
   radar: {
     kind: 'radar',
@@ -256,22 +337,22 @@ export const SCENES: Record<SceneKind, SceneSpec> = {
   },
   pm25: {
     kind: 'pm25',
-    title: '三维 PM2.5 浓度体',
-    tag: '环境 / Pollution Volume',
+    title: '城市 PM2.5 三维浓度场与污染输运分析',
+    tag: '环境 / PM2.5 Transport',
     description:
-      '将地面监测、气象场与模拟浓度组合成三维污染浓度体，展示污染羽流随高度和风向的变化，支持超标体积分析、任意剖切、多变量切换与时间轴回放。',
+      '以固定污染源清单（工业烟囱 / 城区面源 / 道路线源）与气象条件（风向风速 / 风切变 / 边界层高度 / 大气稳定度）驱动的三维 PM2.5 浓度场与输运分析：支持 PM2.5 / PM10 / NO₂ 多污染物切换、35/75/150/250 关键浓度等值面、地面污染 footprint、污染热点与源贡献解析、监测站模型-观测误差评估、时间演变趋势与浓度/IAQI 对照。',
     center: { lon: 116.39, lat: 39.91, height: 40 },
-    volume: { width: 40000, depth: 40000, height: 1500, base: 0 },
+    volume: { width: 40000, depth: 40000, height: 2500, base: 0 },
     channels: [
-      { key: 'pm25', label: 'PM2.5', unit: 'µg/m³', min: 0, max: 300, palette: 'aqi', mode: 'scalar', thresholds: [35, 75, 115, 150, 250], decimals: 0 },
-      { key: 'pm10', label: 'PM10', unit: 'µg/m³', min: 0, max: 500, palette: 'aqi', mode: 'scalar', decimals: 0 },
-      { key: 'no2', label: 'NO₂', unit: 'µg/m³', min: 0, max: 200, palette: 'terrain', mode: 'scalar', decimals: 0 }
+      { key: 'pm25', label: 'PM2.5', unit: 'µg/m³', min: 0, max: 300, palette: 'pm25', mode: 'scalar', thresholds: [35, 75, 115, 150, 250], decimals: 0 },
+      { key: 'pm10', label: 'PM10', unit: 'µg/m³', min: 0, max: 500, palette: 'pm10', mode: 'scalar', thresholds: [50, 150, 250, 350], decimals: 0 },
+      { key: 'no2', label: 'NO₂', unit: 'µg/m³', min: 0, max: 200, palette: 'no2', mode: 'scalar', thresholds: [40, 80, 120, 160], decimals: 0 }
     ],
     defaultChannel: 'pm25',
-    timeSteps: 12,
+    timeSteps: 24,
     timeStepUnit: 'h',
-    defaults: { tileSize: 16, levels: 4, sse: 14, stepSize: 1, nearest: false, opacity: 0.72, alphaFloor: 0.02 },
-    params: { sources: 5, seed: 20260928, windDir: 225, windSpeed: 4.5, blh: 0.35, background: 22 }
+    defaults: { tileSize: 16, levels: 4, sse: 14, stepSize: 1, nearest: false, opacity: 0.72, alphaFloor: 0 },
+    params: { seed: 20260928, activeSources: 5, windFrom: 235, windSpeed: 4.5, blh: 0.35, background: 22, stability: 0.5, correct: 0 }
   },
   wind: {
     kind: 'wind',

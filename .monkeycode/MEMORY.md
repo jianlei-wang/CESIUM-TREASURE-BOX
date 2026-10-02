@@ -987,5 +987,16 @@ Entries discovered by the Agent during task execution should follow this format:
   - 排查确认手法（可复用）：在案例里临时把 GPU 图层开关关掉截图对比，即可判定越界图元来自 GPGPU 层还是 Worker 流线层；本机 headless SwiftShader 渲染 <1 FPS，`camera.flyTo*` 的 tween 因帧推进极慢而几乎不动（表现为「点相机预设按钮后相机不动」），不要据此判断相机逻辑有 bug，改用真实 GPU 或按几何推理。
   - 构建门禁补充：本次 `memory_percent=45`（memory.max 3.5GiB）在 vite「rendering chunks」期以 `FatalProcessOutOfMemory` 中止（V8 报 heap limit ~1.7GB）；改 `memory_percent=60` + `NODE_OPTIONS=--max-old-space-size=3072` 一次通过（`✓ built in 1m41s`，vue-tsc 亦通过）。
 
+[Project Knowledge Summary]
+- Date: 2026-10-02
+- Context: Discovered by Agent while fixing 城市 PM2.5 三维浓度场 拾取浮层三污染物数值缺失 (src/lib/volume-engine + src/cases/volume-pm25)
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - `VoxelPrimitive` 是半透明体光线步进，**不写深度缓冲**：`scene.pickPosition(position)` 恒返回 `undefined`（`scene.pickTranslucentDepth` 开/关都一样），因此依赖 pickPosition 反算局部/归一化坐标的拾取逻辑会静默失败。可行方案：`scene.pickVoxel(position)` 可拿到命中体素的元数据值（本项目 `cell.getProperty('color')` → VEC4 [value,valid,grad,confidence]），再在 Worker 内沿「相机屏幕射线」在体域归一化空间做 slab 求交 + 定步长步进，取首个越过显示下限的采样点即可得到与画面一致的坐标与浓度（本项目新增 `pm25Ray` 分析模式，Engine `pick()` 提供 `ray:{origin,direction}`）。
+  - PM2.5 传递函数 `buildPm25TransferLut` 的 `alphaFloor`（UI「覆盖基底」）必须在两个 LUT 构建路径都传入才生效：`ensureShader` 的初始 `createPm25Shader(buildPm25TransferLut(...))` 与 `buildScalarLut` 的刷新路径；LUT 内实现为 `alpha = floor + (1-floor)*ramp`。验证该参数不能只看画面中心小区域均值（易被烟羽核心掩盖），应对全帧 `gl.readPixels` 求 hash/mean，或直接用 esbuild 打包 `palette.ts` 单测 LUT 低浓度 alpha。
+  - headless 复现拾取：坐标必须相对 Cesium canvas（`.vol-cesium` rect）而非页面；PM2.5 羽流在画面左侧窄带，命中点约在 canvas 左 30%~45%、上 30% 一带，扫描网格先覆盖该区。
+  - 构建门禁再次确认：`memory_percent=50` + `NODE_OPTIONS=--max-old-space-size=4096 npx vue-tsc -b` 与 `npx vite build` 均通过（typecheck 0 error，build `✓ built in 1m44s`）。
+
+
 
 

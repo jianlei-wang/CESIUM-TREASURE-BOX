@@ -21,6 +21,8 @@ import {
   GeometryAttributes,
   GeometryInstance,
   HeadingPitchRange,
+  LabelCollection,
+  LabelStyle,
   Material,
   Matrix4,
   PerInstanceColorAppearance,
@@ -39,12 +41,14 @@ import {
   type Viewer
 } from 'cesium'
 import { createMapScene, destroyScene, loadBingImagery } from '../cesium-scene'
-import { buildTransferLut, gradientCss, PALETTES } from './palette'
+import { buildRadarTransferLut, buildTransferLut, gradientCss, PALETTES } from './palette'
 import { channelOf, type ChannelSpec, type SceneSpec } from './scenes'
 import {
   createCategoricalShader,
+  createRadarShader,
   createScalarShader,
   createVolumeProvider,
+  makeLayerVisibilityTexture,
   makeLutTexture,
   LUT_WIDTH,
   type Bounds
@@ -69,6 +73,10 @@ export type PickedInfo = {
   lon?: number
   lat?: number
   height?: number
+  /** 拾取点在体域局部 ENU 坐标（米） */
+  local?: [number, number, number]
+  /** 拾取点在体域归一化坐标 0~1（x→w, y→d, z→h），可与向量场采样直接对齐 */
+  norm?: [number, number, number]
 }
 
 export type SliceResult = {
@@ -179,16 +187,24 @@ export class VolumeEngine {
   private buildTime = 0
 
   private shader: CustomShader | undefined
-  private shaderMode: 'scalar' | 'categorical' | undefined
+  private shaderMode: 'scalar' | 'categorical' | 'radar' | undefined
   private primitive: VoxelPrimitive | undefined
   private clipCollection: ClippingPlaneCollection | undefined
   private handler: ScreenSpaceEventHandler | undefined
+  private pickTimer: number | undefined
+  private pickPending: Cartesian2 | undefined
   private imageryLayer: ImageryLayer | undefined
   private sceneGeometry: number[] | undefined
 
   private densityGamma = 1
   private thresholdSoft = 0
   private lighting = 0.45
+  /** 对数映射：渗透率等跨数量级属性用 */
+  private logScale = false
+  /** 垂向夸张系数：仅改变体域垂向拉伸，不改变水平几何 */
+  verticalExaggeration = 1
+  /** 分地层显隐：被隐藏的地层码集合（地质案例由体素第 4 通道记录的层码驱动） */
+  private hiddenLayers: number[] = []
 
   private analysisSeq = 0
   private pendingAnalysis = new Map<number, { resolve: (result: unknown) => void; reject: (error: Error) => void }>()
@@ -196,6 +212,7 @@ export class VolumeEngine {
   private arrowCollection: PolylineCollection | undefined
   private isoPrimitives = new Map<string, Primitive>()
   private markerCollection: PointPrimitiveCollection | undefined
+  private markerLabelCollection: LabelCollection | undefined
 
   private bounds: Bounds
   private modelMatrix: Matrix4
@@ -300,7 +317,7 @@ export class VolumeEngine {
       this.resetCamera(0)
       this.handler = new ScreenSpaceEventHandler(this.viewer.scene.canvas)
       this.handler.setInputAction(
-        (movement: { endPosition: Cartesian2 }) => this.pick(movement.endPosition),
+        (movement: { endPosition: Cartesian2 }) => this.throttledPick(movement.endPosition),
         ScreenSpaceEventType.MOUSE_MOVE
       )
       this.createWorker()
@@ -423,11 +440,18 @@ export class VolumeEngine {
 
   private ensureShader(): CustomShader {
     const mode = this.activeChannel.mode
-    if (!this.shader || this.shaderMode !== mode) {
-      this.shader = mode === 'categorical'
-        ? createCategoricalShader(this.spec.categories ?? [])
-        : createScalarShader(buildTransferLut(this.paletteKey, { alphaFloor: this.alphaFloor }))
-      this.shaderMode = mode
+    const variant: 'scalar' | 'categorical' | 'radar' =
+      mode === 'categorical' ? 'categorical' : (this.spec.kind === 'radar' ? 'radar' : 'scalar')
+    if (!this.shader || this.shaderMode !== variant) {
+      const layerGating = this.spec.kind === 'geology'
+      if (variant === 'categorical') {
+        this.shader = createCategoricalShader(this.spec.categories ?? [], { layerGating })
+      } else if (variant === 'radar') {
+        this.shader = createRadarShader(buildTransferLut(this.paletteKey, { alphaFloor: this.alphaFloor }))
+      } else {
+        this.shader = createScalarShader(buildTransferLut(this.paletteKey, { alphaFloor: this.alphaFloor }), { layerGating })
+      }
+      this.shaderMode = variant
     }
     return this.shader
   }
@@ -472,6 +496,7 @@ export class VolumeEngine {
     this.primitive = primitive
     this.refreshShader()
     this.refreshLut()
+    this.applyLayerVisibility()
     this.applyRenderParams()
   }
 
@@ -541,6 +566,43 @@ export class VolumeEngine {
     this.viewer?.scene.requestRender()
   }
 
+  /** 对数映射开关（值域按 log 归一化），用于渗透率等跨数量级属性 */
+  setLogScale(enabled: boolean): void {
+    if (enabled === this.logScale) return
+    this.logScale = enabled
+    this.refreshShader()
+    this.viewer?.scene.requestRender()
+  }
+
+  /** 数据值 → 归一化位置（自动遵循对数映射），供剖切面 CPU 映射复用 */
+  valueToNormalized(value: number): number {
+    if (this.logScale && value > 0) {
+      const lo = Math.log(Math.max(this.valueMin, 1e-6))
+      const hi = Math.log(Math.max(this.valueMax, 1e-6))
+      return clamp01((Math.log(value) - lo) / ((hi - lo) || 1))
+    }
+    return clamp01((value - this.valueMin) / ((this.valueMax - this.valueMin) || 1))
+  }
+
+  /** 垂向夸张：拉伸体域与裁剪/剖切/叠加的垂向归一化映射 */
+  setVerticalExaggeration(factor: number): void {
+    const value = Math.max(0.25, Math.min(8, factor))
+    if (value === this.verticalExaggeration) return
+    this.verticalExaggeration = value
+    const v = this.spec.volume
+    this.bounds.max[2] = this.bounds.min[2] + v.height * value
+    this.volSize[2] = v.height * value
+    this.halfDiag = 0.5 * Math.sqrt(v.width * v.width + v.depth * v.depth + this.volSize[2] * this.volSize[2])
+    this.centerLocal = new Cartesian3(0, 0, this.bounds.min[2] + this.volSize[2] / 2)
+    if (this.primitive) {
+      this.primitive.minBounds = new Cartesian3(...this.bounds.min)
+      this.primitive.maxBounds = new Cartesian3(...this.bounds.max)
+    }
+    this.updateClipPlane()
+    this.requestSlice(false)
+    this.viewer?.scene.requestRender()
+  }
+
   /** 阈值以数据单位传入（如 dBZ 35），< 说明不显示 */
   setThreshold(value: number | undefined): void {
     this.thresholdData = value
@@ -570,12 +632,28 @@ export class VolumeEngine {
     this.viewer?.scene.requestRender()
   }
 
+  /** 分地层显隐：传入需要隐藏的地层码集合，实时门控体素透明度（地质案例用） */
+  setLayerVisibility(hiddenLayers: number[]): void {
+    this.hiddenLayers = hiddenLayers.slice()
+    this.applyLayerVisibility()
+  }
+
+  private applyLayerVisibility(): void {
+    const shader = this.shader
+    if (!shader || !shader.uniforms.uLayerVis) return
+    shader.setUniform('uLayerVis', makeLayerVisibilityTexture(this.hiddenLayers))
+    this.viewer?.scene.requestRender()
+  }
+
   private refreshShader(): void {
     if (!this.shader) return
-    if (this.shaderMode === 'scalar') {
+    if (this.shaderMode !== 'categorical') {
       this.shader.uniforms.uValueMin.value = this.valueMin
       this.shader.uniforms.uValueMax.value = this.valueMax
       this.shader.uniforms.uOpacity.value = this.opacity
+      if (this.shader.uniforms.uLogScale) this.shader.uniforms.uLogScale.value = this.logScale ? 1 : 0
+      if (this.shader.uniforms.uLogMin) this.shader.uniforms.uLogMin.value = Math.log(Math.max(this.valueMin, 1e-6))
+      if (this.shader.uniforms.uLogMax) this.shader.uniforms.uLogMax.value = Math.log(Math.max(this.valueMax, 1e-6))
     } else {
       this.shader.uniforms.uOpacity.value = this.opacity
     }
@@ -594,20 +672,33 @@ export class VolumeEngine {
     const shader = this.shader
     if (!shader) return
     if (shader.uniforms.uLighting) shader.uniforms.uLighting.value = this.lighting
-    if (this.shaderMode !== 'scalar') return
+    if (this.shaderMode === 'categorical') return
     if (shader.uniforms.uDensityGamma) shader.uniforms.uDensityGamma.value = this.densityGamma
     if (shader.uniforms.uThresholdSoft) shader.uniforms.uThresholdSoft.value = this.thresholdSoft
   }
 
-  private refreshLut(): void {
-    if (!this.shader || this.shaderMode !== 'scalar') return
-    const span = this.valueMax - this.valueMin || 1
-    const thresholdNorm = this.thresholdData !== undefined ? (this.thresholdData - this.valueMin) / span : 0
-    const lut = buildTransferLut(this.paletteKey, {
+  private buildScalarLut(thresholdNorm: number): Uint8Array {
+    if (this.shaderMode === 'radar') {
+      return buildRadarTransferLut({
+        min: this.valueMin,
+        max: this.valueMax,
+        threshold: this.thresholdData,
+        alphaMax: 1
+      })
+    }
+    return buildTransferLut(this.paletteKey, {
       alphaFloor: this.alphaFloor,
       threshold: thresholdNorm,
-      alphaGamma: 1
+      alphaGamma: 1,
+      divergingCenter: this.activeChannel.diverging ? 0.5 : undefined
     })
+  }
+
+  private refreshLut(): void {
+    if (!this.shader || this.shaderMode === 'categorical') return
+    const span = this.valueMax - this.valueMin || 1
+    const thresholdNorm = this.thresholdData !== undefined ? (this.thresholdData - this.valueMin) / span : 0
+    const lut = this.buildScalarLut(thresholdNorm)
     this.shader.setUniform('uTransferFunction', makeLutTexture(lut))
     this.viewer?.scene.requestRender()
   }
@@ -616,7 +707,7 @@ export class VolumeEngine {
   scalarLut(): Uint8Array {
     const span = this.valueMax - this.valueMin || 1
     const thresholdNorm = this.thresholdData !== undefined ? (this.thresholdData - this.valueMin) / span : 0
-    return buildTransferLut(this.paletteKey, { alphaFloor: this.alphaFloor, threshold: thresholdNorm, alphaGamma: 1 })
+    return this.buildScalarLut(thresholdNorm)
   }
 
   paletteStops(): [number, number, number][] {
@@ -672,9 +763,9 @@ export class VolumeEngine {
 
   private clipPlanePoint(n: { x: number; y: number; z: number }): { x: number; y: number; z: number } {
     const v = this.spec.volume
-    const half = 0.5 * (Math.abs(n.x) * v.width + Math.abs(n.y) * v.depth + Math.abs(n.z) * v.height)
+    const half = 0.5 * (Math.abs(n.x) * v.width + Math.abs(n.y) * v.depth + Math.abs(n.z) * this.volSize[2])
     const s = (this.clip.offset / 100) * half
-    return { x: n.x * s, y: n.y * s, z: v.base + v.height / 2 + n.z * s }
+    return { x: n.x * s, y: n.y * s, z: this.bounds.min[2] + this.volSize[2] / 2 + n.z * s }
   }
 
   private clipBasis(n: { x: number; y: number; z: number }): { e1: [number, number, number]; e2: [number, number, number] } {
@@ -725,9 +816,8 @@ export class VolumeEngine {
       collection.add(new ClippingPlane(new Cartesian3(nx, ny, nz), -(nx * p.x + ny * p.y + nz * p.z)))
     }
     if (this.clipHeight.enabled) {
-      const v = this.spec.volume
-      const zMin = v.base + this.clipHeight.min * v.height
-      const zMax = v.base + this.clipHeight.max * v.height
+      const zMin = this.bounds.min[2] + this.clipHeight.min * this.volSize[2]
+      const zMax = this.bounds.min[2] + this.clipHeight.max * this.volSize[2]
       // 保留 z ∈ [zMin, zMax]：法线 +z 裁掉下方，法线 -z 裁掉上方
       collection.add(new ClippingPlane(new Cartesian3(0, 0, 1), -zMin))
       collection.add(new ClippingPlane(new Cartesian3(0, 0, -1), zMax))
@@ -813,6 +903,15 @@ export class VolumeEngine {
     return this.markerCollection
   }
 
+  private ensureMarkerLabelCollection(): LabelCollection | undefined {
+    if (!this.viewer || this.viewer.isDestroyed()) return undefined
+    if (!this.markerLabelCollection) {
+      this.markerLabelCollection = new LabelCollection({ modelMatrix: this.modelMatrix })
+      this.viewer.scene.primitives.add(this.markerLabelCollection)
+    }
+    return this.markerLabelCollection
+  }
+
   /** 叠加折线 / 箭头（positions 为局部米坐标，offsets 为各折线起止索引） */
   setLines(
     result: LineOverlayResult | undefined,
@@ -824,6 +923,14 @@ export class VolumeEngine {
       speedMax?: number
       /** 沿线分段数（>1 时按局部速度逐段着色，形成沿线色变） */
       segments?: number
+      /** 沿线端点线宽（尾迹收束），缺省取 width */
+      widthStart?: number
+      /** 沿线起点透明度（尾迹淡出），缺省 0.2 */
+      alphaStart?: number
+      /** 沿线末端透明度（流头最亮），缺省 0.95 */
+      alphaEnd?: number
+      /** 线宽同时随局部速度加权（高速更宽），用于强化速度几何表达 */
+      widthBySpeed?: boolean
     } = {}
   ): void {
     const collection = this.ensureLineCollection()
@@ -837,12 +944,16 @@ export class VolumeEngine {
     const min = options.speedMin ?? 0
     const max = options.speedMax ?? 1
     const fallback = Color.fromCssColorString(options.color ?? '#67e8f9')
-    const segments = Math.max(1, Math.min(40, Math.round(options.segments ?? 1)))
-    const colorAt = (speed: number): Color => {
-      if (!lut) return fallback
+    const segments = Math.max(1, Math.min(48, Math.round(options.segments ?? 1)))
+    const alphaStart = clamp01(options.alphaStart ?? 0.2)
+    const alphaEnd = clamp01(options.alphaEnd ?? 0.95)
+    const widthEnd = options.width ?? 1.6
+    const widthStart = options.widthStart ?? widthEnd
+    const colorAt = (speed: number, alpha: number): Color => {
+      if (!lut) return fallback.withAlpha(alpha)
       const t = clamp01((speed - min) / (max - min || 1))
       const idx = Math.round(t * 255)
-      return new Color(lut[idx * 4] / 255, lut[idx * 4 + 1] / 255, lut[idx * 4 + 2] / 255, 0.95)
+      return new Color(lut[idx * 4] / 255, lut[idx * 4 + 1] / 255, lut[idx * 4 + 2] / 255, alpha)
     }
     const offsets = result.offsets
     for (let s = 0; s + 1 < offsets.length; s += 1) {
@@ -857,8 +968,8 @@ export class VolumeEngine {
         }
         collection.add({
           positions,
-          material: Material.fromType('Color', { color: colorAt(result.speeds[start]) }),
-          width: options.width ?? 1.6
+          material: Material.fromType('Color', { color: colorAt(result.speeds[start], alphaEnd) }),
+          width: widthEnd
         })
         continue
       }
@@ -871,10 +982,15 @@ export class VolumeEngine {
           positions.push(new Cartesian3(result.positions[g * 3], result.positions[g * 3 + 1], result.positions[g * 3 + 2]))
         }
         if (positions.length < 2) continue
+        const t = points <= 1 ? 1 : c / (points - 1)
+        const speedT = clamp01((result.speeds[start + c] - min) / (max - min || 1))
+        const alpha = alphaStart + (alphaEnd - alphaStart) * t
+        const widthMix = options.widthBySpeed ? 0.45 * t + 0.55 * speedT : t
+        const width = widthStart + (widthEnd - widthStart) * widthMix
         collection.add({
           positions,
-          material: Material.fromType('Color', { color: colorAt(result.speeds[start + c]) }),
-          width: options.width ?? 1.6
+          material: Material.fromType('Color', { color: colorAt(result.speeds[start + c], alpha) }),
+          width
         })
       }
     }
@@ -893,11 +1009,18 @@ export class VolumeEngine {
     this.lineCollection = undefined
   }
 
-  /** 叠加标记点（局部米坐标），用于强对流核心 / 钻孔 / 监测站等 */
-  setOverlayPoints(points: { position: Cartesian3; color: Color; pixelSize?: number }[]): void {
+  /**
+   * 叠加标记点（局部米坐标），用于强对流核心 / 钻孔 / 监测站等。
+   * 可选 label 会在标记点上方渲染文字标注（如编号），并自动随点集一起清理。
+   */
+  setOverlayPoints(
+    points: { position: Cartesian3; color: Color; pixelSize?: number; label?: string; labelColor?: Color }[]
+  ): void {
     const collection = this.ensureMarkerCollection()
     if (!collection) return
     collection.removeAll()
+    const labels = this.ensureMarkerLabelCollection()
+    labels?.removeAll()
     for (const point of points) {
       collection.add({
         position: point.position,
@@ -907,6 +1030,19 @@ export class VolumeEngine {
         outlineWidth: 2,
         disableDepthTestDistance: 0
       })
+      if (point.label && labels) {
+        labels.add({
+          position: point.position,
+          text: point.label,
+          font: 'bold 13px sans-serif',
+          style: LabelStyle.FILL_AND_OUTLINE,
+          fillColor: point.labelColor ?? Color.WHITE,
+          outlineColor: Color.fromCssColorString('#081428'),
+          outlineWidth: 3,
+          pixelOffset: new Cartesian2(0, -16),
+          disableDepthTestDistance: 0
+        })
+      }
     }
     this.viewer?.scene.requestRender()
   }
@@ -916,6 +1052,12 @@ export class VolumeEngine {
       this.viewer.scene.primitives.remove(this.markerCollection)
     }
     this.markerCollection = undefined
+    if (this.markerLabelCollection && this.viewer && !this.viewer.isDestroyed()) {
+      this.viewer.scene.primitives.remove(this.markerLabelCollection)
+    }
+    this.markerLabelCollection = undefined
+    // requestRenderMode 下必须显式请求重绘，否则移除后的标记点仍停留在上一帧
+    this.viewer?.scene.requestRender()
   }
 
   /**
@@ -935,11 +1077,10 @@ export class VolumeEngine {
     // position3DHigh/position3DLow，而 PerInstanceColorAppearance 的顶点着色器要求该属性。
     const local = new Float64Array(positions.length)
     const min = this.bounds.min
-    const v = this.spec.volume
     for (let i = 0; i < positions.length; i += 3) {
-      local[i] = min[0] + positions[i] * v.width
-      local[i + 1] = min[1] + positions[i + 1] * v.depth
-      local[i + 2] = min[2] + positions[i + 2] * v.height
+      local[i] = min[0] + positions[i] * this.volSize[0]
+      local[i + 1] = min[1] + positions[i + 1] * this.volSize[1]
+      local[i + 2] = min[2] + positions[i + 2] * this.volSize[2]
     }
     const attributes = {
       position: new GeometryAttribute({
@@ -998,11 +1139,27 @@ export class VolumeEngine {
   /** 将归一化坐标（x/y 水平、z 垂直）换算为局部米坐标 */
   localFromNormalized(x: number, y: number, z: number): Cartesian3 {
     const min = this.bounds.min
-    const v = this.spec.volume
-    return new Cartesian3(min[0] + x * v.width, min[1] + y * v.depth, min[2] + z * v.height)
+    return new Cartesian3(min[0] + x * this.volSize[0], min[1] + y * this.volSize[1], min[2] + z * this.volSize[2])
   }
 
   /* ----------------------------- Pick ------------------------------- */
+
+  /** 鼠标拾取节流：体素拾取依赖 GPU 回读，频繁触发会造成明显卡顿 */
+  private throttledPick(position: Cartesian2): void {
+    if (this.pickTimer !== undefined) {
+      this.pickPending = position
+      return
+    }
+    this.pick(position)
+    this.pickTimer = window.setTimeout(() => {
+      this.pickTimer = undefined
+      if (this.pickPending) {
+        const next = this.pickPending
+        this.pickPending = undefined
+        this.throttledPick(next)
+      }
+    }, 90)
+  }
 
   private pick(position: Cartesian2): void {
     if (!this.primitive || !this.viewer || this.viewer.isDestroyed()) {
@@ -1021,6 +1178,7 @@ export class VolumeEngine {
     }
     const property = cell.getProperty('color') as Float32Array | number[] | undefined
     const geo = this.pickGeographic(position)
+    const local = geo?.world ? this.worldToLocalNorm(geo.world) : undefined
     this.callbacks.onPicked?.({
       value: property ? Number(property[0]) : 0,
       valid: property ? Number(property[1]) > 0.5 : false,
@@ -1030,11 +1188,23 @@ export class VolumeEngine {
       categorical: this.activeChannel.mode === 'categorical',
       lon: geo?.lon,
       lat: geo?.lat,
-      height: geo?.height
+      height: geo?.height,
+      local: local?.local,
+      norm: local?.norm
     })
   }
 
-  private pickGeographic(position: Cartesian2): { lon: number; lat: number; height: number } | undefined {
+  /** 世界坐标 → 体域局部米坐标与归一化坐标（与向量场采样空间对齐） */
+  private worldToLocalNorm(world: Cartesian3): { local: [number, number, number]; norm: [number, number, number] } {
+    const inverse = Matrix4.inverseTransformation(this.modelMatrix, new Matrix4())
+    const local = Matrix4.multiplyByPoint(inverse, world, new Cartesian3())
+    const nx = (local.x - this.volMin[0]) / (this.volSize[0] || 1)
+    const ny = (local.y - this.volMin[1]) / (this.volSize[1] || 1)
+    const nz = (local.z - this.volMin[2]) / (this.volSize[2] || 1)
+    return { local: [local.x, local.y, local.z], norm: [nx, ny, nz] }
+  }
+
+  private pickGeographic(position: Cartesian2): { lon: number; lat: number; height: number; world?: Cartesian3 } | undefined {
     if (!this.viewer || this.viewer.isDestroyed()) return undefined
     const scene = this.viewer.scene
     let world: Cartesian3 | undefined
@@ -1049,7 +1219,8 @@ export class VolumeEngine {
     return {
       lon: CesiumMath.toDegrees(carto.longitude),
       lat: CesiumMath.toDegrees(carto.latitude),
-      height: carto.height
+      height: carto.height,
+      world
     }
   }
 
@@ -1228,6 +1399,35 @@ export class VolumeEngine {
     })
   }
 
+  /** 通用相机视角：方位角/俯角（度）+ 体域对角线半径系数，供各场景自定义预设使用 */
+  flyToView(headingDeg: number, pitchDeg: number, rangeFactor: number, duration = 1): void {
+    if (!this.viewer || this.viewer.isDestroyed()) return
+    const v = this.spec.volume
+    const worldCenter = Matrix4.multiplyByPoint(this.modelMatrix, this.centerLocal, new Cartesian3())
+    const diag2d = Math.hypot(v.width, v.depth)
+    const radius = 0.5 * Math.hypot(v.width, v.depth, v.height)
+    this.viewer.camera.flyToBoundingSphere(new BoundingSphere(worldCenter, radius), {
+      offset: new HeadingPitchRange(
+        CesiumMath.toRadians(headingDeg),
+        CesiumMath.toRadians(pitchDeg),
+        rangeFactor * diag2d
+      ),
+      duration
+    })
+  }
+
+  /** 聚焦到归一化坐标处的目标（用于定位最强对流核心或雷达站） */
+  flyToNormalized(x: number, y: number, z: number, rangeM: number, duration = 1): void {
+    if (!this.viewer || this.viewer.isDestroyed()) return
+    const world = this.worldFromNormalized(x, y, z)
+    const heading = CesiumMath.toRadians(210)
+    const pitch = CesiumMath.toRadians(-24)
+    this.viewer.camera.flyToBoundingSphere(new BoundingSphere(world, Math.max(200, rangeM * 0.32)), {
+      offset: new HeadingPitchRange(heading, pitch, rangeM),
+      duration
+    })
+  }
+
   /* ---------------------------- Scene hooks -------------------------- */
 
   getViewer(): Viewer | undefined {
@@ -1251,6 +1451,31 @@ export class VolumeEngine {
     this.viewer?.scene.requestRender()
   }
 
+  /** 体域局部 ENU → 世界坐标的变换矩阵副本（供工程骨架层叠加使用） */
+  getLocalFrame(): Matrix4 {
+    return Matrix4.clone(this.modelMatrix)
+  }
+
+  /** 体域锚点海拔（米），骨架高度标注用 */
+  get anchorHeight(): number {
+    return this.spec.center.height
+  }
+
+  /** 每帧请求渲染一次，用于驱动 GPGPU 等连续动画（返回停止函数） */
+  requestRenderLoop(): () => void {
+    let raf = 0
+    const tick = (): void => {
+      if (!this.viewer || this.viewer.isDestroyed()) return
+      this.viewer.scene.requestRender()
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      raf = 0
+    }
+  }
+
   /** 工程底图模式：engineering 深色中性底 / satellite 弱化影像 / dim 极弱影像 */
   setBackgroundMode(mode: BackgroundMode): void {
     if (!this.viewer || this.viewer.isDestroyed()) return
@@ -1269,6 +1494,37 @@ export class VolumeEngine {
     this.setBackgroundMode(enabled ? 'engineering' : 'satellite')
   }
 
+  /** 地下体渲染：隐藏地表球面，避免地表遮挡地下地层（地质案例用） */
+  setGlobeVisible(visible: boolean): void {
+    if (!this.viewer || this.viewer.isDestroyed()) return
+    this.viewer.scene.globe.show = visible
+    this.viewer.scene.requestRender()
+  }
+
+  /**
+   * 影像底图（地下体案例）：显示 Bing 影像球面提供地理参照。
+   * 地下体叠加在影像球面之上渲染，默认不透明；传入小于 1 的 frontFaceAlpha 可切换为半透明影像。
+   */
+  setImageryBasemap(visible: boolean, frontFaceAlpha = 1): void {
+    if (!this.viewer || this.viewer.isDestroyed()) return
+    const scene = this.viewer.scene
+    const globe = scene.globe
+    const translucent = visible && frontFaceAlpha < 1
+    globe.show = visible
+    if (globe.translucency) {
+      globe.translucency.enabled = translucent
+      globe.translucency.frontFaceAlpha = translucent ? frontFaceAlpha : 1
+      globe.translucency.backFaceAlpha = translucent ? frontFaceAlpha : 1
+    }
+    if (this.imageryLayer) {
+      this.imageryLayer.show = visible
+      this.imageryLayer.alpha = 1
+    }
+    globe.baseColor = Color.fromCssColorString(visible ? '#152b4c' : '#0e1e2e')
+    scene.backgroundColor = Color.fromCssColorString(visible ? '#000000' : '#0a1622')
+    scene.requestRender()
+  }
+
   /** 更新场景工程几何（归一化包围盒数组），并整体重建 */
   setGeometry(geometry: number[] | undefined): void {
     this.sceneGeometry = geometry ? [...geometry] : undefined
@@ -1278,6 +1534,9 @@ export class VolumeEngine {
   destroy(): void {
     if (this.destroyed) return
     this.destroyed = true
+    if (this.pickTimer !== undefined) window.clearTimeout(this.pickTimer)
+    this.pickTimer = undefined
+    this.pickPending = undefined
     if (this.handler && !this.handler.isDestroyed()) this.handler.destroy()
     this.handler = undefined
     this.pendingTiles.forEach((pending) => pending.reject(new Error('dispose')))

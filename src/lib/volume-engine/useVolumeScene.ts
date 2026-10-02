@@ -28,6 +28,8 @@ export type VolumeSceneOptions = {
   particleFlow?: number
   /** 引擎就绪回调（此时可发起 analyze / 叠加等操作） */
   onReady?: (engine: VolumeEngine) => void
+  /** 引擎销毁前回调：用于释放挂载到 Viewer 的自定义资源（如 GPGPU 粒子层） */
+  onDispose?: (engine: VolumeEngine) => void
   onPicked?: (info: PickedInfo | null) => void
   onStations?: (stations: StationsResult, engine: VolumeEngine) => void
   onSlice?: (result: SliceResult, engine: VolumeEngine) => void
@@ -105,10 +107,9 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
       }
     } else {
       const lut = e.scalarLut()
-      const span = ui.valueMax - ui.valueMin || 1
       for (let i = 0; i < slice.size * slice.size; i += 1) {
         if (!slice.valid[i]) continue
-        const t = clamp01((slice.values[i] - ui.valueMin) / span)
+        const t = e.valueToNormalized(slice.values[i])
         const idx = Math.round(t * 255)
         data[i * 4] = lut[idx * 4]
         data[i * 4 + 1] = lut[idx * 4 + 1]
@@ -308,6 +309,7 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
     if (playTimer) clearInterval(playTimer)
     observer?.disconnect()
     observer = undefined
+    if (engine.value) options.onDispose?.(engine.value)
     engine.value?.destroy()
     engine.value = undefined
   })

@@ -232,6 +232,169 @@
 | V6.47.2 | 2026-09-18 | 五个单独地形案例新增「多边形掩膜 / 外接矩形」区域模式、GeoTIFF（EPSG:4326 + 正确经纬度范围）/ PNG 下载与叠加透明度滑条；自写单波段 Float32 GeoTIFF 编码器（`geotiff` 2.x `writeArrayBuffer` 仅支持 8 位整数），并修复 ASCII ≤4 字节标签未按 TIFF 规范内联导致 `GDAL_NODATA` 解析错误 | 已完成 |
 | V6.47.3 | 2026-09-18 | 为三个地形案例接入上传图标：`terrain-height-globe`（getHeight同步查询）用 image-1、`terrain-height-mesh`（自请瓦片光栅化）用 image-2、`terrain-height-pick`（拾取深度反投影）用 image-3；其余地形案例保持「暂无截图」占位 | 已完成 |
 | V6.47.4 | 2026-09-18 | 补齐其余三个地形案例图标：`terrain-height-sample`（服务端采样）用 image-1、`terrain-height-shader`（派生着色器）用 image-2、`terrain-height-compare`（五方案对比）用 image-3；六个地形案例图标全部就位 | 已完成 |
+| V6.47.5 | 2026-09-30 | 「三维地层属性体」由通用体素 Demo 升级为地质解释工作台：统一构造场（倾斜+褶皱+断层+侵入体）驱动层位/岩性/属性同源变化；新增结构/岩性/属性/剖面/层位切片五模式、`geology-overlay` 三维叠加（层位界面/断层/深度标尺/钻孔柱状）、`geology-profile` A-B 剖面绘制与导出、分层统计与属性异常体等值面、对数映射与垂向夸张 | 已完成 |
+| V6.47.6 | 2026-09-30 | 「三维地层属性体」底层体支持分地层控制显隐：地层码写入体素 VEC4 第 4 通道，标量/分类着色器新增 `uLayerVis` 可见性纹理 uniform，实时门控 alpha，图例面板逐层点选切换 | 已完成 |
+| V6.47.7 | 2026-09-30 | 「三维地层属性体」标注随图层显隐 + 基岩可见性修复：叠加层文字标注按图层分组（体域框 / 断层 / 钻孔）随图层同步开关；定位「基岩不可见」根因为 `scene.globe.show` 地表球面遮挡地下体，新增 `VolumeEngine.setGlobeVisible`，地质案例进入工程背景后隐藏地表球面 | 已完成 |
+| V6.47.8 | 2026-09-30 | 「三维地层属性体」交互细化：控制面板每个参数新增问号提示图标（悬停 / 聚焦显示功能说明）；修复属性异常区在分类通道下切换无内容（自动切到属性标量通道并提高等值面不透明度）；修复构造参数调整触发引擎重建后 `onReady` 重复执行导致叠加层重复安装与视角跳变（一次性初始化守卫） | 已完成 |
+| V6.47.9 | 2026-09-30 | 「三维地层属性体」属性异常区与地层体配色解耦：异常等值面改用独立分析通道计算（显示通道为岩性时用默认 `porosity`），勾选属性异常区不再改动地层体当前渲染配色；属性分析面板改为常显、异常阈值随分析通道单位显示 | 已完成 |
+| V6.47.10 | 2026-09-30 | 「三维地层属性体」默认视图精简：左上「剖切面预览」面板仅在「层位切片」模式显示，结构 / 岩性 / 属性等常规模式不再占用左上空间 | 已完成 |
+| V6.47.11 | 2026-09-30 | 「三维地层属性体」支持影像底图：控制面板新增「底图」开关，开启后显示 Bing 卫星影像球面提供地理参照，地下地层体叠加于影像之上渲染；关闭时恢复工程深色背景 | 已完成 |
+| V6.47.12 | 2026-10-01 | 「三维地层属性体」案例卡片补齐 icon：上传原图等比缩为 300px 宽 WebP（quality 82）写入 `icon.webp`，`index.ts` 挂载 `icon`，重生成 manifest / CASE_LIST | 已完成 |
+| V6.47.13 | 2026-10-02 | 「三维风场向量体」案例卡片补齐 icon：上传原图（1231×613）等比缩为 300px 宽 WebP（quality 82）写入 `icon.webp`（300×149），`index.ts` 挂载 `icon`，重生成 manifest / CASE_LIST | 已完成 |
+
+## V6.47.13 三维风场向量体案例卡片 icon 补齐
+
+**用户要求**：为「气象可视化-三维风场向量体」案例卡片设置上传的 image-1 作为 icon，并注意 icon 尺寸。
+
+**实施内容**：
+
+1. 使用全局 sharp（`NODE_PATH=/usr/local/lib/node_modules`）将 1231×613 原图等比缩为 300px 宽、`quality: 82` 的 WebP，写入 `src/cases/volume-wind/icon.webp`（300×149，约 7.8KB），沿用雷达 / 地质案例 300px 宽的 icon 约定，不提交原图。
+2. `src/cases/volume-wind/index.ts` 新增 `import iconUrl from './icon.webp'` 并在 `DemoCard` 写入 `icon: iconUrl`。
+3. 执行 `npm run sync`（293 条）与 `npm run case-list`，重生成 `src/cases/manifest.ts`（新增 `icon_volume_wind` 静态导入并挂载 `icon`）与 `CASE_LIST.md`。
+
+**验证标准**：
+
+- `npm run build`（`prebuild(sync)` + `vue-tsc -b && vite build`）退出码 0。
+- 首页搜索「三维风场」：卡片 `<img>` 命中 `.../volume-wind/icon.webp`，`naturalWidth×naturalHeight=300×149`，无占位图。
+
+## V6.47.12 三维地层属性体案例卡片 icon 补齐
+
+**用户要求**：为「地质可视化-三维地层属性体」案例卡片设置上传的 image-1 作为 icon，并注意 icon 尺寸。
+
+**实施内容**：
+
+1. 使用全局 sharp 将 1232×621 原图等比缩为 300px 宽、`quality: 82` 的 WebP，写入 `src/cases/volume-geology/icon.webp`（300×151，约 8.2KB），沿用雷达案例 300px 宽的 icon 约定，不提交原图。
+2. `src/cases/volume-geology/index.ts` 新增 `import iconUrl from './icon.webp'` 并在 `DemoCard` 写入 `icon: iconUrl`。
+3. 执行 `npm run sync`（293 条）与 `npm run case-list`，重生成 `src/cases/manifest.ts`（新增 `icon_volume_geology` 静态导入并挂载 `icon`）与 `CASE_LIST.md`。
+
+**验证标准**：
+
+- `npm run build`（`prebuild(sync)` + `vue-tsc -b && vite build`）退出码 0。
+- 首页搜索「三维地层属性体」：卡片 `<img>` 命中 `.../volume-geology/icon.webp`，`naturalWidth×naturalHeight=300×151`，无占位图。
+
+## V6.47.11 三维地层属性体支持影像底图
+
+**用户要求**：支持显示影像底图。
+
+**实施内容**：
+
+1. `VolumeEngine.ts` 新增 `setImageryBasemap(visible, frontFaceAlpha = 1)`：切换 Bing 影像球面显隐，同步 `imageryLayer` 与 `globe.baseColor` / `scene.backgroundColor`；`frontFaceAlpha < 1` 时启用球面半透明（默认不透明）。
+2. `GeologyVolumeDemo.vue` 新增 `basemap` 状态与「底图」开关（`toggleBasemap` / `applyBasemap`），`onReady` 初始化由固定 `setBackgroundMode('engineering') + setGlobeVisible(false)` 改为按 `basemap` 应用；新增 `HINTS.basemap` 参数说明。
+3. `window.__geoState` 增加 `basemap` / `globeTranslucent` 字段，便于 headless 断言。
+
+**验证标准**：
+
+- `npm run build`（`prebuild(sync)` + `vue-tsc -b && vite build`）退出码 0。
+- headless V6.47.10（5/5 PASS，0 pageerror）：默认 `basemap=false` 且地表球面隐藏；点击「影像底图」后 `basemap=true`、`globeVisible=true`、球面不透明；再次点击恢复隐藏。
+- 结构 / 岩性 / 剖面 / 俯视模式截图确认影像位于地层体周边与下方，地层体完整可见；Bing 影像瓦片加载成功（38 个 200）。
+- V6.47.7（18/18）、V6.47.8（9/9）回归保持通过。
+
+## V6.47.10 三维地层属性体常规状态移除左上剖切面预览
+
+**用户要求**：常规状态下移除左上侧的剖面预览面板。
+
+**实施内容**：
+
+1. `GeologyVolumeDemo.vue` 将 `VolumeShell` 的 `:show-clip-panel` 由 `mode !== 'section'` 改为 `mode === 'slice'`，左上「剖切面预览」面板只在「层位切片」模式渲染，结构 / 岩性 / 属性模式不再显示。
+2. 本次为地质案例专用调整，`VolumeShell` 默认 `showClipPanel=true` 保持不变，其它体渲染案例版式不受影响。
+
+**验证标准**：
+
+- `npm run build`（`prebuild(sync)` + `vue-tsc -b && vite build`）退出码 0。
+- headless V6.47.9（5/5 PASS，0 pageerror）：结构 / 岩性 / 属性模式 `.vol-clip` 计数为 0 且图例面板存在；切到「层位切片」后 `.vol-clip` 计数为 1。
+- 结构模式截图可见左上角仅剩「图例 / 数据说明」面板。
+
+## V6.47.9 三维地层属性体属性异常区与地层体配色解耦
+
+**用户要求**：勾选「属性异常区」后，地层体当前渲染配色保持不变。
+
+**实施内容**：
+
+1. `GeologyVolumeDemo.vue` 新增 `anomalyChannelKey` / `anomalyChannelDef` computed：显示通道为标量属性时沿用当前属性作为异常分析通道；显示通道为分类岩性时使用默认 `porosity`。
+2. `valueAtPct(pct, ch?)` 增加可选通道参数，新增本地 `valueToNormalized(ch, value)`；`runAnomaly` 全程基于 `anomalyChannelDef` 取值与归一化，与显示通道解耦。
+3. `setAnomalyEnabled` 移除 V6.47.8 引入的自动 `onChannel(...)` 切换，勾选异常区只更新等值面，体渲染沿用当前显示通道。
+4. 属性分析面板由 `v-if=isScalar` 改为常显（仅「高值区预览」仍要求标量通道），异常阈值输入框显示 `anomalyChannelDef` 的单位。
+5. `window.__geoState.channel` 在异常开关前后保持显示通道值，供 headless 断言。
+
+**验证标准**：
+
+- `npm run build`（`prebuild(sync)` + `vue-tsc -b && vite build`）退出码 0。
+- headless V6.47.8 用例扩展为 9/9 PASS（0 pageerror）：勾选属性异常区后 `volume-channel-unchanged::litho`（显示通道仍为岩性）、`anomaly-count-positive::8512`、取消后 `anomaly-cleared::0`。
+- V6.47.7 回归用例 18/18 保持通过。
+- 注：本文档 V6.47.8 条目记录的「自动切到 `porosity` 显示通道」行为由本版本取代。
+
+## V6.47.8 三维地层属性体参数提示与交互修复
+
+**用户要求**：①控制面板每个参数增加提示图标，鼠标放上去显示当前参数详细说明与功能作用；②属性异常区切换看不到内容；③构造参数调整后不应改变视角。
+
+**实施内容**：
+
+1. 参数提示（`GeologyVolumeDemo.vue`）：新增 `HINTS` 说明表，为工作模式、数据通道、高值区 / 高值阈值、异常体等值面 / 异常阈值、地层倾角 / 倾角方位 / 褶皱幅度 / 断层落差 / 侵入体规模 / 垂向夸张、A–B 走向、层位切片启用 / 顶界 / 底界、不透明度 / 密度压缩 / 低值软切逐项挂载 `ParamHint` 问号图标（悬停 / 聚焦弹出 Teleport 到 body 的 tooltip，自动选择左右展开）；参数标签加 `gl-plabel` 强制不换行。
+2. 属性异常区无内容（根因）：默认通道为分类「岩性」，`runAnomaly` 遇 `isScalar = false` 直接 `clearIsosurface` 返回，表现为切换后无变化。新增 `setAnomalyEnabled`：开启异常体时若当前为非标量通道，先 `onChannel(porosity)` 切到默认可量属性，再置 `anomaly.enabled` 并重算；侧栏开关与 Dock「全部显示 / 隐藏」统一走该入口。等值面不透明度 0.6 → 0.72，在默认 0.94 体透明度下仍清晰可辨。
+3. 构造参数调整导致视角跳变（根因）：`setParams` → `rebuild()` → 新 Worker 回传 `initDone` → `onReady` 被再次回调，原先每次都会 `installGeologyOverlay`（叠加层重复安装泄漏）并 `applyMode` → `flyToView`（相机被拉回预设，覆盖用户当前视角）。改为组件内一次性初始化守卫 `initialized`：`onReady` 首次执行完整初始化，后续回调只累加计数后直接返回，相机与叠加层状态不再被重建打断。
+4. `window.__geoState` 诊断补充 `channel` / `readyCount` / `anomalyCount` / `camera` 字段，便于 headless 断言。
+
+**验证标准**：
+
+- `npm run build`（`prebuild(sync)` + `vue-tsc -b && vite build`）退出码 0。
+- headless V6.47.8（7/7 PASS，0 pageerror）：渲染 12 个提示图标且悬停出现 tooltip 文本；记录相机后把「地层倾角」由 0.05 调至 0.09 并等待重建，`readyCount` 递增但相机 heading / pitch / height 变化为 0，叠加层标注数量不增（frame 8 / boreholes 3，无重复安装）；结构模式下切换「属性异常区」后通道自动切到 `porosity`、等值面三角数 > 0（8512）。
+- V6.47.7 回归用例 18/18 保持通过。
+
+## V6.47.7 三维地层属性体标注随图层显隐与基岩可见性修复
+
+**用户要求**：①图层标注需随图层显隐；②基岩未显示。
+
+**实施内容**：
+
+1. 标注分组（`geology-overlay.ts`）：此前的 `setVisible` 仅控制线 / 网格集合（`frame` / `horizon` / `fault` / `borehole`），深度标尺、地表、指北针 `N`、`断层 F1`、钻孔井名等文字标注以独立 entity 常驻、不随图层关闭。改为把标注按图层归入 `frame` / `faults` / `boreholes` 三组，`applyVisibility` 同步设置 `entity.show`，`destroy` 统一 `clearLabels`；新增 `debug()` 返回各组 `show` / `labels` / `labelsVisible` 快照，供自动化验证。
+2. 基岩不可见根因定位：`viewer.scene.globe.show = true` 时，地表球面位于体域之上（相机高约 7489 m、体底 -3200 m，且 `depthTestAgainstTerrain = false`），地表球面把地下体整块遮挡，表现为「基岩看不到」。新增 `VolumeEngine.setGlobeVisible(visible)`（`scene.globe.show = visible` + `requestRender`）。
+3. 应用（`GeologyVolumeDemo.vue`）：`onReady` 在 `setBackgroundMode('engineering')` 之后调用 `engine.setGlobeVisible(false)`，地下地层与叠加层不再被地表球面遮挡；同时挂载只读诊断 `window.__geoState`（`mode` / `hiddenLayers` / `globeVisible` / `layers` / `labelGroups`）用于 headless 断言。
+4. `index.ts` 描述补充「标注随图层显隐」，`npm run sync` 重建 manifest。
+
+**验证标准**：
+
+- `npm run build`（`prebuild(sync)` + `vue-tsc -b && vite build`）退出码 0。
+- headless（Playwright + chromium-1148/SwiftShader）18 项断言全通过、0 pageerror：`globeVisible === false`；默认五图层全开且 `frame` 8 / `faults` 1 / `boreholes` 3 个标注全部可见；关闭「体域框 / 标尺」「断层面 F1」「钻孔柱状」后对应组 `show = false` 且 `labelsVisible = 0`、其余组不受影响，重新开启后恢复；图例点选隐藏地层 `hiddenLayers = [1]`、「全部显示」复位为空；结构 / 岩性 / 属性 / 剖面 / 层位切片五模式切换无异常。
+- 约定：地质案例进入后隐藏地表球面，仅该案例启用；`VolumeEngine.setGlobeVisible` 为通用 API。
+
+## V6.47.6 三维地层属性体支持分地层控制显隐
+
+**用户要求**：①底层体支持分地层控制显隐。
+
+**实施内容**：
+
+1. 体素数据（`volume-worker-source.ts`）：地质场 `sampleField` 在返回数值/分类码的同时回传 `layer` 地层码；`handleTile` 将该码写入 VEC4 元数据第 4 通道（`.a`），非地质案例保持原「数据质量」语义不变。
+2. 着色器（`voxel.ts`）：新增 `makeLayerVisibilityTexture(hiddenCodes)`（256×1 可见性纹理，隐藏层 alpha=0）与 `LAYER_GATE` GLSL 片段；`createScalarShader` / `createCategoricalShader` 新增 `layerGating` 选项，开启后注入 `uLayerVis` uniform，按 `meta.a` 地层码查表并 `alpha *= step(0.5, vis)`，实现体素级实时门控。
+3. 引擎（`VolumeEngine.ts`）：新增 `hiddenLayers` 与 `setLayerVisibility(hiddenLayers)`，`ensureShader` 在 `spec.kind === 'geology'` 时开启 `layerGating`，`createPrimitive` 与通道重建后自动回放已隐藏地层，实时请求重绘。
+4. 交互（`GeologyVolumeDemo.vue`）：左栏图例「地层层序」改为可点选的地层显隐列表（隐藏行置灰 + 划线 + 显示/隐藏标识），新增「全部显示」复位；隐藏集合经 `hiddenLayerCodes` 计算后下发引擎。图例列表在岩性与属性模式下均常驻，直方图与分层统计保留。
+5. `index.ts` 描述补充「六套地层逐层显隐」，`npm run sync` 重建 manifest，`npm run case-list` 刷新 `CASE_LIST.md`。
+
+**验证标准**：
+
+- `npm run build`（`prebuild(sync)` + `vue-tsc -b && vite build`）退出码 0。
+- headless（Playwright + chromium-1148/SwiftShader）：进入案例后点击图例中某地层行，该行 `off` 态生效、`.gl-tier-eye` 文案在显示/隐藏间切换，「全部显示」按钮出现并可复位，全程无 pageerror。
+- 后续约定：分地层显隐依赖「体素第 4 通道 = 地层码」，仅地质案例启用；其他体渲染案例该通道语义不变。
+
+## V6.47.5 三维地层属性体升级为地质解释工作台
+
+**用户要求**：依据《三维地层属性体优化建议-1》，把「地质可视化-三维地层属性体」从"透明彩色体块 + 影像底图"的通用体素演示，升级为可按地层—岩性—属性—剖面—切片逐层读懂地下地质体的解释工作台，视觉保持工程克制（弱霓虹、无持续旋转、进入动画 1~1.5s）。
+
+**实施内容**：
+
+1. 地质模型（`volume-worker-source.ts`）：引入统一构造位移场 `geoShift`（地层倾斜 + `geoRelief` 褶皱 + `geoFaultShift` 断层错断 + 侵入体热场 `geoHeat`），驱动 `geoLayer`（层序 `contacts=[0.09,0.22,0.4,0.6,0.8]`）、`geoProperty`（孔隙率 / 含水饱和度 / 渗透率，`GEO_FACIES` 岩性基值 + 低频 `geoLowFreq` 背景 + 高频 `geoHighFreq` 细节 + 储层 `geoReservoir`/`geoHighPerm` 甜点），实现层性与属性同源；瓦片缓存条件扩展为 `radar||geology`。
+2. 分析能力（`volume-analysis-source.ts`）：新增 `analyzeGeology`（逐层厚度占比、孔隙率 / 饱和度 / 渗透率均值与 P95、构造起伏 `relief` 栅格）与 `analyzeGeologyProfile`（沿 A-B 走向的属性 / 岩性剖面栅格），注册 `geology` / `geologyProfile` 两种模式。
+3. 渲染增强：`voxel.ts` 标量着色器新增 `uLogScale/uLogMin/uLogMax` 支持对数映射；`VolumeEngine.ts` 新增 `logScale`、`verticalExaggeration` 及 `setLogScale/valueToNormalized/setVerticalExaggeration`，`clipPlanePoint/heightClip/setIsosurface/localFromNormalized/setSurfacePoints` 统一改用 `volSize` 以适配垂向夸张；`useVolumeScene.ts` 切片绘制改走 `valueToNormalized`，自动遵循对数映射。
+4. 场景与配色（`scenes.ts` / `palette.ts`）：新增 `GEOLOGY_CONFIG`（6 套地层定义、ZK-01~03 钻孔、断层走向 118°、深度标尺、3 类属性、4 组相机预设、异常阈值）并重写 `SCENES.geology`（工区 12000×9000×3200 m，base -3200）；`LITHOLOGY_CATEGORIES` 换为地质业务配色。
+5. 新增 `geology-overlay.ts`：体域框 / 深度标尺 / 指北针 / 断层面 / 层位界面 / 钻孔柱状叠加，提供 `setVisible/updateStructure/rebuild/destroy`。
+6. 新增 `geology-profile.ts`：二维 A-B 地质剖面绘制（岩性色块、属性色带、深度与端点标注）。
+7. 重写 `GeologyVolumeDemo.vue`：结构 / 岩性 / 属性 / 剖面 / 层位切片五模式切换，图层面板（`LayerDock`），构造参数、高值区与异常体等值面、分层统计、剖面绘制与 PNG 导出、渲染参数、体素拾取（岩性 / 属性 / 埋深）。
+8. 案例注册（`index.ts`）更新描述与 `updatedAt=2026-09-30`，`npm run sync` 重建 manifest，`npm run case-list` 刷新 `CASE_LIST.md`。
+
+**验证标准**：
+
+- `npm run build`（`prebuild(sync)` + `vue-tsc -b && vite build`）退出码 0，4678 模块转换成功。
+- dev server（`vite --host 0.0.0.0 --port 5173`）正常提供更新后的 `GeologyVolumeDemo.vue`（HTTP 200）。
+- 后续约定：地质业务参数集中在 `GEOLOGY_CONFIG` / `SCENES.geology`，组件不硬编码魔法数字；`faultDir` 在 `GEOLOGY_CONFIG` 与 `SCENES.geology.params` 必须保持一致。
 
 ## V6.47.4 补齐其余三个地形案例图标
 
@@ -5222,6 +5385,70 @@ https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer
 
 - `npm run build`（`vue-tsc -b && vite build`）退出码 0，三张 icon 资源均被 Vite 产出。
 - headless（Playwright + chromium/swiftshader）首页搜索三案例，卡片 `img` 命中各自 `icon.webp`、`naturalWidth×naturalHeight` 为 300×206 / 300×200 / 300×206、`complete=true` 且无占位，页面 0 关键错误。
+
+### V2.19 三维雷达回波体升级为业务分析工作台（覆盖场 / 顶高 / 核心 / 等值面 / 地面图层 / 时间演变）
+
+**目标**：依据《CESIUM_TREASURE_BOX 三维雷达回波体 优化建议》，把「三维彩色体元素 Demo」升级为「三维天气雷达业务分析工作台」：以雷达站极坐标覆盖场生成回波体，叠加 20/35/45 dBZ 分级、35/45 dBZ 重点等值面、回波顶高、地面覆盖、雷达站/距离圈/方位/顶高参考环、时间演变与剖切分析；分析结果一律使用业务单位（dBZ / km / km²），并把阈值与魔法数字集中配置、性能热点（时间步重建与拾取回读）做缓存与节流。
+
+**实施内容**：
+
+1. `scenes.ts`：新增 `RadarThresholds` / `RadarCameraPreset` / `RadarConfig` 类型与 `RADAR_CONFIG` 常量，集中管理业务分级阈值、`analysis.topThreshold=20` 与 `analysis.coreThreshold=45`（顶高阈值与核心阈值解耦）、`echoTopBands`、`ringsKm`、`stationHeightM`、四套相机预设与 `defaultAzimuth` / `totalMinutes`；radar 场景补齐 title/description、`thresholds[20,35,45,55]`、`maxRange` / `attenuation` 生成参数。
+2. `palette.ts`：新增 `RADAR_BANDS`（分段色 + 分段 Alpha）、`radarColorAt()` 与 `buildRadarTransferLut()`（256×1 RGBA，分段 RGB + 分段 Alpha，支持 min/max/threshold/alphaMax），避免连续插值把弱/强回波糊成一片。
+3. `volume-worker-source.ts`：`radarValue()` 重写为雷达极坐标覆盖场 `radarGeometry()`（距离圈、波束抬升可探测高度、体域边界淡出、站顶静锥区、径向衰减、螺旋雨带），采样返回对象 `{value, valid, coverage, density, quality}`；瓦片元数据升级为 VEC4（`.r` 数值、`.g` 覆盖度、`.b` 体密度、`.a` 数据质量）；新增按 `epoch + 通道 + 模式 + 时间步 + 瓦片` 键的 LRU 时间步瓦片缓存（上限 240），播放/拖动时间轴不再重复解析采样。
+4. `volume-analysis-source.ts`：`analyzeRadar` 扩展为回波顶高栅格、柱最大 dBZ、≥20/35/45 dBZ 地面覆盖面积、P95 顶高、强对流核心（含核心峰值与所在列顶高、最小间距去重，核心阈值可配）；新增 `analyzeRadarTrend` 逐时间步统计最大 dBZ / 最高顶高 / ≥35dBZ 覆盖面积，并接入 `radarTrend` 分析模式。
+5. `voxel.ts`：新增 `createRadarShader()`，以覆盖度做可见性门控、密度与质量做透明度调制、降低方向光照，避免静锥区/远距弱样本被渲染成实体。
+6. `VolumeEngine.ts`：接入 radar shader 变体与 `buildRadarTransferLut`；`MOUSE_MOVE` 拾取加入 90ms leading+trailing 节流并随 `destroy` 清理；新增 `flyToView(heading,pitch,rangeFactor)` 与 `flyToNormalized(...)` 通用相机方法（用于相机预设与最强核心聚焦）。
+7. 新增 `src/cases/volume-radar/radar-overlay.ts`：雷达站塔标与站名、距离圈、N/E/S/W 方位辐条与标注、回波顶高参考环，支持运行期分项显隐与整体卸载。
+8. 新增 `src/cases/volume-radar/radar-analysis.ts`：地面覆盖图层（矩形贴图，可切换柱最大 dBZ / 回波顶高字段）、栅格 canvas 绘制、时间演变折线图与业务单位格式化。
+9. `RadarVolumeDemo.vue` 重写为雷达分析工作台：分级定位、顶高/核心独立阈值、35/45 dBZ 等值面开关、地面覆盖图层与字段切换、雷达站/距离圈/方位/顶高环显隐、四套视角预设与最强核心聚焦、高度带裁剪、对流形态、时间轴与演变曲线、任意方向剖切、密度压缩与体素拾取；`index.ts` 更新案例标题、描述与 `updatedAt`。
+10. `vite.config.ts`：开发态 `cesium-global` 符号白名单补齐 `RectangleGraphics`（地面覆盖图层使用），否则 `serve` 下会报 `does not provide an export named 'RectangleGraphics'`（仅影响 dev，产物构建不受影响）。
+
+**工程约定**：
+
+- Worker 源码与 analysis 源码以 `String.raw` 拼接在同一作用域，源码内不得出现反引号与 `${}`；analysis 可复用 `sampleField` / `radarValue` 等场函数。
+- 体数据 VEC4 约定：`.r` 数值/分类码、`.g` 有效掩膜或覆盖度、`.b` 体密度、`.a` 数据质量；标量/雷达着色器据此取用。
+- 雷达业务阈值、距离圈、相机预设、站高一律来自 `RADAR_CONFIG`，业务组件不硬编码。
+- 分析结果统一返回业务单位（dBZ / km / km²），归一化坐标仅在引擎/叠加层内部使用。
+- 新增的 Cesium 符号若需在 dev 使用，必须同步加入 `vite.config.ts` 的 `CESIUM_SYMBOLS` 白名单（dev 走 `window.Cesium` 影子模块，构建走真实包）。
+
+**验证标准**：
+
+- `npx vue-tsc -b` 与 `npm run build`（`vue-tsc -b && vite build`）均退出码 0，产出 `RadarVolumeDemo` 独立 JS/CSS 分包（`RadarVolumeDemo-*.js` / `*.css`）。
+- headless（Playwright + chromium-1148/SwiftShader，1100×760）搜索"雷达回波"进入案例：`.vol-status` 显示 `✓ … 128³ 等效分辨率（16³/瓦片 · 4 级 LOD）`，图例 5 档分级、地面覆盖 5 项指标、`.vol-stat` 6 项统计、强对流核心 4 个、时间演变 canvas 存在，页面无 `pageerror`（仅外部 Bing 影像 403/404 与 favicon，属环境网络限制）。
+- 截图中可见分级的回波体（蓝绿黄红分级）、距离圈与 N/E/S/W 方位标注、雷达站站名与海拔、5/8/10/12/15 km 顶高参考环，以及叠加的强对流核心点。
+
+### V2.20 雷达工作台交互反馈修复（分级选中态 / 核心点即时生效与编号 / 参数提示 / 图层面板）
+
+**目标**：按用户第二轮迭代反馈修复四点体验问题：① 回波分级定位按钮缺少选中态；② 叠加核心点开关切换不即时生效且核心点无编号难以区分；③ 右侧控制面板每个参数缺少说明；④ 把图层显隐相关控件从控制面板中独立成单独的图层面板。
+
+**实施内容**：
+
+1. `RadarVolumeDemo.vue` 回波分级定位：新增 `isTierActive(min)`（以 `scene.ui.valueMin` 与分级下限比较）与 `tierStyle(tier)`，分级按钮绑定 `active` 类与分级色高亮（背景填充 + 发光），拖动值域下限滑块时选中态自动跟随。
+2. 叠加核心点即时生效：抽出 `applyCorePoints(result)`，`onCores()` 在关闭时立即 `clearOverlayPoints()`，在开启且已有分析结果时立即用缓存结果叠加（不再等待重新分析），无结果时才触发 `runAnalysis()`。同时修复 `VolumeEngine.clearOverlayPoints()` 未调用 `scene.requestRender()` 的问题——场景处于 `requestRenderMode = true`，移除标记点后不显式请求重绘会保留上一帧，导致关闭开关后核心点仍停留在画面上。
+3. 核心点编号标注：`VolumeEngine.setOverlayPoints()` 新增可选 `label` / `labelColor`，使用独立 `LabelCollection`（随标记点集合一起创建与清理）在标记点上方渲染 `#序号`，编号与左侧核心列表一致。
+4. 参数提示：新增通用组件 `src/lib/volume-engine/ParamHint.vue`，在参数标签后渲染问号图标，悬停/聚焦时经 `Teleport` 到 body 用 `fixed` 定位展示说明，并按图标位置自动左/右展开，规避控制面板 `overflow` 裁剪且不引入第三方依赖。`RadarVolumeDemo.vue` 为全部参数行补充提示文案。
+5. 图层控制：对齐「林火蔓延」案例的悬浮 Dock 版式，新增通用组件 `src/lib/volume-engine/LayerDock.vue`（标题 + 启用数量徽标 + 折叠箭头、可选顶部模式下拉、逐图层「色块 + 名称 + 开关」、底部「全部显示 / 全部隐藏」，`LayerDockItem` 类型集中在 `types.ts`）；`VolumeShell.vue` 移除左列内嵌面板，改为 `dock` 插槽容器并定位到右侧控制面板左侧（`right: calc(22px + min(276px, calc(100% - 24px)))`，窄屏隐藏），对其他体渲染案例零影响；`RadarVolumeDemo.vue` 将「叠加核心点 / 35 dBZ 等值面 / 45 dBZ 等值面 / 地面覆盖（字段切换为 Dock 顶部下拉）/ 雷达站 / 距离圈 / 方位标注 / 顶高参考环」迁入 Dock，控制面板只保留分析参数（阈值、视角、裁剪、形态、时间、剖切、渲染）。
+
+**验证标准**：
+
+- `npm run build`（`vue-tsc -b && vite build`）退出码 0；`RadarVolumeDemo` 分包 JS 约 26.9KB / CSS 约 6.4KB（轻量 Teleport 提示 + 自有 Dock，未引入 Element Plus Tooltip/Layer 依赖）。
+- headless（Playwright + chromium-1148/SwiftShader）静态检查：状态行 `✓ … 128³ 等效分辨率（16³/瓦片 · 4 级 LOD）`，图例 5 档、核心 4、地面覆盖 5、统计 6；`.param-hint` 15 个（控制面板参数）；`.vdock` Dock 1 个、`.vdock-item` 8 项、数量徽标与 `全部显示/隐藏` 文案正确、`覆盖字段` 下拉存在；Dock 位于控制面板左侧且同一行（`dockRight ≤ controlsLeft`）。
+- headless 交互检查（DOM 事件）：点击「强回波」后激活项由「弱回波」变为「强回波」；Dock 中「雷达站」「叠加核心点」开关可连续关/开且状态与数量徽标同步更新，全程无 `pageerror`；截图中可见 Dock 悬浮于场景右上侧、控制面板左侧，且核心点带 `#序号` 标注。
+
+### V2.21 三维雷达回波案例卡片 icon 补齐
+
+**目标**：为「气象可视化-三维雷达回波与对流分析」案例卡片补上与其它案例一致的封面 icon，使首页搜索/卡片列表呈现统一视觉。
+
+**实施内容**：
+
+1. 按项目 icon 约定处理上传原图：使用全局 sharp（`NODE_PATH=/usr/local/lib/node_modules`）将 1236×598 原图等比缩为 300px 宽、`quality: 82` 的 WebP，写入 `src/cases/volume-radar/icon.webp`（300×145，约 10KB），不提交原图。
+2. `src/cases/volume-radar/index.ts` 新增 `import iconUrl from './icon.webp'` 并在 `DemoCard` 上写入 `icon: iconUrl`（对齐 `fire-spread` 等案例写法）。
+3. 执行 `npm run sync`（293 条）与 `npm run case-list`，重生成 `src/cases/manifest.ts`（生成 `icon_volume_radar` 静态导入并在条目挂载 `icon` 字段）与 `CASE_LIST.md`。
+
+**验证标准**：
+
+- `npm run build`（`vue-tsc -b && vite build`）退出码 0；产物含约 10KB 的 radar icon 资源（`dist/assets/icon-*.webp`，与写入文件字节数一致）。
+- headless（Playwright + chromium-1148/SwiftShader）首页搜索「雷达回波」：首张卡片标题为「气象可视化-三维雷达回波与对流分析」，卡片 `<img>` 命中 `.../volume-radar/icon.webp`，`complete=true`、`naturalWidth×naturalHeight=300×145`，无占位图；仅存在既有外部噪音错误（Bing 403、favicon 404）。
 
 ## 后续迭代记录方式
 

@@ -12,10 +12,12 @@ import {
   ImageMaterialProperty,
   Rectangle,
   RectangleGraphics,
+  type Texture,
   type Viewer
 } from 'cesium'
 import type { VolumeEngine } from '../../lib/volume-engine/VolumeEngine'
 import { radarColorAt } from '../../lib/volume-engine/palette'
+import { canvasToGroundTexture, createEmptyGroundTexture } from '../../lib/volume-engine/ground-texture'
 
 export type RadarAnalysisResult = {
   grid: number
@@ -98,10 +100,13 @@ export function installGroundLayer(engine: VolumeEngine): GroundLayer {
   if (!viewer || viewer.isDestroyed()) {
     return { update: () => undefined, setVisible: () => undefined, destroy: () => undefined }
   }
+  const activeViewer: Viewer = viewer
   const sw = engine.worldFromNormalized(0, 0, 0)
   const ne = engine.worldFromNormalized(1, 1, 0)
   const rect = Rectangle.fromCartesianArray([Cartesian3.clone(sw), Cartesian3.clone(ne)])
   const material = new ImageMaterialProperty({ transparent: true })
+  let texture: Texture | undefined = createEmptyGroundTexture(viewer)
+  if (texture) material.image = new ConstantProperty(texture)
   const entity: Entity = viewer.entities.add({
     rectangle: new RectangleGraphics({
       coordinates: rect,
@@ -112,8 +117,12 @@ export function installGroundLayer(engine: VolumeEngine): GroundLayer {
   let visible = true
 
   function update(result: RadarAnalysisResult, field: GridField): void {
-    material.image = new ConstantProperty(renderGridCanvas(result, field))
-    engine.requestRender()
+    // 同步建纹理并交给材质，避免 ImageMaterialProperty 的「下一帧才上传画布」造成一帧白闪
+    const next = canvasToGroundTexture(activeViewer, renderGridCanvas(result, field))
+    if (!next) return
+    texture = next
+    material.image = new ConstantProperty(next)
+    engine.requestRenderSettled()
   }
   function setVisible(next: boolean): void {
     visible = next
@@ -126,6 +135,7 @@ export function installGroundLayer(engine: VolumeEngine): GroundLayer {
     destroy: () => {
       if (viewer.isDestroyed()) return
       viewer.entities.remove(entity)
+      if (texture && !texture.isDestroyed()) texture.destroy()
       engine.requestRender()
     }
   }

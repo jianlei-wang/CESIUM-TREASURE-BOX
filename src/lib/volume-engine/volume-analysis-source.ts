@@ -231,13 +231,26 @@ function analyzeRadarTrend(message) {
   return { result: result, transfer: transferList([maxDbz, maxTopKm, area35Km2]) };
 }
 
+/*
+ * PM2.5 综合分析：
+ *   - 浓度统计（min/max/mean/P50/P95）与浓度分级直方图；
+ *   - 地面 footprint 栅格（近地列最大值，用于地面浓度热力与超标边界）；
+ *   - 污染柱顶高（逐列超过阈值最高处）；
+ *   - 超标面积 / 超标体积（物理单位换算，面积取自体域而不是固定 1600）；
+ *   - 人口暴露估算（人口权重栅格）；
+ *   - 监测站“模型 vs 观测”配对散点，输出 RMSE / 偏差 / 相关系数。
+ */
 function analyzePm25(message, tn) {
-  var N = message.res || 40;
-  var channel = message.channel;
+  var N = message.res || 36;
+  var channel = message.channel || 'pm25';
   var threshold = message.threshold != null ? message.threshold : 75;
-  var popDensity = message.popDensity != null ? message.popDensity : 1600;
-  var areaKm2 = message.areaKm2 != null ? message.areaKm2 : 1600;
   var breakpoints = [35, 75, 115, 150, 250];
+  var volSize = message.volSize || [1, 1, 1];
+  var areaKm2 = (volSize[0] * volSize[1]) / 1e6;
+  var heightKm = volSize[2] / 1000;
+  var popDensity = message.popDensity != null ? message.popDensity : 1600;
+  var grid = N;
+  var surfaceGrid = new Float32Array(grid * grid);
   var values = new Float32Array(N * N * N);
   var classHist = new Float32Array(6);
   var count = 0;
@@ -248,14 +261,30 @@ function analyzePm25(message, tn) {
   var total = 0;
   var exposedWeight = 0;
   var totalWeight = 0;
+  var maxTop = 0;
+  var topWeighted = 0;
+  var topCount = 0;
+  var topValues = [];
+  var columnsAbove = 0;
+  var columnTotal = 0;
+  var maxSurface = 0;
+  var surfaceSum = 0;
+  // 分级阈值体积：按当前污染物值域把 35/75/150/250 折算为等效断点，
+  // 输出每个等级以上的体积，支撑“分阈体积”分析（PM2.5 通道即为国标原始断点）。
+  var tierBases = [35, 75, 150, 250];
+  var tierScale = pm25ChannelMax(channel) / 300;
+  var tierAbove = [0, 0, 0, 0];
+  // 近地层采样带宽约 0–180 m（按体域物理高度换算，而非固定层数比例）
+  var bottomLevels = Math.max(1, Math.round((180 / Math.max(1, volSize[2])) * N));
   for (var iy = 0; iy < N; iy += 1) {
     var y = (iy + 0.5) / N;
     for (var ix = 0; ix < N; ix += 1) {
       var x = (ix + 0.5) / N;
       var dx = x - 0.5;
-      var dy = y - 0.55;
-      var density = 0.35 + 0.65 * Math.exp(-(dx * dx + dy * dy) / (2 * 0.24 * 0.24));
-      var column = 0;
+      var dy = y - 0.5;
+      var density = 0.35 + 0.65 * Math.exp(-(dx * dx + dy * dy) / (2 * 0.26 * 0.26));
+      var surface = 0;
+      var columnTop = 0;
       for (var iz = 0; iz < N; iz += 1) {
         var s = sampleField(x, y, (iz + 0.5) / N, tn, channel);
         if (!s.valid) continue;
@@ -265,18 +294,71 @@ function analyzePm25(message, tn) {
         sum += s.value;
         if (s.value < min) min = s.value;
         if (s.value > max) max = s.value;
-        if (s.value >= threshold) above += 1;
-        if (s.value > column) column = s.value;
+        for (var ti = 0; ti < tierBases.length; ti += 1) {
+          if (s.value >= tierBases[ti] * tierScale) tierAbove[ti] += 1;
+        }
+        if (s.value >= threshold) {
+          above += 1;
+          if ((iz + 0.5) / N > columnTop) columnTop = (iz + 0.5) / N;
+        }
+        if (iz < bottomLevels && s.value > surface) surface = s.value;
         var cls = 0;
         while (cls < 5 && s.value > breakpoints[cls]) cls += 1;
         classHist[cls] += 1;
       }
+      var gx = Math.min(grid - 1, Math.floor(x * grid));
+      var gy = Math.min(grid - 1, Math.floor(y * grid));
+      if (surface > surfaceGrid[gy * grid + gx]) surfaceGrid[gy * grid + gx] = surface;
+      if (surface > maxSurface) maxSurface = surface;
+      surfaceSum += surface;
       totalWeight += density;
-      if (column >= threshold) exposedWeight += density;
+      if (surface >= threshold) exposedWeight += density;
+      columnTotal += 1;
+      if (surface >= threshold) columnsAbove += 1;
+      if (columnTop > maxTop) maxTop = columnTop;
+      if (columnTop > 0) { topWeighted += columnTop; topCount += 1; topValues.push(columnTop); }
     }
   }
   if (!count) { min = 0; max = 0; }
-  var exposed = areaKm2 > 0 ? (exposedWeight / totalWeight) * areaKm2 * popDensity : 0;
+
+  // 监测站配对：模型浓度 vs 模拟观测，用于误差评估（PM2.5 通道）
+  var sc = ctx.stations.length;
+  var stationRaw = new Float32Array(sc);
+  var stationObserved = new Float32Array(sc);
+  var stationPos = new Float32Array(sc * 2);
+  var stationKind = new Uint8Array(sc);
+  var errSum = 0;
+  var err2 = 0;
+  var sumO = 0;
+  var sumM = 0;
+  var sumOO = 0;
+  var sumMM = 0;
+  var sumOM = 0;
+  for (var si = 0; si < sc; si += 1) {
+    var st = ctx.stations[si];
+    var raw = pm25Raw(st.x, st.y, 0.012, tn, channel).conc;
+    var obs = pm25StationObserved(si, raw, tn);
+    stationRaw[si] = raw;
+    stationObserved[si] = obs;
+    stationPos[si * 2] = st.x;
+    stationPos[si * 2 + 1] = st.y;
+    stationKind[si] = st.kind === 'traffic' ? 1 : (st.kind === 'industry' ? 2 : (st.kind === 'background' ? 3 : 0));
+    var e = obs - raw;
+    errSum += e;
+    err2 += e * e;
+    sumO += obs;
+    sumM += raw;
+    sumOO += obs * obs;
+    sumMM += raw * raw;
+    sumOM += obs * raw;
+  }
+  var meanO = sc ? sumO / sc : 0;
+  var meanM = sc ? sumM / sc : 0;
+  var varO = sc ? sumOO / sc - meanO * meanO : 0;
+  var varM = sc ? sumMM / sc - meanM * meanM : 0;
+  var cov = sc ? sumOM / sc - meanO * meanM : 0;
+  var corr = (varO > 1e-6 && varM > 1e-6) ? cov / Math.sqrt(varO * varM) : 0;
+
   var result = {
     count: count,
     total: total,
@@ -288,11 +370,315 @@ function analyzePm25(message, tn) {
     threshold: threshold,
     above: above,
     exceedFraction: total ? above / total : 0,
+    exceedVolumeKm3: total ? (above / total) * areaKm2 * heightKm : 0,
+    exceedAreaKm2: columnTotal ? areaKm2 * (columnsAbove / columnTotal) : 0,
+    totalAreaKm2: areaKm2,
     classHist: classHist,
-    exposed: exposed,
-    exposedFraction: totalWeight ? exposedWeight / totalWeight : 0
+    grid: grid,
+    surfaceGrid: surfaceGrid,
+    maxSurface: maxSurface,
+    meanSurface: columnTotal ? surfaceSum / columnTotal : 0,
+    topHeightM: maxTop * volSize[2],
+    meanTopM: topCount ? (topWeighted / topCount) * volSize[2] : 0,
+    p95TopM: topValues.length ? percentile(topValues, topValues.length, 0.95) * volSize[2] : 0,
+    volumeHeightM: volSize[2],
+    exposed: totalWeight ? (exposedWeight / totalWeight) * areaKm2 * popDensity : 0,
+    exposedFraction: totalWeight ? exposedWeight / totalWeight : 0,
+    stationCount: sc,
+    stationPos: stationPos,
+    stationRaw: stationRaw,
+    stationObserved: stationObserved,
+    stationKind: stationKind,
+    stationRmse: sc ? Math.sqrt(err2 / sc) : 0,
+    stationBias: sc ? errSum / sc : 0,
+    stationCorr: corr,
+    surfaceP95: percentile(surfaceGrid, grid * grid, 0.95),
+    tierThresholds: transferThresholds(tierBases, tierScale),
+    tierVolumesKm3: transferTierVolumes(tierAbove, count, areaKm2, heightKm)
   };
-  return { result: result, transfer: transferList([classHist]) };
+  return {
+    result: result,
+    transfer: transferList([surfaceGrid, stationPos, stationRaw, stationObserved, stationKind, result.tierThresholds, result.tierVolumesKm3])
+  };
+}
+
+/* 分级阈值数组（按通道折算） */
+function transferThresholds(bases, scale) {
+  var out = new Float32Array(bases.length);
+  for (var i = 0; i < bases.length; i += 1) out[i] = bases[i] * scale;
+  return out;
+}
+
+/* 分级体积数组：count 为有效体素总数，areaKm2 × heightKm 为体域体积 */
+function transferTierVolumes(counts, count, areaKm2, heightKm) {
+  var out = new Float32Array(counts.length);
+  for (var i = 0; i < counts.length; i += 1) {
+    out[i] = count ? (counts[i] / count) * areaKm2 * heightKm : 0;
+  }
+  return out;
+}
+
+/* 站点专项：仅输出各站模型/观测值，供时间轴与通道切换时快速刷新 */
+function analyzePm25Stations(message, tn) {
+  var channel = message.channel || 'pm25';
+  var sc = ctx.stations.length;
+  var pos = new Float32Array(sc * 2);
+  var model = new Float32Array(sc);
+  var observed = new Float32Array(sc);
+  var kind = new Uint8Array(sc);
+  var err = new Float32Array(sc);
+  for (var i = 0; i < sc; i += 1) {
+    var st = ctx.stations[i];
+    var raw = pm25Raw(st.x, st.y, 0.012, tn, channel).conc;
+    var obs = pm25StationObserved(i, raw, tn);
+    pos[i * 2] = st.x;
+    pos[i * 2 + 1] = st.y;
+    model[i] = raw;
+    observed[i] = obs;
+    err[i] = obs - raw;
+    kind[i] = st.kind === 'traffic' ? 1 : (st.kind === 'industry' ? 2 : (st.kind === 'background' ? 3 : 0));
+  }
+  var result = { count: sc, positions: pos, model: model, observed: observed, bias: err, kind: kind };
+  return { result: result, transfer: transferList([pos, model, observed, err, kind]) };
+}
+
+/* 污染热点：粗三维网格取高浓度单元并按最小间距去重 */
+function analyzePm25Hotspots(message, tn) {
+  var channel = message.channel || 'pm25';
+  var threshold = message.threshold != null ? message.threshold : 75;
+  var C = message.res || 22;
+  var V = message.vertical || 10;
+  var volSize = message.volSize || [1, 1, 1];
+  var candidates = [];
+  for (var k = 0; k < V; k += 1) {
+    var z = (k + 0.5) / V;
+    for (var j = 0; j < C; j += 1) {
+      var y = (j + 0.5) / C;
+      for (var i = 0; i < C; i += 1) {
+        var x = (i + 0.5) / C;
+        var s = sampleField(x, y, z, tn, channel);
+        if (s.valid && s.value >= threshold) candidates.push({ x: x, y: y, z: z, v: s.value });
+      }
+    }
+  }
+  candidates.sort(function (a, b) { return b.v - a.v; });
+  var hotspots = [];
+  for (var c = 0; c < candidates.length && hotspots.length < 10; c += 1) {
+    var cand = candidates[c];
+    var ok = true;
+    for (var h = 0; h < hotspots.length; h += 1) {
+      var o = hotspots[h];
+      var dx = cand.x - o.x;
+      var dy = cand.y - o.y;
+      var dz = (cand.z - o.z) * (volSize[2] / Math.max(volSize[0], 1));
+      if (dx * dx + dy * dy + dz * dz < 0.012) { ok = false; break; }
+    }
+    if (ok) hotspots.push(cand);
+  }
+  var pos = new Float32Array(hotspots.length * 3);
+  var val = new Float32Array(hotspots.length);
+  for (var q = 0; q < hotspots.length; q += 1) {
+    pos[q * 3] = hotspots[q].x;
+    pos[q * 3 + 1] = hotspots[q].y;
+    pos[q * 3 + 2] = hotspots[q].z;
+    val[q] = hotspots[q].v;
+  }
+  var result = { count: hotspots.length, positions: pos, values: val, threshold: threshold };
+  return { result: result, transfer: transferList([pos, val]) };
+}
+
+/* 源贡献：给定空间点，拆解各启用源的浓度贡献，支撑源解析与源强控制 */
+function analyzePm25Sources(message, tn) {
+  var channel = message.channel || 'pm25';
+  var x = message.x != null ? message.x : 0.5;
+  var y = message.y != null ? message.y : 0.5;
+  var z = message.z != null ? message.z : 0.05;
+  var met = pm25Meteorology(tn);
+  var n = ctx.sources.length;
+  var contributions = new Float32Array(n);
+  var total = 0;
+  for (var i = 0; i < n; i += 1) {
+    var s = ctx.sources[i];
+    var t = pm25SourceTerm(s, x, y, z, tn, met, channel);
+    contributions[i] = t.conc + t.near;
+    total += contributions[i];
+  }
+  var background = pm25Background(channel, z, tn);
+  var result = {
+    count: n,
+    contributions: contributions,
+    total: total,
+    background: background,
+    x: x,
+    y: y,
+    z: z
+  };
+  return { result: result, transfer: transferList([contributions]) };
+}
+
+/* 时间趋势：逐时间步统计地面峰值 / 地面均值 / 超标面积 / 污染层顶高 / 浓度均值 */
+function analyzePm25Trend(message) {
+  var steps = message.steps || 24;
+  var N = message.res || 20;
+  var V = message.vertical || 12;
+  var channel = message.channel || 'pm25';
+  var threshold = message.threshold != null ? message.threshold : 75;
+  var volSize = message.volSize || [1, 1, 1];
+  var areaKm2 = (volSize[0] * volSize[1]) / 1e6;
+  var maxSurface = new Float32Array(steps);
+  var meanSurface = new Float32Array(steps);
+  var exceedAreaKm2 = new Float32Array(steps);
+  var meanConcentration = new Float32Array(steps);
+  var topHeightKm = new Float32Array(steps);
+  var bottomLevels = Math.max(1, Math.round(V * 0.2));
+  for (var t = 0; t < steps; t += 1) {
+    var tn = steps > 1 ? t / (steps - 1) : 0;
+    var mSurf = 0;
+    var sSurf = 0;
+    var above = 0;
+    var concSum = 0;
+    var concCount = 0;
+    var mTop = 0;
+    for (var iy = 0; iy < N; iy += 1) {
+      var y = (iy + 0.5) / N;
+      for (var ix = 0; ix < N; ix += 1) {
+        var x = (ix + 0.5) / N;
+        var surface = 0;
+        var columnTop = 0;
+        for (var iz = 0; iz < V; iz += 1) {
+          var s = sampleField(x, y, (iz + 0.5) / V, tn, channel);
+          if (!s.valid) continue;
+          concSum += s.value;
+          concCount += 1;
+          if (s.value >= threshold && (iz + 0.5) / V > columnTop) columnTop = (iz + 0.5) / V;
+          if (iz < bottomLevels && s.value > surface) surface = s.value;
+        }
+        if (surface > mSurf) mSurf = surface;
+        sSurf += surface;
+        if (surface >= threshold) above += 1;
+        if (columnTop > mTop) mTop = columnTop;
+      }
+    }
+    maxSurface[t] = mSurf;
+    meanSurface[t] = sSurf / (N * N);
+    exceedAreaKm2[t] = areaKm2 * (above / (N * N));
+    meanConcentration[t] = concCount ? concSum / concCount : 0;
+    topHeightKm[t] = mTop * (volSize[2] / 1000);
+  }
+  var result = { steps: steps, maxSurface: maxSurface, meanSurface: meanSurface, exceedAreaKm2: exceedAreaKm2, meanConcentration: meanConcentration, topHeightKm: topHeightKm };
+  return { result: result, transfer: transferList([maxSurface, meanSurface, exceedAreaKm2, meanConcentration, topHeightKm]) };
+}
+
+/* 地面 footprint：高分辨率近地列最大值栅格，供地面热力图与超标边界绘制 */
+function analyzePm25Footprint(message, tn) {
+  var grid = message.grid || 96;
+  var V = message.vertical || 14;
+  var channel = message.channel || 'pm25';
+  var threshold = message.threshold != null ? message.threshold : 75;
+  var volSize = message.volSize || [0, 0, 2500];
+  // 近地层带宽约 0–180 m，保证地面热力对应真正的近地污染而非整层平均
+  var bottomLevels = Math.max(1, Math.round((180 / Math.max(1, volSize[2])) * V));
+  var surface = new Float32Array(grid * grid);
+  var maxVal = 0;
+  for (var j = 0; j < grid; j += 1) {
+    var y = (j + 0.5) / grid;
+    for (var i = 0; i < grid; i += 1) {
+      var x = (i + 0.5) / grid;
+      var best = 0;
+      for (var k = 0; k < bottomLevels; k += 1) {
+        var s = sampleField(x, y, (k + 0.5) / V, tn, channel);
+        if (s.valid && s.value > best) best = s.value;
+      }
+      surface[j * grid + i] = best;
+      if (best > maxVal) maxVal = best;
+    }
+  }
+  var result = { grid: grid, surface: surface, max: maxVal, p95: percentile(surface, grid * grid, 0.95), threshold: threshold };
+  return { result: result, transfer: transferList([surface]) };
+}
+
+/* 点位多污染物采样：供拾取浮层同时显示 PM2.5 / PM10 / NO₂ 与阈值状态 */
+function analyzePm25Point(message, tn) {
+  var x = message.x != null ? message.x : 0.5;
+  var y = message.y != null ? message.y : 0.5;
+  var z = message.z != null ? message.z : 0.05;
+  var result = {
+    x: x,
+    y: y,
+    z: z,
+    pm25: pm25Raw(x, y, z, tn, 'pm25').conc,
+    pm10: pm25Raw(x, y, z, tn, 'pm10').conc,
+    no2: pm25Raw(x, y, z, tn, 'no2').conc,
+    threshold: message.threshold != null ? message.threshold : 75
+  };
+  return { result: result, transfer: [] };
+}
+
+/* 拾取射线步进：半透明体素不写深度缓冲，scene.pickPosition 常为空。
+   在体域归一化空间沿射线定位首个可见（越过显示下限）采样点，保证拾取数值与画面一致。 */
+function analyzePm25Ray(message, tn) {
+  var o = message.origin || [0.5, 0.5, 0.5];
+  var d = message.direction || [0, 0, -1];
+  var channel = message.channel || 'pm25';
+  var minValue = message.minValue != null ? message.minValue : 0;
+  var steps = message.steps || 360;
+  var threshold = message.threshold != null ? message.threshold : 75;
+  var t0 = -1e9;
+  var t1 = 1e9;
+  var hit = true;
+  for (var a = 0; a < 3; a += 1) {
+    var oa = o[a];
+    var da = d[a];
+    if (Math.abs(da) < 1e-9) {
+      if (oa < 0 || oa > 1) hit = false;
+    } else {
+      var ta = (0 - oa) / da;
+      var tb = (1 - oa) / da;
+      if (ta > tb) { var tt = ta; ta = tb; tb = tt; }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+    }
+  }
+  if (!hit || t1 <= t0) {
+    return { result: { found: false, x: 0.5, y: 0.5, z: 0.05, pm25: 0, pm10: 0, no2: 0, threshold: threshold }, transfer: [] };
+  }
+  var fx = 0.5;
+  var fy = 0.5;
+  var fz = 0.05;
+  var found = false;
+  for (var i = 0; i < steps; i += 1) {
+    var t = t0 + (t1 - t0) * ((i + 0.5) / steps);
+    var px = o[0] + d[0] * t;
+    var py = o[1] + d[1] * t;
+    var pz = o[2] + d[2] * t;
+    var v = pm25Raw(px, py, pz, tn, channel).conc;
+    if (v >= minValue && v > 0) { found = true; fx = px; fy = py; fz = pz; break; }
+  }
+  if (!found) {
+    var bv = -1;
+    for (var j = 0; j < steps; j += 1) {
+      var tj = t0 + (t1 - t0) * ((j + 0.5) / steps);
+      var qx = o[0] + d[0] * tj;
+      var qy = o[1] + d[1] * tj;
+      var qz = o[2] + d[2] * tj;
+      var qv = pm25Raw(qx, qy, qz, tn, channel).conc;
+      if (qv > bv) { bv = qv; fx = qx; fy = qy; fz = qz; }
+    }
+  }
+  fx = clamp(fx, 0.001, 0.999);
+  fy = clamp(fy, 0.001, 0.999);
+  fz = clamp(fz, 0.001, 0.999);
+  var result = {
+    found: found,
+    x: fx,
+    y: fy,
+    z: fz,
+    pm25: pm25Raw(fx, fy, fz, tn, 'pm25').conc,
+    pm10: pm25Raw(fx, fy, fz, tn, 'pm10').conc,
+    no2: pm25Raw(fx, fy, fz, tn, 'no2').conc,
+    threshold: threshold
+  };
+  return { result: result, transfer: [] };
 }
 
 function analyzeProfile(message, tn) {
@@ -826,6 +1212,13 @@ function handleAnalyze(message) {
   else if (message.mode === 'radar') out = analyzeRadar(message, tn);
   else if (message.mode === 'radarTrend') out = analyzeRadarTrend(message);
   else if (message.mode === 'pm25') out = analyzePm25(message, tn);
+  else if (message.mode === 'pm25Stations') out = analyzePm25Stations(message, tn);
+  else if (message.mode === 'pm25Hotspots') out = analyzePm25Hotspots(message, tn);
+  else if (message.mode === 'pm25Sources') out = analyzePm25Sources(message, tn);
+  else if (message.mode === 'pm25Trend') out = analyzePm25Trend(message);
+  else if (message.mode === 'pm25Footprint') out = analyzePm25Footprint(message, tn);
+  else if (message.mode === 'pm25Point') out = analyzePm25Point(message, tn);
+  else if (message.mode === 'pm25Ray') out = analyzePm25Ray(message, tn);
   else if (message.mode === 'profile') out = analyzeProfile(message, tn);
   else if (message.mode === 'section') out = analyzeSection(message, tn);
   else if (message.mode === 'streamlines') out = analyzeStreamlines(message, tn);

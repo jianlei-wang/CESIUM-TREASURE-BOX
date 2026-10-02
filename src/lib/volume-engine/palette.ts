@@ -34,6 +34,24 @@ export const PALETTES: Record<string, PaletteDef> = {
     label: '空气质量',
     stops: [[0, 228, 0], [255, 255, 0], [255, 126, 0], [255, 0, 0], [143, 63, 151], [126, 0, 35]]
   },
+  /**
+   * PM2.5 浓度密度色带：低值冷青 → 青绿 → 黄橙 → 橙红 → 核心深红/紫红。
+   * 与 aqi 分级色不同，用于体渲染连续表达“污染密度场”，避免彩虹色削弱空间感知。
+   */
+  pm25: {
+    label: 'PM2.5 浓度',
+    stops: [[44, 116, 176], [40, 178, 158], [150, 214, 96], [246, 200, 52], [240, 116, 34], [186, 34, 58], [120, 12, 48]]
+  },
+  /** 粗颗粒物 PM10：偏黄褐的地壳色，与 PM2.5 冷青色带区分 */
+  pm10: {
+    label: 'PM10 浓度',
+    stops: [[74, 62, 42], [140, 108, 58], [196, 158, 86], [228, 200, 132], [246, 232, 186]]
+  },
+  /** 二氧化氮 NO₂：黄绿 → 紫红，与道路源/燃烧源关联 */
+  no2: {
+    label: 'NO₂ 浓度',
+    stops: [[30, 62, 92], [46, 140, 128], [150, 200, 92], [232, 196, 70], [214, 96, 46], [150, 30, 72]]
+  },
   /** 风速（气象惯用）：低速蓝绿 → 高速红紫 */
   wind: {
     label: '风速',
@@ -236,4 +254,111 @@ export const LITHOLOGY_CATEGORIES: CategoryDef[] = [
 export function categoryColor(code: number): Stop {
   const hit = LITHOLOGY_CATEGORIES.find((c) => c.code === code)
   return hit ? hit.color : [120, 120, 120]
+}
+
+/**
+ * PM2.5 浓度分级（质量浓度 μg/m³，非 AQI）。
+ * 颜色沿用国标空气质量等级色，用于图例、分级统计与等值面配色。
+ */
+export type Pm25Class = {
+  code: number
+  label: string
+  /** 区间下界（含） */
+  lower: number
+  /** 区间上界（不含），最后一档为 Infinity */
+  upper: number
+  color: Stop
+}
+
+export const PM25_CLASSES: Pm25Class[] = [
+  { code: 0, label: '优', lower: 0, upper: 35, color: [0, 228, 0] },
+  { code: 1, label: '良', lower: 35, upper: 75, color: [255, 255, 0] },
+  { code: 2, label: '轻度污染', lower: 75, upper: 115, color: [255, 126, 0] },
+  { code: 3, label: '中度污染', lower: 115, upper: 150, color: [255, 0, 0] },
+  { code: 4, label: '重度污染', lower: 150, upper: 250, color: [143, 63, 151] },
+  { code: 5, label: '严重污染', lower: 250, upper: Infinity, color: [126, 0, 35] }
+]
+
+export function pm25ClassOf(value: number): Pm25Class {
+  for (const cls of PM25_CLASSES) {
+    if (value < cls.upper) return cls
+  }
+  return PM25_CLASSES[PM25_CLASSES.length - 1]
+}
+
+export function pm25ClassColor(value: number): Stop {
+  return pm25ClassOf(value).color
+}
+
+/** PM2.5 → IAQI 分段断点（HJ 633-2012），用于浓度/AQI 对照 */
+const PM25_IAQI_BREAKPOINTS: Array<{ c: number; iaqi: number }> = [
+  { c: 0, iaqi: 0 },
+  { c: 35, iaqi: 50 },
+  { c: 75, iaqi: 100 },
+  { c: 115, iaqi: 150 },
+  { c: 150, iaqi: 200 },
+  { c: 250, iaqi: 300 },
+  { c: 350, iaqi: 400 },
+  { c: 500, iaqi: 500 }
+]
+
+/** PM2.5 浓度（μg/m³）→ 个人 IAQI */
+export function iaqiOfPm25(value: number): number {
+  const v = clamp(value, 0, 500)
+  for (let i = 0; i < PM25_IAQI_BREAKPOINTS.length - 1; i += 1) {
+    const lo = PM25_IAQI_BREAKPOINTS[i]
+    const hi = PM25_IAQI_BREAKPOINTS[i + 1]
+    if (v <= hi.c) {
+      const local = (v - lo.c) / (hi.c - lo.c || 1)
+      return Math.round(lo.iaqi + (hi.iaqi - lo.iaqi) * local)
+    }
+  }
+  return 500
+}
+
+export type Pm25LutOptions = {
+  min?: number
+  max?: number
+  /** 低于该浓度完全透明（μg/m³） */
+  threshold?: number
+  alphaMax?: number
+  /** 透明度上升幂次：>1 时高浓度核心更突出 */
+  alphaGamma?: number
+  /** 低浓度基底不透明度：>0 时污染范围更完整，避免稀疏羽流断裂 */
+  alphaFloor?: number
+}
+
+/**
+ * PM2.5 业务传递函数：连续色带表达浓度，不透明度随浓度非线性上升。
+ * 低浓度保持较高透明度，35/75/115/150/250 等关键断点附近逐级增强，
+ * 使高浓度污染核心在三维空间中自然凸显。
+ */
+export function buildPm25TransferLut(options: Pm25LutOptions = {}): Uint8Array {
+  const min = options.min ?? 0
+  const max = options.max ?? 300
+  const alphaMax = clamp(options.alphaMax ?? 1, 0, 1)
+  const floor = clamp(options.alphaFloor ?? 0, 0, 1)
+  const threshold = clamp(options.threshold ?? 10, min, max)
+  const gamma = Math.max(0.2, options.alphaGamma ?? 1.25)
+  const stops = PALETTES.pm25.stops
+  const span = max - min || 1
+  const lut = new Uint8Array(256 * 4)
+  for (let i = 0; i < 256; i += 1) {
+    const value = min + (i / 255) * span
+    const t = (value - min) / span
+    const [r, g, b] = lerpStops(stops, t)
+    let ramp: number
+    if (value <= threshold) {
+      ramp = 0
+    } else {
+      const normalized = (value - threshold) / (max - threshold || 1)
+      ramp = Math.pow(clamp(normalized, 0, 1), gamma)
+    }
+    const alpha = floor + (1 - floor) * ramp
+    lut[i * 4] = r
+    lut[i * 4 + 1] = g
+    lut[i * 4 + 2] = b
+    lut[i * 4 + 3] = Math.round(255 * alphaMax * alpha)
+  }
+  return lut
 }

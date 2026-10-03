@@ -20,6 +20,9 @@ export const VOLUME_ANALYSIS_SOURCE = String.raw`
 function analysisVectorAt(nx, ny, nz, tn) {
   if (sceneKind === 'wind') return windVector(nx, ny, nz);
   if (sceneKind === 'cfd') return cfdVector(nx, ny, nz, tn);
+  if (sceneKind === 'flood') return floodVector(nx, ny, nz, tn);
+  if (sceneKind === 'fire') return fireVector(nx, ny, nz, tn);
+  if (sceneKind === 'ocean') return oceanVector(nx, ny, nz, tn);
   return { ux: 0, uy: 0, uz: 0, solid: 0 };
 }
 
@@ -691,7 +694,7 @@ function analyzeProfile(message, tn) {
   var vu = new Float32Array(levels);
   var vv = new Float32Array(levels);
   var vw = new Float32Array(levels);
-  var isVector = sceneKind === 'wind' || sceneKind === 'cfd';
+  var isVector = sceneKind === 'wind' || sceneKind === 'cfd' || sceneKind === 'flood' || sceneKind === 'fire' || sceneKind === 'ocean';
   for (var i = 0; i < levels; i += 1) {
     var z = (i + 0.5) / levels;
     var s = sampleField(x, y, z, tn, channel);
@@ -786,6 +789,21 @@ function streamlineSeed(rand, levels, index, seedCount) {
   if (sceneKind === 'cfd') {
     // 入口释放：+X 来流面近地高度带，贴近真实风洞入口布种
     return { x: 0.015 + 0.02 * rand(), y: 0.05 + 0.9 * rand(), z: 0.02 + 0.34 * rand() };
+  }
+  if (sceneKind === 'flood') {
+    // 洪水只在近地薄层有水流，沿河道附近布种
+    var fx = 0.03 + 0.94 * rand();
+    var fy = 0.5 + ctx.riverAmp * Math.sin(fx * ctx.riverFreq) + 0.05 * Math.sin(fx * 9.1);
+    return { x: fx, y: clamp(fy + (rand() - 0.5) * 0.16, 0.03, 0.97), z: 0.02 + 0.22 * rand() };
+  }
+  if (sceneKind === 'fire') {
+    // 火源附近布种，随浮升热羽与风场输运
+    var srcs = ctx.sources;
+    var s = srcs.length ? srcs[Math.floor(rand() * srcs.length)] : { x: 0.5, y: 0.5 };
+    return { x: clamp(s.x + (rand() - 0.5) * 0.14, 0.02, 0.98), y: clamp(s.y + (rand() - 0.5) * 0.14, 0.02, 0.98), z: 0.02 + 0.4 * rand() };
+  }
+  if (sceneKind === 'ocean') {
+    return { x: 0.05 + 0.9 * rand(), y: 0.05 + 0.9 * rand(), z: 0.05 + 0.9 * rand() };
   }
   if (sceneKind === 'wind') {
     // 多高度分层布种：按 index 比例做幂次映射，低空更密、高空更疏，形成层次分明的流线族
@@ -1205,6 +1223,419 @@ function analyzeCfd(message, tn) {
   return { result: result, transfer: [] };
 }
 
+/* ------------------------------------------------------------------ *
+ * 第二批案例领域分析：污染羽流 / 矿体品位 / 洪水 / 火灾 / 海洋
+ * ------------------------------------------------------------------ */
+
+// 污染羽流：给定浓度阈值下的污染体积、影响面积、前缘迁移距离与分层赋存
+function analyzePlume(message, tn) {
+  var channel = message.channel;
+  var threshold = message.threshold != null ? message.threshold : 50;
+  var N = message.res || 40;
+  var V = message.vres || 48;
+  var volSize = message.volSize || [1, 1, 1];
+  var cellArea = (volSize[0] / N) * (volSize[1] / N);
+  var cellVol = cellArea * (volSize[2] / V);
+  var src = ctx.source;
+  var flow = ctx.flowDir;
+  var cosf = Math.cos(flow);
+  var sinf = Math.sin(flow);
+  var distScale = Math.sqrt(Math.pow(volSize[0] * cosf, 2) + Math.pow(volSize[1] * sinf, 2));
+  var aquifers = ctx.aquifers;
+  var aCount = new Float64Array(aquifers.length);
+  var aAbove = new Float64Array(aquifers.length);
+  var columnAbove = new Uint8Array(N * N);
+  var volume = 0;
+  var area = 0;
+  var frontMax = 0;
+  var maxConc = 0;
+  var maxPos = [0, 0, 0];
+  var sum = 0;
+  var count = 0;
+  for (var iz = 0; iz < V; iz += 1) {
+    var nz = (iz + 0.5) / V;
+    var depth = 1 - nz;
+    for (var iy = 0; iy < N; iy += 1) {
+      var ny = (iy + 0.5) / N;
+      for (var ix = 0; ix < N; ix += 1) {
+        var nx = (ix + 0.5) / N;
+        var s = plumeValue(nx, ny, nz, tn, channel);
+        if (!s.valid || s.value <= 0) continue;
+        count += 1;
+        sum += s.value;
+        if (s.value > maxConc) { maxConc = s.value; maxPos = [nx, ny, nz]; }
+        if (s.value >= threshold) {
+          volume += cellVol;
+          columnAbove[iy * N + ix] = 1;
+          var along = (nx - src.x) * cosf + (ny - src.y) * sinf;
+          if (along > frontMax) frontMax = along;
+          var code = aquifers.length - 1;
+          for (var ai = 0; ai < aquifers.length; ai += 1) {
+            if (depth >= aquifers[ai].top && depth <= aquifers[ai].bottom) { code = ai; break; }
+          }
+          aCount[code] += 1;
+          if (s.value >= threshold) aAbove[code] += 1;
+        }
+      }
+    }
+  }
+  for (var ci = 0; ci < N * N; ci += 1) if (columnAbove[ci]) area += cellArea;
+  var aquiferStats = [];
+  for (var k = 0; k < aquifers.length; k += 1) {
+    aquiferStats.push({
+      code: k + 1,
+      above: aCount[k],
+      fraction: count ? aCount[k] / count : 0
+    });
+  }
+  var result = {
+    threshold: threshold,
+    volumeM3: volume,
+    areaM2: area,
+    frontDistanceM: frontMax * distScale,
+    maxConc: maxConc,
+    meanConc: count ? sum / count : 0,
+    maxPos: maxPos,
+    aquiferStats: aquiferStats,
+    sampleCount: count
+  };
+  return { result: result, transfer: [] };
+}
+
+// 矿体品位：给定边界/工业品位下的矿量、平均品位、金属量与高品位分布
+function analyzeMining(message, tn) {
+  var channel = message.channel || 'cu';
+  var cutoff = message.cutoff != null ? message.cutoff : 0.2;
+  var density = message.density != null ? message.density : 2.7;
+  var N = message.res || 44;
+  var V = message.vres || 44;
+  var volSize = message.volSize || [1, 1, 1];
+  var cellVol = (volSize[0] / N) * (volSize[1] / N) * (volSize[2] / V);
+  var volume = 0;
+  var gradeSum = 0;
+  var count = 0;
+  var maxGrade = 0;
+  var maxPos = [0, 0, 0];
+  var total = 0;
+  var sumAll = 0;
+  var maxVal = channel === 'au' ? 4 : channel === 'fe' ? 60 : 2;
+  var bins = new Float64Array(6);
+  for (var iz = 0; iz < V; iz += 1) {
+    var nz = (iz + 0.5) / V;
+    for (var iy = 0; iy < N; iy += 1) {
+      var ny = (iy + 0.5) / N;
+      for (var ix = 0; ix < N; ix += 1) {
+        var nx = (ix + 0.5) / N;
+        var value = miningValue(nx, ny, nz, tn, channel).value;
+        total += 1;
+        sumAll += value;
+        if (value > maxGrade) { maxGrade = value; maxPos = [nx, ny, nz]; }
+        var bin = Math.min(5, Math.floor((value / maxVal) * 6));
+        if (bin >= 0) bins[bin] += 1;
+        if (value >= cutoff) {
+          volume += cellVol;
+          gradeSum += value;
+          count += 1;
+        }
+      }
+    }
+  }
+  var tonnage = volume * density;
+  var avgGrade = count ? gradeSum / count : 0;
+  var metalAmount;
+  var metalUnit;
+  if (channel === 'au') { metalAmount = tonnage * avgGrade / 1000; metalUnit = 'kg'; }
+  else { metalAmount = tonnage * avgGrade / 100; metalUnit = 't'; }
+  var result = {
+    channel: channel,
+    cutoff: cutoff,
+    density: density,
+    oreVolumeM3: volume,
+    tonnage: tonnage,
+    avgGrade: avgGrade,
+    maxGrade: maxGrade,
+    meanGrade: total ? sumAll / total : 0,
+    metalAmount: metalAmount,
+    metalUnit: metalUnit,
+    oreFraction: total ? count / total : 0,
+    maxPos: maxPos,
+    bins: bins,
+    sampleCount: total
+  };
+  return { result: result, transfer: [] };
+}
+
+// 洪水：淹没范围 / 最大水深 / 流速与受影响对象（含到达时间估计）
+function analyzeFlood(message, tn) {
+  var depthThreshold = message.depthThreshold != null ? message.depthThreshold : 0.5;
+  var N = message.res || 48;
+  var V = message.vres || 24;
+  var timeSteps = message.timeSteps || 1;
+  var volSize = message.volSize || [1, 1, 1];
+  var zones = message.zones || [];
+  var cellArea = (volSize[0] / N) * (volSize[1] / N);
+  var wetColumns = new Uint8Array(N * N);
+  var volume = 0;
+  var maxDepth = 0;
+  var maxPos = [0, 0, 0];
+  var depthSum = 0;
+  var depthCount = 0;
+  var maxSpeed = 0;
+  var speedSum = 0;
+  var speedCount = 0;
+  for (var iz = 0; iz < V; iz += 1) {
+    var nz = (iz + 0.5) / V;
+    for (var iy = 0; iy < N; iy += 1) {
+      var ny = (iy + 0.5) / N;
+      for (var ix = 0; ix < N; ix += 1) {
+        var nx = (ix + 0.5) / N;
+        var dNorm = floodDepthNorm(nx, ny, tn);
+        if (dNorm <= 0.0008) continue;
+        var depth = dNorm * 30;
+        volume += depth * cellArea;
+        depthSum += depth;
+        depthCount += 1;
+        if (depth > maxDepth) { maxDepth = depth; maxPos = [nx, ny, nz]; }
+        var vec = floodVector(nx, ny, nz, tn);
+        var sp = Math.sqrt(vec.ux * vec.ux + vec.uy * vec.uy + vec.uz * vec.uz);
+        speedSum += sp;
+        speedCount += 1;
+        if (sp > maxSpeed) maxSpeed = sp;
+      }
+    }
+  }
+  var area = 0;
+  for (var iy2 = 0; iy2 < N; iy2 += 1) {
+    for (var ix2 = 0; ix2 < N; ix2 += 1) {
+      if (floodDepthNorm((ix2 + 0.5) / N, (iy2 + 0.5) / N, tn) * 30 >= depthThreshold) {
+        area += cellArea;
+        wetColumns[iy2 * N + ix2] = 1;
+      }
+    }
+  }
+  var zoneStats = [];
+  for (var zi = 0; zi < zones.length; zi += 1) {
+    var z = zones[zi];
+    var zMax = 0;
+    var zWet = 0;
+    var zCells = 0;
+    var arrival = -1;
+    var rr = z.r || 0.05;
+    for (var gy = 0; gy < N; gy += 1) {
+      for (var gx = 0; gx < N; gx += 1) {
+        var px = (gx + 0.5) / N;
+        var py = (gy + 0.5) / N;
+        if (Math.pow(px - z.x, 2) + Math.pow(py - z.y, 2) > rr * rr) continue;
+        zCells += 1;
+        var dd = floodDepthNorm(px, py, tn) * 30;
+        if (dd > zMax) zMax = dd;
+        if (dd >= depthThreshold) zWet += 1;
+      }
+    }
+    if (zCells && timeSteps > 1) {
+      for (var ts = 0; ts < timeSteps; ts += 1) {
+        var tt = ts / (timeSteps - 1);
+        if (floodDepthNorm(z.x, z.y, tt) * 30 >= depthThreshold) { arrival = ts; break; }
+      }
+    }
+    zoneStats.push({
+      id: z.id,
+      maxDepthM: zMax,
+      arrivalStep: arrival,
+      floodedFrac: zCells ? zWet / zCells : 0
+    });
+  }
+  var result = {
+    depthThreshold: depthThreshold,
+    floodedAreaM2: area,
+    floodedVolumeM3: volume,
+    maxDepthM: maxDepth,
+    meanDepthM: depthCount ? depthSum / depthCount : 0,
+    maxSpeed: maxSpeed,
+    meanSpeed: speedCount ? speedSum / speedCount : 0,
+    floodedFraction: (N * N) ? countTrue(wetColumns) / (N * N) : 0,
+    maxPos: maxPos,
+    zoneStats: zoneStats,
+    sampleCount: depthCount
+  };
+  return { result: result, transfer: [] };
+}
+
+function countTrue(arr) {
+  var c = 0;
+  for (var i = 0; i < arr.length; i += 1) if (arr[i]) c += 1;
+  return c;
+}
+
+// 洪水纵剖面：沿河道中心线逐点给出水面高程、地面高程与水深，供剖面图绘制
+function analyzeFloodProfile(message, tn) {
+  var steps = message.steps || 160;
+  var xs = new Float32Array(steps);
+  var depth = new Float32Array(steps);
+  var level = new Float32Array(steps);
+  var terrain = new Float32Array(steps);
+  var maxDepth = 0;
+  var maxIdx = 0;
+  for (var s = 0; s < steps; s += 1) {
+    var nx = 0.02 + (0.96 * s) / Math.max(1, steps - 1);
+    var ny = 0.5 + ctx.riverAmp * Math.sin(nx * ctx.riverFreq) + 0.05 * Math.sin(nx * 9.1);
+    var nyc = ny < 0.02 ? 0.02 : ny > 0.98 ? 0.98 : ny;
+    xs[s] = nx;
+    depth[s] = floodDepthNorm(nx, nyc, tn) * 30;
+    level[s] = floodSurface(nx, nyc, tn) * 30;
+    terrain[s] = floodTerrain(nx, nyc) * 30;
+    if (depth[s] > maxDepth) { maxDepth = depth[s]; maxIdx = s; }
+  }
+  var result = {
+    steps: steps,
+    x: xs,
+    depth: depth,
+    level: level,
+    terrain: terrain,
+    maxDepthM: maxDepth,
+    peakAt: maxIdx / Math.max(1, steps - 1)
+  };
+  return { result: result, transfer: transferList([xs, depth, level, terrain]) };
+}
+
+// 火灾：危险温度体积 / 烟气体积 / 烟羽顶高 / 下风向影响距离与建筑受威胁度
+function analyzeFire(message, tn) {
+  var tempThreshold = message.tempThreshold != null ? message.tempThreshold : 150;
+  var smokeThreshold = message.smokeThreshold != null ? message.smokeThreshold : 150;
+  var N = message.res || 44;
+  var V = message.vres || 40;
+  var volSize = message.volSize || [1, 1, 1];
+  var cellVol = (volSize[0] / N) * (volSize[1] / N) * (volSize[2] / V);
+  var maxTemp = 20;
+  var maxTempPos = [0, 0, 0];
+  var dangerVolume = 0;
+  var smokeVolume = 0;
+  var plumeTop = 0;
+  var count = 0;
+  var src = ctx.sources.length ? ctx.sources[0] : { x: 0.5, y: 0.5 };
+  var flow = fireFlowDir();
+  var cosf = Math.cos(flow);
+  var sinf = Math.sin(flow);
+  var distScale = Math.sqrt(Math.pow(volSize[0] * cosf, 2) + Math.pow(volSize[1] * sinf, 2));
+  var downwind = 0;
+  for (var iz = 0; iz < V; iz += 1) {
+    var nz = (iz + 0.5) / V;
+    for (var iy = 0; iy < N; iy += 1) {
+      var ny = (iy + 0.5) / N;
+      for (var ix = 0; ix < N; ix += 1) {
+        var nx = (ix + 0.5) / N;
+        var tVal = fireValue(nx, ny, nz, tn, 'temp');
+        var sVal = fireValue(nx, ny, nz, tn, 'smoke');
+        count += 1;
+        if (tVal.valid && tVal.value > maxTemp) { maxTemp = tVal.value; maxTempPos = [nx, ny, nz]; }
+        if (tVal.valid && tVal.value >= tempThreshold) {
+          dangerVolume += cellVol;
+          if (nz > plumeTop) plumeTop = nz;
+        }
+        if (sVal.valid && sVal.value >= smokeThreshold) {
+          smokeVolume += cellVol;
+          if (nz > plumeTop) plumeTop = nz;
+          var along = (nx - src.x) * cosf + (ny - src.y) * sinf;
+          if (along > downwind) downwind = along;
+        }
+      }
+    }
+  }
+  var buildings = message.buildings || [];
+  var impacts = [];
+  for (var bi = 0; bi < buildings.length; bi += 1) {
+    var b = buildings[bi];
+    var bTemp = fireValue(b.x, b.y, 0.1, tn, 'temp').value;
+    var bSmoke = fireValue(b.x, b.y, 0.5, tn, 'smoke').value;
+    impacts.push({ id: b.id, temp: bTemp, smoke: bSmoke });
+  }
+  var result = {
+    tempThreshold: tempThreshold,
+    smokeThreshold: smokeThreshold,
+    dangerVolumeM3: dangerVolume,
+    smokeVolumeM3: smokeVolume,
+    maxTemp: maxTemp,
+    plumeTopM: plumeTop * volSize[2],
+    downwindM: downwind * distScale,
+    maxPos: maxTempPos,
+    impacts: impacts,
+    sampleCount: count
+  };
+  return { result: result, transfer: [] };
+}
+
+// 海洋：温盐深极值 / 层平均 / 温跃层深度与站位温盐散点
+function analyzeOcean(message, tn) {
+  var channel = message.channel || 'temperature';
+  var N = message.res || 40;
+  var V = message.vres || 40;
+  var volSize = message.volSize || [1, 1, 1];
+  var stations = message.stations || [];
+  var minV = Infinity;
+  var maxV = -Infinity;
+  var sum = 0;
+  var count = 0;
+  var profileT = new Float32Array(V);
+  for (var iz = 0; iz < V; iz += 1) {
+    var nz = (iz + 0.5) / V;
+    var layerSum = 0;
+    var layerCount = 0;
+    for (var iy = 0; iy < N; iy += 1) {
+      var ny = (iy + 0.5) / N;
+      for (var ix = 0; ix < N; ix += 1) {
+        var nx = (ix + 0.5) / N;
+        var value = oceanValue(nx, ny, nz, tn, channel).value;
+        if (value < minV) minV = value;
+        if (value > maxV) maxV = value;
+        sum += value;
+        count += 1;
+        layerSum += value;
+        layerCount += 1;
+      }
+    }
+    profileT[iz] = layerCount ? layerSum / layerCount : 0;
+  }
+  // 温跃层深度：垂向温度梯度最大处（对温度通道；其他通道用自身梯度的近似）
+  var thermoIdx = 0;
+  var thermoGrad = -1;
+  for (var k = 1; k < V; k += 1) {
+    var g = Math.abs(profileT[k] - profileT[k - 1]);
+    if (g > thermoGrad) { thermoGrad = g; thermoIdx = k; }
+  }
+  var stationOut = [];
+  for (var si = 0; si < stations.length; si += 1) {
+    var st = stations[si];
+    var tSurf = oceanValue(st.x, st.y, 0.97, tn, 'temperature').value;
+    var sSurf = oceanValue(st.x, st.y, 0.97, tn, 'salinity').value;
+    var rhoSurf = oceanValue(st.x, st.y, 0.97, tn, 'density').value;
+    var tDeep = oceanValue(st.x, st.y, 0.08, tn, 'temperature').value;
+    var sDeep = oceanValue(st.x, st.y, 0.08, tn, 'salinity').value;
+    var rhoDeep = oceanValue(st.x, st.y, 0.08, tn, 'density').value;
+    stationOut.push({
+      id: st.id,
+      x: st.x,
+      y: st.y,
+      tSurface: tSurf,
+      sSurface: sSurf,
+      rhoSurface: rhoSurf,
+      tDeep: tDeep,
+      sDeep: sDeep,
+      rhoDeep: rhoDeep
+    });
+  }
+  var result = {
+    channel: channel,
+    minValue: minV === Infinity ? 0 : minV,
+    maxValue: maxV === -Infinity ? 0 : maxV,
+    meanValue: count ? sum / count : 0,
+    thermoclineDepthM: (1 - (thermoIdx + 0.5) / V) * volSize[2],
+    profile: profileT,
+    stations: stationOut,
+    sampleCount: count
+  };
+  return { result: result, transfer: transferList([profileT]) };
+}
+
 function handleAnalyze(message) {
   var tn = message.timeSteps > 1 ? message.timeStep / (message.timeSteps - 1) : 0;
   var out;
@@ -1226,6 +1657,12 @@ function handleAnalyze(message) {
   else if (message.mode === 'geology') out = analyzeGeology(message, tn);
   else if (message.mode === 'geologyProfile') out = analyzeGeologyProfile(message, tn);
   else if (message.mode === 'cfd') out = analyzeCfd(message, tn);
+  else if (message.mode === 'plume') out = analyzePlume(message, tn);
+  else if (message.mode === 'mining') out = analyzeMining(message, tn);
+  else if (message.mode === 'flood') out = analyzeFlood(message, tn);
+  else if (message.mode === 'floodProfile') out = analyzeFloodProfile(message, tn);
+  else if (message.mode === 'fire') out = analyzeFire(message, tn);
+  else if (message.mode === 'ocean') out = analyzeOcean(message, tn);
   else out = { result: {}, transfer: [] };
   self.postMessage(
     { type: 'analysisDone', epoch: message.epoch, requestId: message.requestId, mode: message.mode, result: out.result },

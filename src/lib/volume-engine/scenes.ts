@@ -6,7 +6,7 @@
  * 案例组件只负责选择场景 + 组装附加交互。
  */
 
-export type SceneKind = 'radar' | 'pm25' | 'wind' | 'geology' | 'cfd'
+export type SceneKind = 'radar' | 'pm25' | 'wind' | 'geology' | 'cfd' | 'plume' | 'mining' | 'flood' | 'fire' | 'ocean'
 
 export type ValueMode = 'scalar' | 'categorical'
 
@@ -317,6 +317,288 @@ export const PM25_CONFIG: Pm25Config = {
   refTopM: 875
 }
 
+/* ------------------------------------------------------------------ *
+ * 第二批行业应用矩阵 —— 案例专属配置
+ * ------------------------------------------------------------------ */
+
+/** 地下水污染羽流 —— 污染物类型 */
+export type PlumeContaminantKind = 'tce' | 'cr6' | 'tds'
+
+export type PlumeAquiferDef = {
+  code: number
+  name: string
+  /** 顶界埋深（m，地表为 0，向下为正） */
+  top: number
+  /** 底界埋深（m） */
+  bottom: number
+  porosity: string
+  permeability: string
+  role: string
+}
+
+export type PlumeWellDef = {
+  id: string
+  name: string
+  kind: 'source' | 'monitor' | 'extract'
+  x: number
+  y: number
+  /** 采样 / 滤水管深度（m） */
+  depth: number
+}
+
+export type PlumeCameraPreset = 'overview' | 'plume' | 'source' | 'section' | 'wells' | 'top'
+
+export type PlumeConfig = {
+  siteName: string
+  aquifers: PlumeAquiferDef[]
+  wells: PlumeWellDef[]
+  /** 地下水流向（度） */
+  flowDir: number
+  depthMarks: number[]
+  /** 风险分级浓度阈值（按当前污染物单位，运行时按通道换算） */
+  riskThresholds: number[]
+  contaminants: Record<PlumeContaminantKind, { name: string; unit: string; max: number; palette: string; hint: string }>
+  camera: Record<PlumeCameraPreset, { label: string; heading: number; pitch: number; rangeFactor: number }>
+  /** 单个时间步代表的月数 */
+  timeStepMonths: number
+}
+
+/**
+ * 地下水污染羽流专属配置：含水层分层、井位清单、地下水流向、污染物清单、风险阈值与相机预设。
+ */
+export const PLUME_CONFIG: PlumeConfig = {
+  siteName: '太湖平原某化工遗留场地',
+  aquifers: [
+    { code: 1, name: '潜水含水层', top: 0, bottom: 24, porosity: '高', permeability: '高', role: '浅层潜水' },
+    { code: 2, name: '粉质黏土隔水层', top: 24, bottom: 40, porosity: '低', permeability: '极低', role: '弱透水层' },
+    { code: 3, name: '第一承压含水层', top: 40, bottom: 72, porosity: '较高', permeability: '较高', role: '主采水层' },
+    { code: 4, name: '黏土隔水层', top: 72, bottom: 88, porosity: '低', permeability: '极低', role: '隔水底板' },
+    { code: 5, name: '第二承压含水层', top: 88, bottom: 120, porosity: '中', permeability: '中', role: '深部含水层' }
+  ],
+  wells: [
+    { id: 'SRC-01', name: '污染源 SRC-01', kind: 'source', x: 0.30, y: 0.42, depth: 10 },
+    { id: 'MW-01', name: '监测井 MW-01', kind: 'monitor', x: 0.40, y: 0.44, depth: 18 },
+    { id: 'MW-02', name: '监测井 MW-02', kind: 'monitor', x: 0.52, y: 0.48, depth: 20 },
+    { id: 'MW-03', name: '监测井 MW-03', kind: 'monitor', x: 0.63, y: 0.55, depth: 52 },
+    { id: 'MW-04', name: '监测井 MW-04', kind: 'monitor', x: 0.70, y: 0.44, depth: 50 },
+    { id: 'MW-05', name: '监测井 MW-05', kind: 'monitor', x: 0.46, y: 0.62, depth: 56 },
+    { id: 'EW-01', name: '抽出处理井 EW-01', kind: 'extract', x: 0.58, y: 0.50, depth: 54 }
+  ],
+  flowDir: 68,
+  depthMarks: [20, 40, 60, 80, 100, 120],
+  riskThresholds: [10, 25, 40, 60],
+  contaminants: {
+    tce: { name: '三氯乙烯 (TCE)', unit: 'µg/L', max: 400, palette: 'contaminant', hint: 'Dense NAPL 溶解相，随地下水迁移，衰减慢、穿透承压层' },
+    cr6: { name: '六价铬 Cr(VI)', unit: 'mg/L', max: 30, palette: 'chromate', hint: '强迁移阴离子，主要赋存于浅层潜水含水层' },
+    tds: { name: '总溶解固体 TDS', unit: 'mg/L', max: 1600, palette: 'turbo', hint: '场地综合污染指标，覆盖全含水层系统' }
+  },
+  camera: {
+    overview: { label: '全局', heading: 32, pitch: -34, rangeFactor: 1.05 },
+    plume: { label: '羽流主体', heading: 248, pitch: -24, rangeFactor: 0.68 },
+    source: { label: '源区', heading: 300, pitch: -18, rangeFactor: 0.42 },
+    section: { label: '沿流向剖面', heading: 68, pitch: -6, rangeFactor: 0.8 },
+    wells: { label: '监测井网', heading: 40, pitch: -40, rangeFactor: 0.8 },
+    top: { label: '俯视', heading: 0, pitch: -80, rangeFactor: 0.95 }
+  },
+  timeStepMonths: 1
+}
+
+/** 三维矿体品位 —— 元素类型 */
+export type MiningElementKey = 'cu' | 'au' | 'fe'
+
+export type MiningDrillholeDef = {
+  id: string
+  name: string
+  x: number
+  y: number
+  /** 孔深（m） */
+  depth: number
+  grade: Record<MiningElementKey, number>
+}
+
+export type MiningCameraPreset = 'overview' | 'orebody' | 'section' | 'pit' | 'top'
+
+export type MiningConfig = {
+  pitName: string
+  domain: { east: number; north: number; depth: number }
+  elements: Record<MiningElementKey, { name: string; unit: string; max: number; palette: string; cutoffs: number[]; hint: string }>
+  drillholes: MiningDrillholeDef[]
+  /** 台阶标高（m，相对地表向下） */
+  benches: number[]
+  /** 边界品位（Cu %）与工业品位 */
+  cutoff: { boundary: number; industrial: number }
+  camera: Record<MiningCameraPreset, { label: string; heading: number; pitch: number; rangeFactor: number }>
+}
+
+/**
+ * 三维矿体品位专属配置：元素清单、边界品位、钻孔样品清单、台阶标高与相机预设。
+ */
+export const MINING_CONFIG: MiningConfig = {
+  pitName: '南岭铜多金属露天矿',
+  domain: { east: 3000, north: 3000, depth: 500 },
+  elements: {
+    cu: { name: '铜 Cu', unit: '%', max: 2, palette: 'ore', cutoffs: [0.2, 0.4, 0.8, 1.2], hint: '主矿化元素，沿接触带与断裂交汇处富集' },
+    au: { name: '金 Au', unit: 'g/t', max: 4, palette: 'gold', cutoffs: [0.3, 0.6, 1.2, 2.0], hint: '伴生金，与黄铁矿化关系密切，深部品位升高' },
+    fe: { name: '全铁 Fe', unit: '%', max: 60, palette: 'terrain', cutoffs: [10, 20, 35, 50], hint: '铁帽与矽卡岩蚀变标志，浅部氧化带富集' }
+  },
+  drillholes: [
+    { id: 'ZK-101', name: 'ZK-101', x: 0.34, y: 0.40, depth: 420, grade: { cu: 1.12, au: 1.4, fe: 28 } },
+    { id: 'ZK-102', name: 'ZK-102', x: 0.46, y: 0.46, depth: 500, grade: { cu: 1.48, au: 2.1, fe: 33 } },
+    { id: 'ZK-103', name: 'ZK-103', x: 0.58, y: 0.42, depth: 460, grade: { cu: 0.86, au: 1.1, fe: 24 } },
+    { id: 'ZK-104', name: 'ZK-104', x: 0.40, y: 0.58, depth: 380, grade: { cu: 0.62, au: 0.7, fe: 19 } },
+    { id: 'ZK-105', name: 'ZK-105', x: 0.54, y: 0.62, depth: 520, grade: { cu: 1.26, au: 1.8, fe: 30 } },
+    { id: 'ZK-106', name: 'ZK-106', x: 0.66, y: 0.54, depth: 340, grade: { cu: 0.42, au: 0.5, fe: 16 } }
+  ],
+  benches: [500, 450, 400, 350, 300, 250, 200, 150, 100, 50],
+  cutoff: { boundary: 0.2, industrial: 0.4 },
+  camera: {
+    overview: { label: '全局', heading: 30, pitch: -34, rangeFactor: 1.05 },
+    orebody: { label: '矿体三维', heading: 238, pitch: -20, rangeFactor: 0.66 },
+    section: { label: '勘探线剖面', heading: 58, pitch: -8, rangeFactor: 0.82 },
+    pit: { label: '采坑', heading: 320, pitch: -22, rangeFactor: 0.72 },
+    top: { label: '俯视', heading: 0, pitch: -80, rangeFactor: 0.95 }
+  }
+}
+
+/** 洪水动力水深体 —— 测站与受影响对象 */
+export type FloodGaugeDef = { id: string; name: string; x: number; y: number }
+export type FloodZoneDef = { id: string; name: string; kind: 'city' | 'village' | 'farm' | 'infra'; x: number; y: number; r: number }
+
+export type FloodCameraPreset = 'overview' | 'river' | 'city' | 'peak' | 'section'
+
+export type FloodConfig = {
+  basinName: string
+  gauges: FloodGaugeDef[]
+  zones: FloodZoneDef[]
+  depthThresholds: number[]
+  warningLevels: { level: string; depth: number; color: string }[]
+  camera: Record<FloodCameraPreset, { label: string; heading: number; pitch: number; rangeFactor: number }>
+  /** 单个时间步代表的小时数 */
+  timeStepHours: number
+}
+
+/**
+ * 洪水动力水深体专属配置：水文站、受影响对象、淹没分级、预警等级与相机预设。
+ */
+export const FLOOD_CONFIG: FloodConfig = {
+  basinName: '淮河上游—郑东城市群河段',
+  gauges: [
+    { id: 'G-01', name: '上游水文站 G-01', x: 0.14, y: 0.50 },
+    { id: 'G-02', name: '城区控制站 G-02', x: 0.46, y: 0.52 },
+    { id: 'G-03', name: '下游水文站 G-03', x: 0.82, y: 0.50 }
+  ],
+  zones: [
+    { id: 'Z-01', name: '郑东 CBD', kind: 'city', x: 0.50, y: 0.56, r: 0.09 },
+    { id: 'Z-02', name: '老城片区', kind: 'city', x: 0.38, y: 0.44, r: 0.075 },
+    { id: 'Z-03', name: '沿河村落', kind: 'village', x: 0.66, y: 0.58, r: 0.05 },
+    { id: 'Z-04', name: '北部农田', kind: 'farm', x: 0.30, y: 0.30, r: 0.13 },
+    { id: 'Z-05', name: '高铁枢纽', kind: 'infra', x: 0.58, y: 0.40, r: 0.045 }
+  ],
+  depthThresholds: [0.5, 1.0, 2.0, 3.0],
+  warningLevels: [
+    { level: '蓝色预警', depth: 0.5, color: '#3d8bfd' },
+    { level: '黄色预警', depth: 1.0, color: '#f2c94c' },
+    { level: '橙色预警', depth: 2.0, color: '#f2994a' },
+    { level: '红色预警', depth: 3.0, color: '#eb5757' }
+  ],
+  camera: {
+    overview: { label: '全局', heading: 28, pitch: -36, rangeFactor: 1.05 },
+    river: { label: '河道', heading: 92, pitch: -20, rangeFactor: 0.7 },
+    city: { label: '城区', heading: 335, pitch: -26, rangeFactor: 0.6 },
+    peak: { label: '洪峰断面', heading: 70, pitch: -10, rangeFactor: 0.72 },
+    section: { label: '横断面', heading: 178, pitch: -6, rangeFactor: 0.7 }
+  },
+  timeStepHours: 1
+}
+
+/** 火灾烟气与温度体 —— 火源与建筑 */
+export type FireSourceDef = { id: string; name: string; x: number; y: number; fuel: number }
+export type FireBuildingDef = { id: string; name: string; x: number; y: number; r: number; floors: number }
+
+export type FireCameraPreset = 'overview' | 'plume' | 'source' | 'section' | 'evacuation'
+
+export type FireConfig = {
+  siteName: string
+  sources: FireSourceDef[]
+  buildings: FireBuildingDef[]
+  tempThresholds: number[]
+  smokeThresholds: number[]
+  camera: Record<FireCameraPreset, { label: string; heading: number; pitch: number; rangeFactor: number }>
+  /** 单个时间步代表的分钟数 */
+  timeStepMinutes: number
+}
+
+/**
+ * 火灾烟气与温度体专属配置：多火源、周边建筑、温度/烟气危险阈值与相机预设。
+ */
+export const FIRE_CONFIG: FireConfig = {
+  siteName: '老城商业区建筑火灾',
+  sources: [
+    { id: 'F-01', name: '主火源·商贸大厦', x: 0.44, y: 0.54, fuel: 1.0 },
+    { id: 'F-02', name: '次火源·沿街商铺', x: 0.32, y: 0.47, fuel: 0.55 },
+    { id: 'F-03', name: '飞火·屋顶堆场', x: 0.58, y: 0.60, fuel: 0.4 }
+  ],
+  buildings: [
+    { id: 'B-01', name: '商贸大厦', x: 0.44, y: 0.54, r: 0.06, floors: 24 },
+    { id: 'B-02', name: '居民楼 A', x: 0.33, y: 0.46, r: 0.04, floors: 12 },
+    { id: 'B-03', name: '商业裙楼', x: 0.52, y: 0.50, r: 0.05, floors: 6 },
+    { id: 'B-04', name: '沿街商铺', x: 0.58, y: 0.60, r: 0.035, floors: 4 }
+  ],
+  tempThresholds: [60, 150, 350, 600],
+  smokeThresholds: [50, 150, 300],
+  camera: {
+    overview: { label: '全局', heading: 32, pitch: -30, rangeFactor: 1.05 },
+    plume: { label: '烟羽', heading: 240, pitch: -16, rangeFactor: 0.66 },
+    source: { label: '火源', heading: 315, pitch: -14, rangeFactor: 0.4 },
+    section: { label: '垂直剖面', heading: 60, pitch: -6, rangeFactor: 0.78 },
+    evacuation: { label: '疏散视角', heading: 120, pitch: -24, rangeFactor: 0.7 }
+  },
+  timeStepMinutes: 2
+}
+
+/** 海洋温盐深三维体 —— 站位与水体 */
+export type OceanStationDef = { id: string; name: string; x: number; y: number }
+export type OceanWaterMass = { name: string; tRange: [number, number]; sRange: [number, number]; color: string }
+
+export type OceanCameraPreset = 'overview' | 'surface' | 'thermocline' | 'section' | 'eddy'
+
+export type OceanConfig = {
+  regionName: string
+  stations: OceanStationDef[]
+  depthMarks: number[]
+  waterMasses: OceanWaterMass[]
+  camera: Record<OceanCameraPreset, { label: string; heading: number; pitch: number; rangeFactor: number }>
+  /** 单个时间步代表的月数 */
+  timeStepMonths: number
+}
+
+/**
+ * 海洋温盐深专属配置：观测站、深度标尺、水团分类与相机预设。
+ */
+export const OCEAN_CONFIG: OceanConfig = {
+  regionName: '黄海中部陆架海域',
+  stations: [
+    { id: 'CTD-01', name: 'CTD-01 近岸站', x: 0.24, y: 0.36 },
+    { id: 'CTD-02', name: 'CTD-02 陆架站', x: 0.46, y: 0.50 },
+    { id: 'CTD-03', name: 'CTD-03 深水站', x: 0.66, y: 0.42 },
+    { id: 'CTD-04', name: 'CTD-04 冷涡站', x: 0.58, y: 0.66 }
+  ],
+  depthMarks: [50, 100, 200, 400, 600, 800, 1000],
+  waterMasses: [
+    { name: '黄海表层水', tRange: [18, 30], sRange: [29, 32], color: '#f2994a' },
+    { name: '黄海冷水团', tRange: [4, 10], sRange: [32, 34], color: '#2d9cdb' },
+    { name: '黄海深层水', tRange: [-1, 6], sRange: [33, 35], color: '#1b3a6b' }
+  ],
+  camera: {
+    overview: { label: '全局', heading: 30, pitch: -30, rangeFactor: 1.05 },
+    surface: { label: '海表', heading: 40, pitch: -12, rangeFactor: 0.72 },
+    thermocline: { label: '温跃层', heading: 300, pitch: -18, rangeFactor: 0.6 },
+    section: { label: '温盐剖面', heading: 88, pitch: -6, rangeFactor: 0.82 },
+    eddy: { label: '中尺度涡', heading: 210, pitch: -24, rangeFactor: 0.55 }
+  },
+  timeStepMonths: 1
+}
+
 export const SCENES: Record<SceneKind, SceneSpec> = {
   radar: {
     kind: 'radar',
@@ -429,6 +711,104 @@ export const SCENES: Record<SceneKind, SceneSpec> = {
       sourceY: 0.42,
       obstacle: 1
     }
+  },
+  plume: {
+    kind: 'plume',
+    title: '空间分析-地下水污染羽流三维体',
+    tag: 'Hydrology / Contaminant Plume',
+    description:
+      '工业遗留场地地下水污染调查：以平流—弥散—衰变模型生成三维污染羽流，叠加潜水/承压多层含水层与隔水层，支持 TCE / 六价铬 / TDS 多污染物切换、风险浓度等值面、监测井浓度剖面、沿流向剖切与污染体积/前缘距离统计。',
+    center: { lon: 120.32, lat: 31.48, height: 120 },
+    volume: { width: 3000, depth: 3000, height: 120, base: -120 },
+    channels: [
+      { key: 'tce', label: '三氯乙烯', unit: 'µg/L', min: 0, max: 400, palette: 'contaminant', mode: 'scalar', thresholds: [50, 100, 200], decimals: 0 },
+      { key: 'cr6', label: '六价铬', unit: 'mg/L', min: 0, max: 30, palette: 'chromate', mode: 'scalar', thresholds: [3, 6, 12], decimals: 2 },
+      { key: 'tds', label: '总溶解固体', unit: 'mg/L', min: 0, max: 1600, palette: 'turbo', mode: 'scalar', thresholds: [300, 600, 900], decimals: 0 }
+    ],
+    defaultChannel: 'tce',
+    timeSteps: 24,
+    timeStepUnit: '月',
+    defaults: { tileSize: 16, levels: 4, sse: 12, stepSize: 1, nearest: false, opacity: 0.9, alphaFloor: 0 },
+    params: { seed: 20260929, flowDir: 68, velocity: 0.5, dispersion: 0.5, decay: 0.4, sourceX: 0.3, sourceY: 0.42, recharge: 0.5 }
+  },
+  mining: {
+    kind: 'mining',
+    title: '矿山分析-三维矿体品位体',
+    tag: 'Mining / Grade Volume',
+    description:
+      '露天矿三维矿体建模：以钻孔样品与 IDW 插值构建 Cu / Au / Fe 品位体，支持边界品位与工业品位阈值、矿体等值面、勘探线剖面、钻孔样品定位，并按块体模型统计吨位、平均品位与金属量。',
+    center: { lon: 113.05, lat: 25.85, height: 520 },
+    volume: { width: 3000, depth: 3000, height: 500, base: -500 },
+    channels: [
+      { key: 'cu', label: '铜 Cu', unit: '%', min: 0, max: 2, palette: 'ore', mode: 'scalar', thresholds: [0.2, 0.4, 0.8, 1.2], decimals: 2 },
+      { key: 'au', label: '金 Au', unit: 'g/t', min: 0, max: 4, palette: 'gold', mode: 'scalar', thresholds: [0.3, 0.6, 1.2, 2.0], decimals: 2 },
+      { key: 'fe', label: '全铁 Fe', unit: '%', min: 0, max: 60, palette: 'terrain', mode: 'scalar', thresholds: [10, 20, 35, 50], decimals: 1 }
+    ],
+    defaultChannel: 'cu',
+    timeSteps: 1,
+    timeStepUnit: '',
+    defaults: { tileSize: 16, levels: 4, sse: 12, stepSize: 1, nearest: false, opacity: 0.95, alphaFloor: 0 },
+    params: { seed: 20260930, oreDir: 42, oreRich: 0.6, supergene: 0.5, complexity: 0.5, lodes: 4 }
+  },
+  flood: {
+    kind: 'flood',
+    title: '水文分析-洪水动力三维水深体',
+    tag: 'Flood / Hydrodynamic Volume',
+    description:
+      '河流—城市—低洼区联合洪水演进：由地形、河道与洪水过程线驱动的三维水深/流速/水位体，叠加水文站、受影响城区与预警分级，支持洪峰时刻、淹没范围、最大水深、断面流速与受淹对象统计。',
+    center: { lon: 113.62, lat: 34.75, height: 40 },
+    volume: { width: 20000, depth: 20000, height: 30, base: 0 },
+    channels: [
+      { key: 'depth', label: '水深', unit: 'm', min: 0, max: 12, palette: 'flood', mode: 'scalar', thresholds: [0.5, 1, 2, 3], decimals: 2 },
+      { key: 'speed', label: '流速', unit: 'm/s', min: 0, max: 6, palette: 'wind', mode: 'scalar', thresholds: [1, 2, 3], decimals: 2 },
+      { key: 'level', label: '水位', unit: 'm', min: 0, max: 30, palette: 'blues', mode: 'scalar', thresholds: [5, 10, 15], decimals: 2 }
+    ],
+    defaultChannel: 'depth',
+    timeSteps: 36,
+    timeStepUnit: 'h',
+    vector: { label: '洪水流场', unit: 'm/s', min: 0, max: 6, palette: 'flood', defaultCount: 4000, defaultSize: 2 },
+    defaults: { tileSize: 16, levels: 4, sse: 12, stepSize: 1, nearest: false, opacity: 0.55, alphaFloor: 0.03 },
+    params: { seed: 20260928, peakDepth: 5, riverFlow: 0.6, roughness: 0.035, rainfall: 0.6, levee: 0.4 }
+  },
+  fire: {
+    kind: 'fire',
+    title: '灾害分析-火灾烟气与温度三维体',
+    tag: 'Disaster / Fire Smoke',
+    description:
+      '城市建筑火灾态势：多火源随时间的成长与浮升烟羽在环境风驱动下向下风向输运，生成三维温度 / 烟气浓度 / 能见度场，叠加周边建筑、危险温度与烟气阈值等值面、垂直剖面与危险体积、烟羽顶高、下风向影响距离统计。',
+    center: { lon: 114.3, lat: 30.6, height: 40 },
+    volume: { width: 900, depth: 900, height: 300, base: 0 },
+    channels: [
+      { key: 'temp', label: '温度', unit: '°C', min: 20, max: 900, palette: 'thermal', mode: 'scalar', thresholds: [60, 150, 350, 600], decimals: 0 },
+      { key: 'smoke', label: '烟气浓度', unit: 'mg/m³', min: 0, max: 400, palette: 'smoke', mode: 'scalar', thresholds: [50, 150, 300], decimals: 0 },
+      { key: 'visibility', label: '能见度', unit: 'm', min: 0, max: 1500, palette: 'gray', mode: 'scalar', thresholds: [100, 300, 800], decimals: 0 }
+    ],
+    defaultChannel: 'temp',
+    timeSteps: 24,
+    timeStepUnit: 'min',
+    vector: { label: '环境风场', unit: 'm/s', min: 0, max: 12, palette: 'wind', defaultCount: 3000, defaultSize: 2 },
+    defaults: { tileSize: 16, levels: 4, sse: 12, stepSize: 1, nearest: false, opacity: 0.55, alphaFloor: 0.02 },
+    params: { seed: 20260928, windDir: 235, windSpeed: 6, heat: 1, fireX: 0.44, fireY: 0.54, spread: 0.5 }
+  },
+  ocean: {
+    kind: 'ocean',
+    title: '海洋分析-温盐深三维体',
+    tag: 'Ocean / TS Volume',
+    description:
+      '黄海陆架温盐深三维结构：温跃层、盐跃层与密度锋面随深度的层化结构，叠加中尺度涡与海流，支持温度 / 盐度 / 密度多变量切换、海表与指定深度层、垂向剖面、温盐散点与水团判别。',
+    center: { lon: 122.5, lat: 33.0, height: 0 },
+    volume: { width: 200000, depth: 200000, height: 1000, base: -1000 },
+    channels: [
+      { key: 'temperature', label: '温度', unit: '°C', min: -2, max: 32, palette: 'ocean', mode: 'scalar', thresholds: [4, 12, 20], decimals: 2 },
+      { key: 'salinity', label: '盐度', unit: 'PSU', min: 30, max: 36, palette: 'salinity', mode: 'scalar', thresholds: [32, 33, 34.5], decimals: 2 },
+      { key: 'density', label: '密度', unit: 'kg/m³', min: 1020, max: 1028, palette: 'coolwarm', mode: 'scalar', thresholds: [1024, 1025, 1026], decimals: 2 }
+    ],
+    defaultChannel: 'temperature',
+    timeSteps: 12,
+    timeStepUnit: '月',
+    vector: { label: '海流', unit: 'm/s', min: 0, max: 1.2, palette: 'wind', defaultCount: 3000, defaultSize: 2 },
+    defaults: { tileSize: 16, levels: 4, sse: 12, stepSize: 1, nearest: false, opacity: 0.5, alphaFloor: 0.03 },
+    params: { seed: 20260928, sst: 24, front: 0.5, eddy: 0.6, season: 0.4, mixedLayer: 0.18 }
   }
 }
 

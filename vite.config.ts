@@ -19,7 +19,7 @@ const CESIUM_SYMBOLS = [
   'Cartesian4', 'Cartographic', 'Cesium3DTileColorBlendMode', 'Cesium3DTilesInspector',
   'Cesium3DTileset', 'Cesium3DTileStyle', 'ClearCommand',
   'ClippingPlane', 'ClippingPlaneCollection',
-  'ClippingPolygon', 'ClippingPolygonCollection', 'ClockRange', 'Color',
+  'ClippingPolygon', 'ClippingPolygonCollection', 'Clock', 'ClockRange', 'Color',
   'ClockStep',
   'ColorGeometryInstanceAttribute', 'ColorMaterialProperty', 'ComponentDatatype',
   'ComputeCommand', 'ConstantPositionProperty', 'ConstantProperty', 'Credit',

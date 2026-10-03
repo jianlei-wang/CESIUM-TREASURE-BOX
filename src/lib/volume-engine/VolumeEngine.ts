@@ -12,6 +12,7 @@ import {
   Cartesian3,
   ClippingPlane,
   ClippingPlaneCollection,
+  Clock,
   Color,
   ColorGeometryInstanceAttribute,
   ComponentDatatype,
@@ -21,6 +22,7 @@ import {
   GeometryAttributes,
   GeometryInstance,
   HeadingPitchRange,
+  JulianDate,
   LabelCollection,
   LabelStyle,
   Material,
@@ -32,6 +34,8 @@ import {
   PrimitiveType,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
+  TimeInterval,
+  TimeIntervalCollection,
   Transforms,
   VoxelPrimitive,
   Math as CesiumMath,
@@ -42,9 +46,10 @@ import {
 } from 'cesium'
 import { createMapScene, destroyScene, loadBingImagery } from '../cesium-scene'
 import { buildPm25TransferLut, buildRadarTransferLut, buildTransferLut, gradientCss, PALETTES } from './palette'
-import { channelOf, type ChannelSpec, type SceneSpec } from './scenes'
+import { channelOf, FIRE_CONFIG, type ChannelSpec, type SceneSpec } from './scenes'
 import {
   createCategoricalShader,
+  createFireShader,
   createPm25Shader,
   createRadarShader,
   createScalarShader,
@@ -119,6 +124,22 @@ function clamp01(value: number): number {
   return value < 0 ? 0 : value > 1 ? 1 : value
 }
 
+/** 火灾风险分级色（安全→极高危），转为 0~1 的 RGB 供着色器使用 */
+const FIRE_RISK_RGB: [number, number, number][] = FIRE_CONFIG.riskBands.map((band) => {
+  const hex = band.color.replace('#', '')
+  const r = parseInt(hex.slice(0, 2), 16) / 255
+  const g = parseInt(hex.slice(2, 4), 16) / 255
+  const b = parseInt(hex.slice(4, 6), 16) / 255
+  return [r, g, b] as [number, number, number]
+})
+
+const FIRE_MODE_INDEX: Record<FireDisplayMode, number> = {
+  composite: 0,
+  temperature: 1,
+  smoke: 2,
+  risk: 3
+}
+
 export type EngineCallbacks = {
   onStatus?: (message: string) => void
   onStats?: (stats: EngineStats) => void
@@ -126,6 +147,31 @@ export type EngineCallbacks = {
   onPicked?: (info: PickedInfo | null) => void
   onReady?: (buildTime: number) => void
   onStations?: (stations: StationsResult) => void
+}
+
+/** 火灾体显示模式：复合态势 / 温度场 / 烟气浓度 / 风险分级 */
+export type FireDisplayMode = 'composite' | 'temperature' | 'smoke' | 'risk'
+
+/** 火灾体 Worker 输入：事件驱动火源、建筑障碍物、环境与时间信息 */
+export type FirePayload = {
+  sources: {
+    id: string
+    x: number
+    y: number
+    /** 归一化释放高度（由起火楼层决定） */
+    z: number
+    radius: number
+    start: number
+    peak: number
+    end: number
+    heatRelease: number
+    smokeYield: number
+    sourceType: string
+  }[]
+  buildings: { x0: number; x1: number; y0: number; y1: number; height: number; floors: number }[]
+  ambientTemp: number
+  timeStepMinutes: number
+  totalMinutes: number
 }
 
 export type EngineOptions = {
@@ -138,6 +184,13 @@ export type EngineOptions = {
   params?: Record<string, number>
   /** 场景工程几何：扁平化的归一化包围盒数组 [x0,x1,y0,y1,z1, ...]（CFD 建筑等） */
   geometry?: number[]
+  /** 火灾场景专用结构化输入（火源事件曲线 + 建筑障碍物） */
+  fire?: FirePayload
+  /**
+   * 时间关键帧插值：把时间步作为 Cesium 体素关键帧，配合时钟在关键帧间连续混合，
+   * 播放时体数据平滑过渡，不再逐步销毁重建（仅适用于各通道可线性混合的连续场）。
+   */
+  timeInterpolation?: boolean
 }
 
 /** 相机预设类型：工程总览 / 入口视角 / 顶视分析 / 尾流视角 */
@@ -156,6 +209,12 @@ export type RenderParams = {
   pm25ConfidenceFloor?: number
   /** PM2.5 Beer-Lambert 消光系数（高密度核心致密度） */
   pm25Extinction?: number
+  /** 火灾体显示模式 */
+  fireMode?: FireDisplayMode
+  /** 火灾烟气消光系数（越大烟气越致密） */
+  fireSmokeExtinction?: number
+  /** 火灾高温核心自发光强度 */
+  fireTempEmission?: number
 }
 
 type ClipState = { enabled: boolean; azimuth: number; tilt: number; offset: number; flip: boolean }
@@ -200,7 +259,7 @@ export class VolumeEngine {
   private buildTime = 0
 
   private shader: CustomShader | undefined
-  private shaderMode: 'scalar' | 'categorical' | 'radar' | 'pm25' | undefined
+  private shaderMode: 'scalar' | 'categorical' | 'radar' | 'pm25' | 'fire' | undefined
   /** 最近一次写入 GPU 的传递函数字节；内容不变时跳过重建贴图，避免重建后一帧白闪 */
   private lutCache: Uint8Array | undefined
   private primitive: VoxelPrimitive | undefined
@@ -210,6 +269,12 @@ export class VolumeEngine {
   private pickPending: Cartesian2 | undefined
   private imageryLayer: ImageryLayer | undefined
   private sceneGeometry: number[] | undefined
+  private sceneFire: FirePayload | undefined
+  /** 时间关键帧插值（连续播放） */
+  private timeInterpolated = false
+  private keyframeTimes: JulianDate[] = []
+  private keyframeCollection: TimeIntervalCollection | undefined
+  private renderClock: Clock | undefined
 
   private densityGamma = 1
   private thresholdSoft = 0
@@ -217,6 +282,9 @@ export class VolumeEngine {
   private pm25EdgeGain = 0.55
   private pm25ConfidenceFloor = 0.35
   private pm25Extinction = 2.2
+  private fireMode: FireDisplayMode = 'composite'
+  private fireSmokeExtinction = 2.8
+  private fireTempEmission = 0.85
   /** 对数映射：渗透率等跨数量级属性用 */
   private logScale = false
   /** 垂向夸张系数：仅改变体域垂向拉伸，不改变水平几何 */
@@ -258,6 +326,7 @@ export class VolumeEngine {
     this.options = options
     this.sceneParams = { ...spec.params, ...(options.params ?? {}) }
     this.sceneGeometry = options.geometry ? [...options.geometry] : undefined
+    this.sceneFire = options.fire ? { ...options.fire } : undefined
     this.channel = spec.defaultChannel
     this.tileSize = options.tileSize ?? spec.defaults.tileSize
     this.levels = options.levels ?? spec.defaults.levels
@@ -285,6 +354,29 @@ export class VolumeEngine {
     this.volMin = this.bounds.min
     this.volSize = [v.width, v.depth, v.height]
     this.halfDiag = 0.5 * Math.sqrt(v.width * v.width + v.depth * v.depth + v.height * v.height)
+
+    if (options.timeInterpolation && spec.timeSteps > 1) {
+      this.timeInterpolated = true
+      const base = JulianDate.fromIso8601('2026-01-01T00:00:00Z')
+      const times: JulianDate[] = []
+      for (let i = 0; i < spec.timeSteps; i += 1) {
+        times.push(JulianDate.addSeconds(base, i * 60, new JulianDate()))
+      }
+      this.keyframeTimes = times
+      const intervals: TimeInterval[] = []
+      for (let i = 0; i < spec.timeSteps - 1; i += 1) {
+        intervals.push(
+          new TimeInterval({
+            start: times[i],
+            stop: times[i + 1],
+            isStartIncluded: true,
+            isStopIncluded: i === spec.timeSteps - 2
+          })
+        )
+      }
+      this.keyframeCollection = new TimeIntervalCollection(intervals)
+      this.renderClock = new Clock({ currentTime: JulianDate.clone(times[0]), shouldAnimate: false, canAnimate: true })
+    }
   }
 
   get activeChannel(): ChannelSpec {
@@ -362,7 +454,8 @@ export class VolumeEngine {
       epoch: this.epoch,
       scene: this.spec.kind,
       params: { ...this.sceneParams },
-      geometry: this.sceneGeometry ?? null
+      geometry: this.sceneGeometry ?? null,
+      fire: this.sceneFire ?? null
     })
   }
 
@@ -429,7 +522,7 @@ export class VolumeEngine {
     }
   }
 
-  private requestTile = (request: { tileLevel: number; tileX: number; tileY: number; tileZ: number }): Promise<Float32Array> => {
+  private requestTile = (request: { tileLevel: number; tileX: number; tileY: number; tileZ: number; keyframe?: number }): Promise<Float32Array> => {
     const worker = this.worker
     const dim = this.tileSize + 2
     if (!worker) return Promise.resolve(new Float32Array(dim * dim * dim * 4))
@@ -448,7 +541,7 @@ export class VolumeEngine {
         tileSize: this.tileSize,
         channel: this.channel,
         mode: this.activeChannel.mode,
-        timeStep: this.timeStep,
+        timeStep: request.keyframe ?? this.timeStep,
         timeSteps: this.spec.timeSteps
       })
     })
@@ -458,10 +551,14 @@ export class VolumeEngine {
 
   private ensureShader(): CustomShader {
     const mode = this.activeChannel.mode
-    const variant: 'scalar' | 'categorical' | 'radar' | 'pm25' =
+    const variant: 'scalar' | 'categorical' | 'radar' | 'pm25' | 'fire' =
       mode === 'categorical'
         ? 'categorical'
-        : (this.spec.kind === 'radar' ? 'radar' : (this.spec.kind === 'pm25' ? 'pm25' : 'scalar'))
+        : (this.spec.kind === 'radar'
+            ? 'radar'
+            : (this.spec.kind === 'pm25'
+                ? 'pm25'
+                : (this.spec.kind === 'fire' ? 'fire' : 'scalar')))
     if (!this.shader || this.shaderMode !== variant) {
       const layerGating = this.spec.kind === 'geology'
       if (variant === 'categorical') {
@@ -472,6 +569,12 @@ export class VolumeEngine {
         this.shader = createPm25Shader(
           buildPm25TransferLut({ min: this.valueMin, max: this.valueMax, threshold: this.thresholdData ?? Math.max(this.valueMin, 10), alphaFloor: this.alphaFloor })
         )
+      } else if (variant === 'fire') {
+        this.shader = createFireShader({
+          temperatureLut: buildTransferLut('thermal', { alphaFloor: 0.02 }),
+          smokeLut: buildTransferLut('smoke', { alphaFloor: 0.02 }),
+          riskColors: FIRE_RISK_RGB
+        })
       } else {
         this.shader = createScalarShader(buildTransferLut(this.paletteKey, { alphaFloor: this.alphaFloor }), { layerGating })
       }
@@ -489,6 +592,8 @@ export class VolumeEngine {
       tileSize: this.tileSize,
       levels: this.levels,
       bounds: this.bounds,
+      keyframeCount: this.timeInterpolated ? this.spec.timeSteps : undefined,
+      timeIntervalCollection: this.keyframeCollection,
       requestTile: this.requestTile,
       fallbackTile: () => new Float32Array((this.tileSize + 2) ** 3 * 4)
     })
@@ -496,6 +601,7 @@ export class VolumeEngine {
       provider,
       modelMatrix: this.modelMatrix,
       customShader: shader,
+      clock: this.renderClock,
       calculateStatistics: false
     })
     primitive.screenSpaceError = this.sse
@@ -562,9 +668,35 @@ export class VolumeEngine {
 
   setTimeStep(step: number): void {
     const clamped = Math.max(0, Math.min(this.spec.timeSteps - 1, step))
-    if (clamped === this.timeStep) return
+    if (clamped === this.timeStep && !this.timeInterpolated) return
     this.timeStep = clamped
+    if (this.timeInterpolated && this.renderClock && this.keyframeTimes[clamped]) {
+      JulianDate.clone(this.keyframeTimes[clamped], this.renderClock.currentTime)
+      this.requestSlice(false)
+      this.viewer?.scene.requestRender()
+      return
+    }
     this.reloadTiles()
+  }
+
+  /**
+   * 连续时间位置（可为小数）：在相邻关键帧之间插值，配合 requestRender 实现平滑播放。
+   * 仅对启用 timeInterpolation 的场景有效，其余场景退化为整数时间步。
+   */
+  setTimePosition(position: number): void {
+    if (!this.timeInterpolated || !this.renderClock || this.keyframeTimes.length < 2) {
+      this.setTimeStep(Math.round(position))
+      return
+    }
+    const clamped = Math.max(0, Math.min(this.keyframeTimes.length - 1, position))
+    const i = Math.floor(clamped)
+    const t = clamped - i
+    const base = this.keyframeTimes[i]
+    const next = this.keyframeTimes[Math.min(i + 1, this.keyframeTimes.length - 1)]
+    const seconds = JulianDate.secondsDifference(next, base) * t
+    JulianDate.addSeconds(base, seconds, this.renderClock.currentTime)
+    this.timeStep = Math.round(clamped)
+    this.viewer?.scene.requestRender()
   }
 
   setPalette(paletteKey: string): void {
@@ -673,8 +805,8 @@ export class VolumeEngine {
   private refreshShader(): void {
     if (!this.shader) return
     if (this.shaderMode !== 'categorical') {
-      this.shader.uniforms.uValueMin.value = this.valueMin
-      this.shader.uniforms.uValueMax.value = this.valueMax
+      if (this.shader.uniforms.uValueMin) this.shader.uniforms.uValueMin.value = this.valueMin
+      if (this.shader.uniforms.uValueMax) this.shader.uniforms.uValueMax.value = this.valueMax
       this.shader.uniforms.uOpacity.value = this.opacity
       if (this.shader.uniforms.uLogScale) this.shader.uniforms.uLogScale.value = this.logScale ? 1 : 0
       if (this.shader.uniforms.uLogMin) this.shader.uniforms.uLogMin.value = Math.log(Math.max(this.valueMin, 1e-6))
@@ -692,6 +824,9 @@ export class VolumeEngine {
     if (params.pm25EdgeGain !== undefined) this.pm25EdgeGain = params.pm25EdgeGain
     if (params.pm25ConfidenceFloor !== undefined) this.pm25ConfidenceFloor = params.pm25ConfidenceFloor
     if (params.pm25Extinction !== undefined) this.pm25Extinction = params.pm25Extinction
+    if (params.fireMode !== undefined) this.fireMode = params.fireMode
+    if (params.fireSmokeExtinction !== undefined) this.fireSmokeExtinction = params.fireSmokeExtinction
+    if (params.fireTempEmission !== undefined) this.fireTempEmission = params.fireTempEmission
     this.applyRenderParams()
     this.viewer?.scene.requestRender()
   }
@@ -706,6 +841,37 @@ export class VolumeEngine {
     if (shader.uniforms.uEdgeGain) shader.uniforms.uEdgeGain.value = this.pm25EdgeGain
     if (shader.uniforms.uConfidenceFloor) shader.uniforms.uConfidenceFloor.value = this.pm25ConfidenceFloor
     if (shader.uniforms.uExtinction) shader.uniforms.uExtinction.value = this.pm25Extinction
+    if (shader.uniforms.uMode) shader.uniforms.uMode.value = FIRE_MODE_INDEX[this.fireMode] ?? 0
+    if (shader.uniforms.uSmokeExtinction) shader.uniforms.uSmokeExtinction.value = this.fireSmokeExtinction
+    if (shader.uniforms.uTempEmission) shader.uniforms.uTempEmission.value = this.fireTempEmission
+  }
+
+  /** 切换火灾体显示模式（复合/温度/烟气/风险），仅更新 Uniform，不重建瓦片 */
+  setFireMode(mode: FireDisplayMode): void {
+    if (mode === this.fireMode) return
+    this.fireMode = mode
+    this.applyRenderParams()
+    this.viewer?.scene.requestRender()
+  }
+
+  /** 更新火灾风险分级阈值（温度 °C 与烟气 mg/m³），换算为归一化值写入着色器 */
+  setFireThresholds(tempThresholds: number[], smokeThresholds: number[]): void {
+    const shader = this.shader
+    if (!shader || this.shaderMode !== 'fire') return
+    const tMin = 20
+    const tMax = 900
+    const sMax = 400
+    const temps = [tempThresholds[0] ?? 60, tempThresholds[1] ?? 150, tempThresholds[2] ?? 350, tempThresholds[3] ?? 600]
+    const smokes = [smokeThresholds[0] ?? 50, smokeThresholds[1] ?? 150, smokeThresholds[2] ?? 250, smokeThresholds[3] ?? 400]
+    shader.uniforms.uRt0.value = clamp01((temps[0] - tMin) / (tMax - tMin))
+    shader.uniforms.uRt1.value = clamp01((temps[1] - tMin) / (tMax - tMin))
+    shader.uniforms.uRt2.value = clamp01((temps[2] - tMin) / (tMax - tMin))
+    shader.uniforms.uRt3.value = clamp01((temps[3] - tMin) / (tMax - tMin))
+    shader.uniforms.uRs0.value = clamp01(smokes[0] / sMax)
+    shader.uniforms.uRs1.value = clamp01(smokes[1] / sMax)
+    shader.uniforms.uRs2.value = clamp01(smokes[2] / sMax)
+    shader.uniforms.uRs3.value = clamp01(smokes[3] / sMax)
+    this.viewer?.scene.requestRender()
   }
 
   private buildScalarLut(thresholdNorm: number): Uint8Array {
@@ -1612,6 +1778,12 @@ export class VolumeEngine {
   /** 更新场景工程几何（归一化包围盒数组），并整体重建 */
   setGeometry(geometry: number[] | undefined): void {
     this.sceneGeometry = geometry ? [...geometry] : undefined
+    this.rebuild()
+  }
+
+  /** 更新火灾场景结构化输入（火源事件曲线 / 建筑），并整体重建体数据 */
+  setFire(payload: FirePayload | undefined): void {
+    this.sceneFire = payload ?? undefined
     this.rebuild()
   }
 

@@ -257,6 +257,7 @@ import icon_viewshed from './viewshed/icon.webp'
 import icon_volcano_three from './volcano-three/icon.webp'
 import icon_volume_cfd from './volume-cfd/icon.webp'
 import icon_volume_cloud from './volume-cloud/icon.webp'
+import icon_volume_fire from './volume-fire/icon.webp'
 import icon_volume_geology from './volume-geology/icon.webp'
 import icon_volume_pm25 from './volume-pm25/icon.webp'
 import icon_volume_radar from './volume-radar/icon.webp'
@@ -854,7 +855,7 @@ export const demos: CaseMeta[] = [
   { id: "volcano-three", title: "VFX 火山喷发", category: "particles", description: "程序化生成带放射状冲沟与锥体噪声的火山地形，顶部为碗状火山口与脉动熔岩湖，数条熔岩流沿冲沟自火山口向下延伸。喷口位于真实火山口内，分层叠加高速熔岩喷泉、受风切变弯曲的灰烬柱、顶部扩散的伞状灰羽、抛物线飞溅的暗色岩块与高空沉降落灰；随时间累积的灰烬毯逐渐覆盖锥体并向外铺展形成灰烬掩埋。熔岩量/速度/尺寸、灰烬量/寿命/体积、风切变、岩块量/重力、熔岩辉光与灰烬掩埋程度均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 地质", icon: icon_volcano_three, updatedAt: "2026-09-20", available: true },
   { id: "volume-cfd", title: "工程仿真-CFD 多物理场体可视化", category: "data", description: "面向工程仿真的三维多物理场工作台：以程序化街区建筑白模为工程骨架，速度 / 压力 / 温度三场由同一解析流场模型一致生成，经多级瓦片 VoxelProvider 供给单个 VoxelPrimitive 做 GPU 光线步进，建筑内部体素自动标记为无效。支持迎风驻点高压、绕流加速、尾流回压低谷、热源热羽随流输运的联合表达，叠加仿真域、入口 / 出口边界、主风向与工程标注；提供 KPI 指标卡（来流 / 平均 / 峰值风速、压力极值、最高温度、超温区、热羽高度、尾流长度）、四组相机预设、速度 / 压力 / 温度多场切换、正负压双等值面、流线 / 粒子 / 剖面箭头三种向量表达、任意方向剖切、入射风速与热源温度调节与时间演化回放。", tag: "CFD 工程工作台", icon: icon_volume_cfd, updatedAt: "2026-09-29", available: true },
   { id: "volume-cloud", title: "空间分析-体积云效果", category: "effects", description: "采用光线步进的球面体积云后处理，支持云层高度/厚度/覆盖率/密度、高云、光照、相位与大气透视等参数实时调节", tag: "空间分析", icon: icon_volume_cloud, updatedAt: "2026-08-27", available: true },
-  { id: "volume-fire", title: "灾害分析-火灾烟气与温度三维体", category: "data", description: "城市建筑火灾态势研判工作台：多火源随时间的成长与浮升烟羽在环境风驱动下向下风向输运，生成三维温度 / 烟气 / 能见度场，叠加火源、周边建筑受威胁着色、环境风箭头与疏散方向，支持时间轴回放、风速风向重建、危险温度与烟气阈值等值面、火源垂向剖面、危险体积 / 烟羽顶高 / 下风向影响距离统计与垂直剖切。", tag: "灾害体渲染", updatedAt: "2026-10-03", available: true },
+  { id: "volume-fire", title: "灾害分析-火灾烟气与温度三维体", category: "data", description: "城市建筑火灾态势研判工作台：事件驱动的多火源（主火 / 引燃 / 飞火）按时间曲线成长，浮升烟羽在环境风驱动下绕避三维建筑向下风向输运，生成温度 / 烟气浓度 / 能见度复合体场。支持复合态势 / 温度场 / 烟气浓度 / 风险分级四种显示模式，三维建筑与道路骨架、火源火焰柱、环境风网格箭头、疏散指引与距离标尺，T+ 事件阶段时间轴、危险温度与烟气阈值等值面、火源垂向剖面、风险分级体积、危险 / 烟气体积、烟羽顶高、下风向影响距离与建筑受威胁度统计。", tag: "灾害体渲染", icon: icon_volume_fire, updatedAt: "2026-10-03", available: true },
   { id: "volume-flood", title: "水文分析-洪水动力三维水深体", category: "data", description: "河流—城市—低洼区联合洪水演进工作台：由地形、河道与洪水过程线驱动的三维水深 / 流速 / 水位体，叠加河道中心线、水文站与受影响城区，支持时间轴回放与洪峰时刻、淹没阈值与预警等值面、沿河道纵剖面、受影响对象最大水深与到达时间统计，以及任意方向剖切与 5 组相机预设。", tag: "水文体渲染", updatedAt: "2026-10-03", available: true },
   { id: "volume-geology", title: "地质可视化-三维地层属性体", category: "data", description: "统一构造场驱动的三维地层模型：地层倾斜、褶皱、断层错断与侵入体作用于同一场，岩性与孔隙率、渗透率、含水饱和度同源生成，经多级瓦片 VoxelProvider 交给单个 VoxelPrimitive 渲染。提供结构 / 岩性 / 属性 / 剖面 / 层位切片五种工作模式，叠加层位界面、断层面、钻孔柱状与深度标尺（标注随图层显隐）；支持六套地层逐层显隐、A-B 地质剖面绘制与导出、属性高值区与异常体等值面、分层统计、垂向夸张、双通道切换、任意剖切与体素拾取（岩性 / 属性 / 埋深）；全部参数均带悬停说明。", tag: "地层体渲染", icon: icon_volume_geology, updatedAt: "2026-09-30", available: true },
   { id: "volume-mining", title: "矿山分析-三维矿体品位体", category: "data", description: "露天矿三维矿体品位工作台：以钻孔样品经反距离加权（IDW）插值构建 Cu / Au / Fe 品位体，支持成矿元素切换、边界品位与工业品位阈值、矿体等值面、勘探线品位剖面与品位分布直方图，叠加钻孔轨迹与采坑台阶，并按块体模型统计矿石量、吨位、平均品位与金属量，配套 5 组相机预设与任意方向剖切。", tag: "矿山体渲染", updatedAt: "2026-10-03", available: true },

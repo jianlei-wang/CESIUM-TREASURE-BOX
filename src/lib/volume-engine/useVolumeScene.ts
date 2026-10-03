@@ -11,6 +11,8 @@ import { Color } from 'cesium'
 import {
   VolumeEngine,
   type AnalyzeRequest,
+  type FireDisplayMode,
+  type FirePayload,
   type PickedInfo,
   type SliceResult,
   type StationsResult
@@ -23,9 +25,13 @@ export type VolumeSceneOptions = {
   params?: Record<string, number>
   /** 工程几何包围盒（归一化体域坐标，每 5 个数一组 x0,x1,y0,y1,z1） */
   geometry?: number[]
+  /** 火灾场景结构化输入（火源事件曲线 + 建筑障碍物） */
+  fire?: FirePayload
   tileSize?: number
   levels?: number
   particleFlow?: number
+  /** 时间关键帧插值：播放时体数据在相邻时间步之间连续混合，避免逐步重建的跳变 */
+  timeInterpolation?: boolean
   /** 引擎就绪回调（此时可发起 analyze / 叠加等操作） */
   onReady?: (engine: VolumeEngine) => void
   /** 引擎销毁前回调：用于释放挂载到 Viewer 的自定义资源（如 GPGPU 粒子层） */
@@ -64,6 +70,8 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
     offset: 0,
     flip: false,
     timeStep: 0,
+    /** 连续时间位置（0~timeSteps-1，小数），用于关键帧插值播放 */
+    timePosition: 0,
     playing: false,
     /** 回放倍速 1 / 2 / 4 */
     playSpeed: 1,
@@ -74,6 +82,7 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
 
   let lastSlice: SliceResult | undefined
   let playTimer: ReturnType<typeof setInterval> | undefined
+  let playRaf: number | undefined
   let observer: ResizeObserver | undefined
 
   function clamp01(value: number): number {
@@ -171,7 +180,7 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
           options.onStations?.(stations, instance)
         }
       },
-      { params: options.params, geometry: options.geometry, tileSize: options.tileSize, levels: options.levels, particleFlow: options.particleFlow }
+      { params: options.params, geometry: options.geometry, fire: options.fire, tileSize: options.tileSize, levels: options.levels, particleFlow: options.particleFlow, timeInterpolation: options.timeInterpolation }
     )
     engine.value = instance
     void instance.start()
@@ -235,8 +244,10 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
   }
 
   function setTimeStep(step: number): void {
-    ui.timeStep = step
-    engine.value?.setTimeStep(step)
+    const clamped = Math.max(0, Math.min(spec.timeSteps - 1, step))
+    ui.timeStep = clamped
+    ui.timePosition = clamped
+    engine.value?.setTimeStep(clamped)
   }
 
   function startPlayTimer(): void {
@@ -246,20 +257,54 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
     }, Math.max(120, Math.round(1000 / Math.max(0.25, ui.playSpeed))))
   }
 
+  /** 连续播放：以 rAF 推进小数时间位置，引擎在相邻关键帧之间插值，画面平滑 */
+  function startSmoothPlay(): void {
+    stopPlay()
+    const stepMs = Math.max(90, 1000 / Math.max(0.25, ui.playSpeed))
+    let last = performance.now()
+    const tick = (now: number): void => {
+      if (!ui.playing) return
+      const maxPos = spec.timeSteps - 1
+      const delta = Math.min(200, Math.max(0, now - last))
+      last = now
+      let pos = ui.timePosition + delta / stepMs
+      if (pos >= maxPos) pos = pos % maxPos
+      ui.timePosition = pos
+      const step = Math.max(0, Math.min(maxPos, Math.floor(pos)))
+      if (step !== ui.timeStep) ui.timeStep = step
+      engine.value?.setTimePosition(pos)
+      playRaf = requestAnimationFrame(tick)
+    }
+    playRaf = requestAnimationFrame(tick)
+  }
+
+  function stopPlay(): void {
+    if (playTimer) {
+      clearInterval(playTimer)
+      playTimer = undefined
+    }
+    if (playRaf !== undefined) {
+      cancelAnimationFrame(playRaf)
+      playRaf = undefined
+    }
+  }
+
   function togglePlay(): void {
     ui.playing = !ui.playing
     if (ui.playing) {
-      startPlayTimer()
-    } else if (playTimer) {
-      clearInterval(playTimer)
-      playTimer = undefined
+      if (options.timeInterpolation) startSmoothPlay()
+      else startPlayTimer()
+    } else {
+      stopPlay()
     }
   }
 
   /** 回放倍速：播放中切换立即生效 */
   function setPlaySpeed(speed: number): void {
     ui.playSpeed = speed
-    if (ui.playing) startPlayTimer()
+    if (!ui.playing) return
+    if (options.timeInterpolation) startSmoothPlay()
+    else startPlayTimer()
   }
 
   function setPreset(tileSize: number, levels: number): void {
@@ -302,6 +347,21 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
     return engine.value ? engine.value.analyze<T>(request) : Promise.resolve(undefined as unknown as T)
   }
 
+  /** 切换火灾体显示模式（复合/温度/烟气/风险） */
+  function setFireMode(mode: FireDisplayMode): void {
+    engine.value?.setFireMode(mode)
+  }
+
+  /** 更新火灾风险分级阈值 */
+  function setFireThresholds(tempThresholds: number[], smokeThresholds: number[]): void {
+    engine.value?.setFireThresholds(tempThresholds, smokeThresholds)
+  }
+
+  /** 更新火灾火源 / 建筑结构化输入并重建体数据 */
+  function setFire(payload: FirePayload | undefined): void {
+    engine.value?.setFire(payload)
+  }
+
   function accentColor(value: number, min: number, max: number): Color {
     const t = clamp01((value - min) / (max - min || 1))
     const lut = buildTransferLut(ui.palette, { alphaFloor: 0.2, alphaGamma: 0.7 })
@@ -318,7 +378,7 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
   })
 
   onBeforeUnmount(() => {
-    if (playTimer) clearInterval(playTimer)
+    stopPlay()
     observer?.disconnect()
     observer = undefined
     if (engine.value) options.onDispose?.(engine.value)
@@ -359,6 +419,9 @@ export function useVolumeScene(spec: SceneSpec, options: VolumeSceneOptions = {}
     toggleNearest,
     toggleVolumeVisible,
     analyze,
+    setFireMode,
+    setFireThresholds,
+    setFire,
     accentColor
   }
 }

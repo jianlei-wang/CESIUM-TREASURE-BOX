@@ -15,6 +15,8 @@ export type FireStatsResult = {
   smokeThreshold: number
   dangerVolumeM3: number
   smokeVolumeM3: number
+  /** 风险分级体积（安全 / 关注 / 警戒 / 高危 / 极高危），单位 m³ */
+  bandsM3: number[]
   maxTemp: number
   plumeTopM: number
   downwindM: number
@@ -38,7 +40,16 @@ export type IsoResult = { positions: Float32Array; normals: Float32Array; count:
 
 export function runFireStats(
   engine: VolumeEngine,
-  options: { tempThreshold: number; smokeThreshold: number; volSize: FireVec3; buildings: { id: string; x: number; y: number }[]; res?: number; vres?: number }
+  options: {
+    tempThreshold: number
+    smokeThreshold: number
+    volSize: FireVec3
+    buildings: { id: string; x: number; y: number; height?: number }[]
+    riskTemp?: number[]
+    riskSmoke?: number[]
+    res?: number
+    vres?: number
+  }
 ): Promise<FireStatsResult> {
   return engine.analyze<FireStatsResult>({
     mode: 'fire',
@@ -46,6 +57,8 @@ export function runFireStats(
     smokeThreshold: options.smokeThreshold,
     volSize: options.volSize,
     buildings: options.buildings,
+    riskTemp: options.riskTemp,
+    riskSmoke: options.riskSmoke,
     res: options.res ?? 44,
     vres: options.vres ?? 40
   })
@@ -105,4 +118,45 @@ export function drawFireProfile(canvas: HTMLCanvasElement, profile: FireProfileR
     }
   }
   ctx.stroke()
+}
+
+/** 风险分级体积横向条形图：直观展示安全→极高危的体积占比 */
+export function drawRiskBars(
+  canvas: HTMLCanvasElement,
+  bands: number[],
+  labels: { label: string; color: string }[]
+): void {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  const w = canvas.width
+  const h = canvas.height
+  ctx.clearRect(0, 0, w, h)
+  const pad = 8
+  const rows = Math.max(1, bands.length)
+  const rowH = (h - pad * 2) / rows
+  const labelW = 38
+  const valueW = 44
+  const trackX = pad + labelW
+  const trackW = w - trackX - valueW
+  const barH = Math.min(rowH - 6, 13)
+  const maxV = Math.max(1, ...bands)
+  ctx.textBaseline = 'middle'
+  ctx.font = '11px sans-serif'
+  for (let i = 0; i < bands.length; i += 1) {
+    const yMid = pad + i * rowH + rowH / 2
+    const color = labels[i]?.color ?? '#888'
+    ctx.textAlign = 'left'
+    ctx.fillStyle = '#cfe0f0'
+    ctx.fillText(labels[i]?.label ?? '', pad, yMid)
+    ctx.fillStyle = 'rgba(157,188,224,0.16)'
+    ctx.fillRect(trackX, yMid - barH / 2, trackW, barH)
+    const barW = trackW * (bands[i] / maxV)
+    if (barW > 0) {
+      ctx.fillStyle = color
+      ctx.fillRect(trackX, yMid - barH / 2, Math.max(2, barW), barH)
+    }
+    ctx.textAlign = 'right'
+    ctx.fillStyle = bands[i] > 0 ? '#ffd0a8' : '#7f96b3'
+    ctx.fillText((bands[i] / 10000).toFixed(1), w - pad, yMid)
+  }
 }

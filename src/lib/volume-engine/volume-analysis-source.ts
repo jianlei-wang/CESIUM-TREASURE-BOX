@@ -1498,10 +1498,12 @@ function analyzeFloodProfile(message, tn) {
   return { result: result, transfer: transferList([xs, depth, level, terrain]) };
 }
 
-// 火灾：危险温度体积 / 烟气体积 / 烟羽顶高 / 下风向影响距离与建筑受威胁度
+// 火灾：危险温度体积 / 烟气体积 / 风险分级体积 / 烟羽顶高 / 下风向影响距离与建筑受威胁度
 function analyzeFire(message, tn) {
   var tempThreshold = message.tempThreshold != null ? message.tempThreshold : 150;
   var smokeThreshold = message.smokeThreshold != null ? message.smokeThreshold : 150;
+  var riskTemp = message.riskTemp || [60, 150, 350, 600];
+  var riskSmoke = message.riskSmoke || [50, 150, 250, 400];
   var N = message.res || 44;
   var V = message.vres || 40;
   var volSize = message.volSize || [1, 1, 1];
@@ -1512,6 +1514,7 @@ function analyzeFire(message, tn) {
   var smokeVolume = 0;
   var plumeTop = 0;
   var count = 0;
+  var bands = [0, 0, 0, 0, 0];
   var src = ctx.sources.length ? ctx.sources[0] : { x: 0.5, y: 0.5 };
   var flow = fireFlowDir();
   var cosf = Math.cos(flow);
@@ -1538,6 +1541,12 @@ function analyzeFire(message, tn) {
           var along = (nx - src.x) * cosf + (ny - src.y) * sinf;
           if (along > downwind) downwind = along;
         }
+        if (sVal.valid || tVal.valid) {
+          var tb = (tVal.valid && tVal.value >= riskTemp[0] ? 1 : 0) + (tVal.valid && tVal.value >= riskTemp[1] ? 1 : 0) + (tVal.valid && tVal.value >= riskTemp[2] ? 1 : 0) + (tVal.valid && tVal.value >= riskTemp[3] ? 1 : 0);
+          var sb = (sVal.valid && sVal.value >= riskSmoke[0] ? 1 : 0) + (sVal.valid && sVal.value >= riskSmoke[1] ? 1 : 0) + (sVal.valid && sVal.value >= riskSmoke[2] ? 1 : 0) + (sVal.valid && sVal.value >= riskSmoke[3] ? 1 : 0);
+          var band = Math.max(tb, sb);
+          bands[band] += cellVol;
+        }
       }
     }
   }
@@ -1545,7 +1554,8 @@ function analyzeFire(message, tn) {
   var impacts = [];
   for (var bi = 0; bi < buildings.length; bi += 1) {
     var b = buildings[bi];
-    var bTemp = fireValue(b.x, b.y, 0.1, tn, 'temp').value;
+    var midZ = clamp(b.height != null ? b.height * 0.55 : 0.1, 0.02, 0.95);
+    var bTemp = fireValue(b.x, b.y, midZ, tn, 'temp').value;
     var bSmoke = fireValue(b.x, b.y, 0.5, tn, 'smoke').value;
     impacts.push({ id: b.id, temp: bTemp, smoke: bSmoke });
   }
@@ -1554,6 +1564,7 @@ function analyzeFire(message, tn) {
     smokeThreshold: smokeThreshold,
     dangerVolumeM3: dangerVolume,
     smokeVolumeM3: smokeVolume,
+    bandsM3: bands,
     maxTemp: maxTemp,
     plumeTopM: plumeTop * volSize[2],
     downwindM: downwind * distScale,

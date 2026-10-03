@@ -19,6 +19,7 @@ let params = {};
 let ctx = null;
 let particleState = null;
 let geometry = null;
+let fire = null;
 
 // 时间步瓦片缓存：播放 / 拖动时间轴时避免重复解析采样
 var tileCache = new Map();
@@ -313,6 +314,50 @@ function pm25Raw(nx, ny, nz, tn, channel) {
  * 场景上下文构建
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * 火灾领域配置：事件驱动火源 + 建筑障碍物
+ * ------------------------------------------------------------------ */
+
+function prepareFire(p) {
+  var srcs = [];
+  if (fire && fire.sources && fire.sources.length) {
+    for (var i = 0; i < fire.sources.length; i += 1) {
+      var s = fire.sources[i];
+      srcs.push({
+        id: s.id || ('F-' + i),
+        x: s.x, y: s.y, z: s.z != null ? s.z : 0.2,
+        radius: s.radius != null ? s.radius : 0.04,
+        start: s.start != null ? s.start : 0.0,
+        peak: s.peak != null ? s.peak : 0.5,
+        end: s.end != null ? s.end : 1.0,
+        heatRelease: s.heatRelease != null ? s.heatRelease : 1.0,
+        smokeYield: s.smokeYield != null ? s.smokeYield : 1.0,
+        sourceType: s.sourceType || 'primary'
+      });
+    }
+  } else {
+    srcs.push({ id: 'F-01', x: p.fireX != null ? p.fireX : 0.44, y: p.fireY != null ? p.fireY : 0.54, z: 0.25, radius: 0.05, start: 0.0, peak: 0.5, end: 1.0, heatRelease: 1.0, smokeYield: 1.0, sourceType: 'primary' });
+  }
+  var boxes = [];
+  if (fire && fire.buildings) {
+    for (var b = 0; b < fire.buildings.length; b += 1) {
+      var g = fire.buildings[b];
+      boxes.push({ x0: g.x0, x1: g.x1, y0: g.y0, y1: g.y1, height: g.height != null ? g.height : 0.2 });
+    }
+  }
+  var ambient = fire && fire.ambientTemp != null ? fire.ambientTemp : 20;
+  return {
+    kind: 'fire',
+    sources: srcs,
+    buildings: boxes,
+    ambientTemp: ambient,
+    windDir: p.windDir != null ? p.windDir : 235,
+    windSpeed: p.windSpeed != null ? p.windSpeed : 6,
+    heat: p.heat != null ? p.heat : 1,
+    spread: p.spread != null ? p.spread : 0.5
+  };
+}
+
 function prepare(kind, p) {
   const rand = mulberry32(p.seed || 1);
   if (kind === 'radar') {
@@ -424,14 +469,7 @@ function prepare(kind, p) {
     return { kind, riverAmp: 0.16, riverFreq: 3.6 };
   }
   if (kind === 'fire') {
-    return {
-      kind,
-      sources: [
-        { x: p.fireX != null ? p.fireX : 0.44, y: p.fireY != null ? p.fireY : 0.54, fuel: 1.0, phase: 0.0 },
-        { x: 0.32, y: 0.47, fuel: 0.55, phase: 1.3 },
-        { x: 0.58, y: 0.60, fuel: 0.4, phase: 2.6 }
-      ]
-    };
+    return prepareFire(p);
   }
   if (kind === 'ocean') {
     return {
@@ -447,6 +485,7 @@ function handleInit(message) {
   sceneKind = message.scene;
   params = message.params || {};
   geometry = message.geometry || null;
+  fire = message.fire || null;
   tileCache.clear();
   tileCacheEpoch = message.epoch;
   ctx = prepare(sceneKind, params);
@@ -982,76 +1021,241 @@ function floodValue(nx, ny, nz, tn, channel) {
   return { value: clamp(depthN * 30, 0, 12), valid: 1, density: clamp(depthN * 3, 0, 1), quality: 1 };
 }
 
-function fireIntensity(tn, fuel, phase) {
-  return smoothstep(0.0, 0.30, tn + phase * 0.03) * (0.6 + 0.4 * fuel);
+/* ---- 火灾湍流噪声：确定性值噪声，制造烟羽丝缕与边界起伏 ---- */
+function hash3(x, y, z) {
+  var h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453123;
+  return h - Math.floor(h);
 }
 
+function valueNoise3(x, y, z) {
+  var xi = Math.floor(x);
+  var yi = Math.floor(y);
+  var zi = Math.floor(z);
+  var xf = x - xi;
+  var yf = y - yi;
+  var zf = z - zi;
+  var u = xf * xf * (3 - 2 * xf);
+  var v = yf * yf * (3 - 2 * yf);
+  var w = zf * zf * (3 - 2 * zf);
+  var c000 = hash3(xi, yi, zi);
+  var c100 = hash3(xi + 1, yi, zi);
+  var c010 = hash3(xi, yi + 1, zi);
+  var c110 = hash3(xi + 1, yi + 1, zi);
+  var c001 = hash3(xi, yi, zi + 1);
+  var c101 = hash3(xi + 1, yi, zi + 1);
+  var c011 = hash3(xi, yi + 1, zi + 1);
+  var c111 = hash3(xi + 1, yi + 1, zi + 1);
+  var x00 = c000 + (c100 - c000) * u;
+  var x10 = c010 + (c110 - c010) * u;
+  var x01 = c001 + (c101 - c001) * u;
+  var x11 = c011 + (c111 - c011) * u;
+  var y0 = x00 + (x10 - x00) * v;
+  var y1 = x01 + (x11 - x01) * v;
+  return y0 + (y1 - y0) * w;
+}
+
+function fbm3(x, y, z) {
+  return 0.62 * valueNoise3(x, y, z) + 0.38 * valueNoise3(x * 2.13 + 5.2, y * 2.13 + 1.7, z * 2.13 + 9.4);
+}
+
+// 事件曲线：火源在 [start, peak] 上升、[peak, end] 衰减，其余时段为 0
+function fireSourceIntensity(s, tn) {
+  if (tn <= s.start || tn >= s.end) return 0;
+  var v = tn < s.peak
+    ? smoothstep(s.start, Math.max(s.start + 0.001, s.peak), tn)
+    : 1 - smoothstep(s.peak, Math.max(s.peak + 0.001, s.end), tn);
+  return clamp(v, 0, 1);
+}
+
+// 烟羽顶高：由各火源释放高度、强度与热释放叠加决定，随火势发展抬升
 function firePlumeTop(tn) {
   var heat = params.heat != null ? params.heat : 1;
   var spread = params.spread != null ? params.spread : 0.5;
-  return clamp(0.18 + 0.5 * heat * (0.6 + 0.4 * spread) * smoothstep(0.0, 0.35, tn), 0.2, 0.92);
+  var speed = params.windSpeed != null ? params.windSpeed : 6;
+  var top = 0.18;
+  var srcs = ctx.sources;
+  for (var i = 0; i < srcs.length; i += 1) {
+    var s = srcs[i];
+    var inten = fireSourceIntensity(s, tn);
+    if (inten <= 0.001) continue;
+    var rise = (0.34 + 0.36 * heat) * (0.55 + 0.45 * spread) * (0.7 + 0.3 * speed / 12);
+    var t = s.z + inten * rise * (1 + 0.25 * s.heatRelease);
+    if (t > top) top = t;
+  }
+  return clamp(top, 0.2, 0.95);
 }
 
 function fireFlowDir() {
   return ((params.windDir != null ? params.windDir : 235) * Math.PI) / 180 + Math.PI;
 }
 
-// 环境风 + 火源上升气流
-function fireVector(nx, ny, nz, tn) {
-  var sp = params.windSpeed != null ? params.windSpeed : 6;
-  var flow = fireFlowDir();
-  var shear = 0.5 + 0.9 * nz;
-  var ux = Math.cos(flow) * sp * shear;
-  var uy = Math.sin(flow) * sp * shear;
-  var uz = 0.1 * sp * nz;
-  var srcs = ctx.sources;
-  for (var i = 0; i < srcs.length; i += 1) {
-    var s = srcs[i];
-    var dx = nx - s.x;
-    var dy = ny - s.y;
-    var r2 = dx * dx + dy * dy;
-    var inten = fireIntensity(tn, s.fuel, s.phase);
-    var core = inten * Math.exp(-r2 / (2 * 0.05 * 0.05)) * (1 - smoothstep(0.3, 0.8, nz));
-    uz += 2.4 * core;
-    ux += Math.cos(flow) * 1.5 * core * nz;
-    uy += Math.sin(flow) * 1.5 * core * nz;
+// 体素是否落在建筑实体内（建筑作为火场障碍物，屏蔽内部烟气）
+function insideBuilding(nx, ny, nz) {
+  var bs = ctx.buildings;
+  if (!bs || !bs.length) return false;
+  for (var i = 0; i < bs.length; i += 1) {
+    var b = bs[i];
+    if (nx >= b.x0 && nx <= b.x1 && ny >= b.y0 && ny <= b.y1 && nz <= b.height) return true;
   }
-  return { ux: ux, uy: uy, uz: uz, solid: 0 };
+  return false;
 }
 
-// 多源浮升烟羽：温度近火源高、随高度衰减；烟气抬升、顺风拉长
-function fireValue(nx, ny, nz, tn, channel) {
-  var ambient = 20;
+// 核心场：多火源事件羽流叠加 + 湍流扰动 + 建筑遮挡，输出物理量（温度 / 烟气 / 湍流）
+function fireFields(nx, ny, nz, tn) {
+  var ambient = ctx.ambientTemp != null ? ctx.ambientTemp : 20;
   var heat = params.heat != null ? params.heat : 1;
   var spread = params.spread != null ? params.spread : 0.5;
   var flow = fireFlowDir();
+  var cf = Math.cos(flow);
+  var sf = Math.sin(flow);
   var zTop = firePlumeTop(tn);
   var temp = ambient;
   var smoke = 0;
   var srcs = ctx.sources;
   for (var i = 0; i < srcs.length; i += 1) {
     var s = srcs[i];
-    var inten = fireIntensity(tn, s.fuel, s.phase);
+    var inten = fireSourceIntensity(s, tn);
     if (inten <= 0.001) continue;
-    var bend = (0.35 + 0.5 * spread) * Math.min(nz / Math.max(0.15, zTop), 1.2);
-    var cx = s.x + Math.cos(flow) * bend * 0.45;
-    var cy = s.y + Math.sin(flow) * bend * 0.45;
+    // 自释放高度向上、顺风弯曲的浮升羽流轴
+    var rel = clamp((nz - s.z) / Math.max(0.08, zTop - s.z), 0, 1.6);
+    var bend = (0.3 + 0.6 * spread) * rel;
+    var cx = s.x + cf * bend * 0.5;
+    var cy = s.y + sf * bend * 0.5;
     var dx = nx - cx;
     var dy = ny - cy;
     var d2 = dx * dx + dy * dy;
-    var sigmaT = 0.03 + 0.09 * (nz / Math.max(0.12, zTop)) * (0.6 + 0.8 * spread);
-    var vertT = Math.exp(-nz / Math.max(0.08, zTop * 0.4));
-    temp += 900 * heat * inten * Math.exp(-d2 / (2 * sigmaT * sigmaT)) * vertT * smoothstep(0, 0.02, nz);
-    var sigmaS = 0.06 + 0.16 * (nz / Math.max(0.12, zTop)) * (0.7 + 0.9 * spread);
-    var smokeVert = Math.exp(-Math.pow((nz - 0.5 * zTop) / (0.38 * zTop + 0.06), 2));
-    smoke += 420 * inten * Math.exp(-d2 / (2 * sigmaS * sigmaS)) * smokeVert;
+    var sigmaT = s.radius * (0.75 + 1.5 * rel) * (0.7 + 0.7 * spread);
+    var sigmaS = s.radius * (0.95 + 2.3 * rel) * (0.7 + 0.9 * spread);
+    var rise = Math.exp(-nz / Math.max(0.1, zTop));
+    temp += 880 * heat * inten * s.heatRelease * Math.exp(-d2 / (2 * sigmaT * sigmaT)) * (0.5 + 0.5 * rise);
+    var smokeAxis = Math.max(s.z, 0.18 * zTop);
+    var smokeVert = Math.exp(-Math.pow((nz - smokeAxis) / (0.42 * zTop + 0.05), 2));
+    smoke += 420 * inten * s.smokeYield * Math.exp(-d2 / (2 * sigmaS * sigmaS)) * (0.35 + 0.65 * smokeVert);
   }
-  if (channel === 'smoke') return { value: clamp(smoke, 0, 400), valid: smoke > 1 ? 1 : 0, density: clamp(smoke / 400, 0, 1), quality: 1 };
+  var turb = clamp(fbm3(nx * 5.2, ny * 5.2, nz * 5.2 - tn * 1.6) * 1.25, 0, 1);
+  smoke *= 0.62 + 0.7 * turb;
+  temp *= 0.86 + 0.28 * fbm3(nx * 11 + 3.1, ny * 11 + 7.3, nz * 11 + tn * 2.2);
+  var valid = 1;
+  if (insideBuilding(nx, ny, nz)) {
+    var shielded = true;
+    for (var k = 0; k < srcs.length; k += 1) {
+      var sk = srcs[k];
+      var ddx = nx - sk.x;
+      var ddy = ny - sk.y;
+      if (ddx * ddx + ddy * ddy < sk.radius * sk.radius * 4) { shielded = false; break; }
+    }
+    if (shielded) valid = 0;
+  }
+  return { temp: clamp(temp, ambient, 900), smoke: clamp(smoke, 0, 400), turb: turb, valid: valid };
+}
+
+// 环境风 + 建筑绕流 + 火源上升气流：风场覆盖整个研究区，并与周边建筑、热羽流交互
+function fireVector(nx, ny, nz, tn) {
+  var sp = params.windSpeed != null ? params.windSpeed : 6;
+  var flow = fireFlowDir();
+  var wx = Math.cos(flow);
+  var wy = Math.sin(flow);
+  var shear = 0.45 + 1.0 * nz;
+  var ux = wx * sp * shear;
+  var uy = wy * sp * shear;
+  var uz = 0.08 * sp * nz;
+  var solid = 0;
+
+  // 建筑绕流（风向坐标系）：迎风滞止 / 侧向绕流 / 顶部越流 / 尾流亏损
+  var bs = ctx.buildings;
+  if (bs) {
+    for (var bi = 0; bi < bs.length; bi += 1) {
+      var b = bs[bi];
+      var hx = (b.x1 - b.x0) * 0.5;
+      var hy = (b.y1 - b.y0) * 0.5;
+      if (nx >= b.x0 && nx <= b.x1 && ny >= b.y0 && ny <= b.y1 && nz <= b.height) solid = 1;
+      if (nz > b.height + 0.34) continue;
+      var bx = (b.x0 + b.x1) * 0.5;
+      var by = (b.y0 + b.y1) * 0.5;
+      var rx = nx - bx;
+      var ry = ny - by;
+      var along = rx * wx + ry * wy;
+      var cross = -rx * wy + ry * wx;
+      var hAlong = Math.abs(hx * wx) + Math.abs(hy * wy) + 0.012;
+      var hCross = Math.abs(hx * wy) + Math.abs(hy * wx) + 0.012;
+      var hEff = Math.max(b.height, 0.05);
+      var spanZ = Math.exp(-Math.pow((nz - hEff * 0.55) / (hEff * 0.7 + 0.06), 2));
+      var spanCross = Math.exp(-Math.pow((Math.abs(cross) - hCross) / (hCross * 0.9 + 0.03), 2));
+      var spanAlong = Math.exp(-Math.pow(along / (hAlong * 2.2 + 0.05), 2));
+      var aComp = 0;
+      var cComp = 0;
+      // 迎风滞止区：减速并抬升
+      var front = along + hAlong;
+      if (front < 0.02 && front > -0.16) {
+        var stag = Math.exp(-Math.pow((front + 0.01) / 0.05, 2));
+        aComp -= sp * 0.5 * stag * spanCross * spanZ;
+        uz += sp * 0.06 * stag * spanCross * spanZ;
+      }
+      // 侧向绕流：贴近侧壁时向外加速
+      var lateral = Math.exp(-Math.pow((Math.abs(cross) - hCross) / (hCross * 0.8 + 0.03), 2));
+      cComp += (cross >= 0 ? 1 : -1) * sp * 0.5 * lateral * spanZ * spanAlong;
+      // 顶部越流
+      if (nz > b.height && nz < b.height + 0.3) {
+        var over = Math.exp(-Math.pow((nz - b.height) / 0.09, 2));
+        var spanCy = Math.exp(-Math.pow(cross / (hCross * 1.8 + 0.04), 2));
+        aComp += sp * 0.5 * over * spanCy;
+        uz += sp * 0.12 * over * spanCy;
+      }
+      // 尾流：速度亏损 + 卡门涡街横向摆动
+      var wake = along - hAlong;
+      if (wake > 0) {
+        var decay = Math.exp(-wake / 0.35);
+        var spanWy = Math.exp(-Math.pow(cross / (hCross * 1.8 + 0.04), 2));
+        var spanWz = Math.exp(-Math.pow((nz - hEff * 0.5) / (hEff * 0.8 + 0.07), 2));
+        var shed = Math.sin(tn * 6.283 + wake * 22 + bi * 1.7);
+        aComp -= sp * 1.35 * decay * spanWy * spanWz;
+        cComp += sp * 0.35 * decay * spanWy * spanWz * shed;
+        uz += sp * 0.08 * decay * spanWy * spanWz * Math.sin(wake * 15 + bi);
+      }
+      ux += aComp * wx - cComp * wy;
+      uy += aComp * wy + cComp * wx;
+    }
+  }
+
+  // 火源上升气流
+  var srcs = ctx.sources;
+  for (var i = 0; i < srcs.length; i += 1) {
+    var s = srcs[i];
+    var inten = fireSourceIntensity(s, tn);
+    if (inten <= 0.001) continue;
+    var dx = nx - s.x;
+    var dy = ny - s.y;
+    var d2 = dx * dx + dy * dy;
+    var core = inten * Math.exp(-d2 / (2 * s.radius * s.radius * 3)) * (1 - smoothstep(0.3, 0.85, nz));
+    uz += 2.8 * core * s.heatRelease;
+    ux += wx * 1.6 * core * nz;
+    uy += wy * 1.6 * core * nz;
+  }
+  return { ux: ux, uy: uy, uz: uz, solid: solid };
+}
+
+// 通道取值：温度 / 烟气 / 能见度（供剖切、剖面、拾取使用，返回物理量）
+function fireValue(nx, ny, nz, tn, channel) {
+  var ambient = ctx.ambientTemp != null ? ctx.ambientTemp : 20;
+  var f = fireFields(nx, ny, nz, tn);
+  if (channel === 'smoke') return { value: f.smoke, valid: f.smoke > 1 ? 1 : 0, density: clamp(f.smoke / 400, 0, 1), quality: 1 };
   if (channel === 'visibility') {
-    var vis = 1500 * Math.exp(-smoke / 110);
-    return { value: clamp(vis, 0, 1500), valid: smoke > 1 ? 1 : 0, density: clamp(1 - vis / 1500, 0, 1), quality: 1 };
+    var vis = 1500 * Math.exp(-f.smoke / 110);
+    return { value: clamp(vis, 0, 1500), valid: f.smoke > 1 ? 1 : 0, density: clamp(1 - vis / 1500, 0, 1), quality: 1 };
   }
-  return { value: clamp(temp, ambient, 900), valid: temp > ambient + 2 ? 1 : 0, density: clamp((temp - ambient) / 880, 0, 1), quality: 1 };
+  return { value: f.temp, valid: f.temp > ambient + 2 ? 1 : 0, density: clamp((f.temp - ambient) / 880, 0, 1), quality: 1 };
+}
+
+// 复合打包：供瓦片着色使用，.r 温度归一化、.g 烟气归一化、.b 湍流、.a 有效掩膜
+function fireComposite(nx, ny, nz, tn) {
+  var ambient = ctx.ambientTemp != null ? ctx.ambientTemp : 20;
+  var f = fireFields(nx, ny, nz, tn);
+  return {
+    tempNorm: clamp((f.temp - ambient) / Math.max(1, 900 - ambient), 0, 1),
+    smokeNorm: clamp(f.smoke / 400, 0, 1),
+    turb: clamp(f.turb, 0, 1),
+    valid: f.valid
+  };
 }
 
 // 温盐深：季节与纬度梯度驱动的层化结构，含中尺度冷涡
@@ -1164,6 +1368,15 @@ function handleTile(message) {
         if (wx < 0 || wx > 1 || wy < 0 || wy > 1 || wz < 0 || wz > 1) {
           continue;
         }
+        if (sceneKind === 'fire') {
+          // 火灾复合打包与显示通道解耦：.r 温度、.g 烟气、.b 湍流、.a 有效掩膜
+          const f = fireComposite(clamp(wx, 0, 1), clamp(wy, 0, 1), clamp(wz, 0, 1), tn);
+          metadata[idx] = f.tempNorm;
+          metadata[idx + 1] = f.smokeNorm;
+          metadata[idx + 2] = f.turb;
+          metadata[idx + 3] = f.valid;
+          continue;
+        }
         const s = sampleField(clamp(wx, 0, 1), clamp(wy, 0, 1), clamp(wz, 0, 1), tn, channel);
         // VEC4 约定：.r=数值/分类码；.g=覆盖度(或缺省有效掩膜)；.b=体密度；.a=数据质量（地质案例改存地层码）
         metadata[idx] = s.value;
@@ -1194,7 +1407,7 @@ function handleTile(message) {
   }
 
   // 写入 LRU 缓存（发送转移原数组，缓存保存副本）
-  if ((sceneKind === 'radar' || sceneKind === 'geology' || sceneKind === 'pm25' || sceneKind === 'plume' || sceneKind === 'mining' || sceneKind === 'ocean') && tileCache.size < TILE_CACHE_MAX) {
+  if ((sceneKind === 'radar' || sceneKind === 'geology' || sceneKind === 'pm25' || sceneKind === 'plume' || sceneKind === 'mining' || sceneKind === 'ocean' || sceneKind === 'fire') && tileCache.size < TILE_CACHE_MAX) {
     tileCache.set(cacheKey, metadata.slice(0));
   }
   self.postMessage(
@@ -1257,7 +1470,7 @@ function cfdInletSeed(rand, state, i) {
   state.positions[i * 3 + 2] = 0.02 + 0.3 * rand();
 }
 
-// 向量粒子布种：按场景把粒子释放到有意义的区域（河道 / 火源 / 全海 / 来流面）
+// 向量粒子布种：按场景把粒子释放到有意义的区域（河道 / 全域风场 / 全海 / 来流面）
 function sceneParticleSeed(rand, state, i, respawnMode) {
   var p = state.positions;
   if (sceneKind === 'cfd') { cfdInletSeed(rand, state, i); return; }
@@ -1270,11 +1483,20 @@ function sceneParticleSeed(rand, state, i, respawnMode) {
     return;
   }
   if (sceneKind === 'fire') {
-    var fi = Math.floor(rand() * ctx.sources.length);
-    var s = ctx.sources[fi] || { x: 0.5, y: 0.5 };
-    p[i * 3] = clamp(s.x + (rand() - 0.5) * 0.12, 0.01, 0.99);
-    p[i * 3 + 1] = clamp(s.y + (rand() - 0.5) * 0.12, 0.01, 0.99);
-    p[i * 3 + 2] = 0.02 + 0.5 * rand();
+    // 环境风场粒子覆盖整个研究区（避开建筑实体），由 fireVector 驱动与建筑/羽流交互
+    var tries = 0;
+    var fx = 0.5;
+    var fy = 0.5;
+    var fz = 0.1;
+    do {
+      fx = 0.02 + 0.96 * rand();
+      fy = 0.02 + 0.96 * rand();
+      fz = 0.02 + 0.6 * rand();
+      tries += 1;
+    } while (tries < 6 && insideBuilding(fx, fy, fz));
+    p[i * 3] = fx;
+    p[i * 3 + 1] = fy;
+    p[i * 3 + 2] = fz;
     return;
   }
   if (sceneKind === 'ocean') {

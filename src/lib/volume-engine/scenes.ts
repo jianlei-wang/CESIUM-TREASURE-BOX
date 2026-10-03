@@ -511,47 +511,145 @@ export const FLOOD_CONFIG: FloodConfig = {
   timeStepHours: 1
 }
 
-/** 火灾烟气与温度体 —— 火源与建筑 */
-export type FireSourceDef = { id: string; name: string; x: number; y: number; fuel: number }
-export type FireBuildingDef = { id: string; name: string; x: number; y: number; r: number; floors: number }
+/** 火灾烟气与温度体 —— 火源 / 建筑 / 道路 / 风险分级 */
 
-export type FireCameraPreset = 'overview' | 'plume' | 'source' | 'section' | 'evacuation'
+/** 火源类型：主火源 / 受热引燃次火源 / 飞火 */
+export type FireSourceType = 'primary' | 'ignition' | 'spot'
+
+/** 事件驱动火源：起火时刻、峰值时刻与峰值热释放 / 产烟强度决定其时间曲线 */
+export type FireSourceDef = {
+  id: string
+  name: string
+  /** 火源水平位置（归一化体域坐标） */
+  x: number
+  y: number
+  /** 关联建筑 id：火源高度由楼层决定 */
+  buildingId: string
+  /** 起火楼层（1-based） */
+  floor: number
+  sourceType: FireSourceType
+  /** 事件曲线（相对总时长的归一化时刻 0~1） */
+  start: number
+  peak: number
+  end: number
+  /** 峰值热释放（相对值） */
+  heatRelease: number
+  /** 峰值产烟强度（相对值） */
+  smokeYield: number
+  radius: number
+}
+
+export type FireBuildingType = 'tower' | 'residential' | 'shop' | 'warehouse'
+
+/** 建筑：程序化三维体块（归一化包围盒 + 高度 + 层数），同时作为 Worker 障碍物输入 */
+export type FireBuildingDef = {
+  id: string
+  name: string
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+  /** 顶面归一化高度（相对体域高度） */
+  height: number
+  floors: number
+  type: FireBuildingType
+}
+
+/** 道路：归一化点串 + 线宽（米） */
+export type FireRoadDef = { points: [number, number][]; width: number; kind: 'main' | 'secondary' | 'fire' }
+
+export type FireRiskLevel = 'safe' | 'watch' | 'alert' | 'high' | 'extreme'
+
+export type FireRiskBand = { level: FireRiskLevel; label: string; color: string; temp: number; smoke: number }
+
+export type FireCameraPreset = 'overview' | 'source' | 'plume' | 'downwind' | 'top'
 
 export type FireConfig = {
   siteName: string
+  /** 环境温度 °C */
+  ambientTemp: number
   sources: FireSourceDef[]
   buildings: FireBuildingDef[]
+  roads: FireRoadDef[]
   tempThresholds: number[]
   smokeThresholds: number[]
+  /** 风险等级（温度 / 烟气复合） */
+  riskBands: FireRiskBand[]
+  /** 火灾事件阶段（T+ 分钟） */
+  eventPhases: { atMinute: number; label: string }[]
   camera: Record<FireCameraPreset, { label: string; heading: number; pitch: number; rangeFactor: number }>
   /** 单个时间步代表的分钟数 */
   timeStepMinutes: number
 }
 
 /**
- * 火灾烟气与温度体专属配置：多火源、周边建筑、温度/烟气危险阈值与相机预设。
+ * 火灾烟气与温度体专属配置：事件驱动多火源、程序化街区建筑、道路骨架、
+ * 温度/烟气危险阈值、风险分级、事件阶段与相机预设。
  */
 export const FIRE_CONFIG: FireConfig = {
   siteName: '老城商业区建筑火灾',
+  ambientTemp: 20,
   sources: [
-    { id: 'F-01', name: '主火源·商贸大厦', x: 0.44, y: 0.54, fuel: 1.0 },
-    { id: 'F-02', name: '次火源·沿街商铺', x: 0.32, y: 0.47, fuel: 0.55 },
-    { id: 'F-03', name: '飞火·屋顶堆场', x: 0.58, y: 0.60, fuel: 0.4 }
+    {
+      id: 'F-01', name: '主火源·商贸大厦', x: 0.46, y: 0.52, buildingId: 'B-01', floor: 18,
+      sourceType: 'primary', start: 0.0, peak: 0.5, end: 1.0, heatRelease: 1.0, smokeYield: 1.0, radius: 0.05
+    },
+    {
+      id: 'F-02', name: '次火源·沿街商铺', x: 0.58, y: 0.59, buildingId: 'B-04', floor: 2,
+      sourceType: 'ignition', start: 0.18, peak: 0.52, end: 0.92, heatRelease: 0.5, smokeYield: 0.55, radius: 0.04
+    },
+    {
+      id: 'F-03', name: '飞火·屋顶堆场', x: 0.70, y: 0.62, buildingId: 'B-07', floor: 2,
+      sourceType: 'spot', start: 0.45, peak: 0.74, end: 1.0, heatRelease: 0.4, smokeYield: 0.45, radius: 0.035
+    }
   ],
   buildings: [
-    { id: 'B-01', name: '商贸大厦', x: 0.44, y: 0.54, r: 0.06, floors: 24 },
-    { id: 'B-02', name: '居民楼 A', x: 0.33, y: 0.46, r: 0.04, floors: 12 },
-    { id: 'B-03', name: '商业裙楼', x: 0.52, y: 0.50, r: 0.05, floors: 6 },
-    { id: 'B-04', name: '沿街商铺', x: 0.58, y: 0.60, r: 0.035, floors: 4 }
+    { id: 'B-01', name: '商贸大厦', x0: 0.42, x1: 0.5, y0: 0.48, y1: 0.56, height: 0.34, floors: 24, type: 'tower' },
+    { id: 'B-02', name: '居民楼 A', x0: 0.28, x1: 0.35, y0: 0.42, y1: 0.49, height: 0.19, floors: 12, type: 'residential' },
+    { id: 'B-03', name: '商业裙楼', x0: 0.51, x1: 0.57, y0: 0.44, y1: 0.5, height: 0.1, floors: 6, type: 'shop' },
+    { id: 'B-04', name: '沿街商铺', x0: 0.55, x1: 0.61, y0: 0.56, y1: 0.62, height: 0.07, floors: 4, type: 'shop' },
+    { id: 'B-05', name: '写字楼 B', x0: 0.3, x1: 0.37, y0: 0.6, y1: 0.67, height: 0.26, floors: 18, type: 'tower' },
+    { id: 'B-06', name: '居民楼 B', x0: 0.62, x1: 0.69, y0: 0.38, y1: 0.45, height: 0.16, floors: 10, type: 'residential' },
+    { id: 'B-07', name: '仓库', x0: 0.66, x1: 0.74, y0: 0.58, y1: 0.66, height: 0.06, floors: 3, type: 'warehouse' },
+    { id: 'B-08', name: '酒店', x0: 0.2, x1: 0.27, y0: 0.52, y1: 0.59, height: 0.22, floors: 16, type: 'tower' },
+    { id: 'B-09', name: '商铺 C', x0: 0.4, x1: 0.46, y0: 0.66, y1: 0.72, height: 0.08, floors: 5, type: 'shop' },
+    { id: 'B-10', name: '居民楼 C', x0: 0.52, x1: 0.59, y0: 0.68, y1: 0.75, height: 0.18, floors: 11, type: 'residential' },
+    { id: 'B-11', name: '办公楼 C', x0: 0.7, x1: 0.77, y0: 0.28, y1: 0.35, height: 0.2, floors: 14, type: 'tower' },
+    { id: 'B-12', name: '沿街商铺 D', x0: 0.16, x1: 0.22, y0: 0.36, y1: 0.42, height: 0.07, floors: 4, type: 'shop' },
+    { id: 'B-13', name: '库房', x0: 0.62, x1: 0.7, y0: 0.72, y1: 0.79, height: 0.05, floors: 3, type: 'warehouse' },
+    { id: 'B-14', name: '住宅 D', x0: 0.24, x1: 0.31, y0: 0.72, y1: 0.79, height: 0.15, floors: 9, type: 'residential' }
+  ],
+  roads: [
+    { points: [[0.05, 0.4], [0.95, 0.4]], width: 16, kind: 'main' },
+    { points: [[0.4, 0.05], [0.4, 0.95]], width: 16, kind: 'main' },
+    { points: [[0.05, 0.64], [0.95, 0.64]], width: 10, kind: 'secondary' },
+    { points: [[0.62, 0.05], [0.62, 0.95]], width: 10, kind: 'secondary' },
+    { points: [[0.05, 0.24], [0.95, 0.24]], width: 8, kind: 'secondary' }
   ],
   tempThresholds: [60, 150, 350, 600],
   smokeThresholds: [50, 150, 300],
+  riskBands: [
+    { level: 'safe', label: '安全', color: '#3d8bfd', temp: 60, smoke: 50 },
+    { level: 'watch', label: '关注', color: '#f2c94c', temp: 150, smoke: 150 },
+    { level: 'alert', label: '警戒', color: '#f2994a', temp: 350, smoke: 250 },
+    { level: 'high', label: '高危', color: '#eb5757', temp: 600, smoke: 400 },
+    { level: 'extreme', label: '极高危', color: '#ff2d55', temp: 900, smoke: 600 }
+  ],
+  eventPhases: [
+    { atMinute: 0, label: '初燃' },
+    { atMinute: 6, label: '发展' },
+    { atMinute: 12, label: '火势增强' },
+    { atMinute: 18, label: '旺盛期' },
+    { atMinute: 26, label: '烟羽抬升' },
+    { atMinute: 34, label: '下风向扩散' },
+    { atMinute: 42, label: '多源合并' }
+  ],
   camera: {
-    overview: { label: '全局', heading: 32, pitch: -30, rangeFactor: 1.05 },
-    plume: { label: '烟羽', heading: 240, pitch: -16, rangeFactor: 0.66 },
-    source: { label: '火源', heading: 315, pitch: -14, rangeFactor: 0.4 },
-    section: { label: '垂直剖面', heading: 60, pitch: -6, rangeFactor: 0.78 },
-    evacuation: { label: '疏散视角', heading: 120, pitch: -24, rangeFactor: 0.7 }
+    overview: { label: '总览', heading: 32, pitch: -30, rangeFactor: 1.05 },
+    source: { label: '事故核心', heading: 315, pitch: -14, rangeFactor: 0.4 },
+    plume: { label: '烟羽侧视', heading: 240, pitch: -16, rangeFactor: 0.66 },
+    downwind: { label: '下风向', heading: 55, pitch: -12, rangeFactor: 0.72 },
+    top: { label: '态势顶视', heading: 0, pitch: -82, rangeFactor: 0.92 }
   },
   timeStepMinutes: 2
 }
@@ -786,7 +884,7 @@ export const SCENES: Record<SceneKind, SceneSpec> = {
     defaultChannel: 'temp',
     timeSteps: 24,
     timeStepUnit: 'min',
-    vector: { label: '环境风场', unit: 'm/s', min: 0, max: 12, palette: 'wind', defaultCount: 3000, defaultSize: 2 },
+    vector: { label: '环境风场', unit: 'm/s', min: 0, max: 12, palette: 'wind', defaultCount: 5000, defaultSize: 2 },
     defaults: { tileSize: 16, levels: 4, sse: 12, stepSize: 1, nearest: false, opacity: 0.55, alphaFloor: 0.02 },
     params: { seed: 20260928, windDir: 235, windSpeed: 6, heat: 1, fireX: 0.44, fireY: 0.54, spread: 0.5 }
   },

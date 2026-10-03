@@ -19,6 +19,7 @@ import {
   UniformType,
   VoxelContent,
   VoxelShapeType,
+  type TimeIntervalCollection,
   type VoxelProvider
 } from 'cesium'
 
@@ -31,12 +32,18 @@ export type TileRequest = {
   tileX: number
   tileY: number
   tileZ: number
+  /** 时间关键帧索引（时间动态体数据），缺省为当前时间步 */
+  keyframe?: number
 }
 
 export type VolumeProviderOptions = {
   tileSize: number
   levels: number
   bounds: Bounds
+  /** 时间关键帧数：>1 时启用 Cesium 关键帧插值，实现时间连续播放 */
+  keyframeCount?: number
+  /** 关键帧时间区间集合（与 keyframeCount 配套） */
+  timeIntervalCollection?: TimeIntervalCollection
   /** 主线程把瓦片请求转交 Worker 并等待 Float32Array 元数据（VEC4） */
   requestTile: (request: TileRequest) => Promise<Float32Array>
   /** Worker 不可用时的兜底空瓦片 */
@@ -47,7 +54,7 @@ export type VolumeProviderOptions = {
 export function createVolumeProvider(options: VolumeProviderOptions): VoxelProvider {
   const { tileSize, levels, bounds } = options
   const dim = tileSize + 2
-  return {
+  const provider: Record<string, unknown> = {
     shape: VoxelShapeType.BOX,
     dimensions: new Cartesian3(tileSize, tileSize, tileSize),
     paddingBefore: new Cartesian3(1, 1, 1),
@@ -67,11 +74,17 @@ export function createVolumeProvider(options: VolumeProviderOptions): VoxelProvi
           tileLevel: req.tileLevel ?? 0,
           tileX: req.tileX ?? 0,
           tileY: req.tileY ?? 0,
-          tileZ: req.tileZ ?? 0
+          tileZ: req.tileZ ?? 0,
+          keyframe: req.keyframe
         })
         .then((metadata) => VoxelContent.fromMetadataArray([metadata]))
     }
-  } as unknown as VoxelProvider
+  }
+  if (options.keyframeCount && options.timeIntervalCollection) {
+    provider.keyframeCount = options.keyframeCount
+    provider.timeIntervalCollection = options.timeIntervalCollection
+  }
+  return provider as unknown as VoxelProvider
 }
 
 /** 把 256×1 RGBA 传递函数打包为 GPU 纹理 */
@@ -248,6 +261,121 @@ export function createPm25Shader(initialLut: Uint8Array): CustomShader {
       }
     `
   })
+}
+
+/**
+ * 火灾体着色器：VEC4 元数据 .r=温度归一化、.g=烟气归一化、.b=湍流细节、.a=有效掩膜。
+ * 在同一体数据上以 uMode 切换四种态势表达，无需重建瓦片：
+ *   0 复合态势：低温烟气按 Beer-Lambert 消光呈灰黑、高温核心自发光；
+ *   1 温度场：热力传递函数 + 高温自发光提亮；
+ *   2 烟气浓度：烟气传递函数 + 消光致密化；
+ *   3 风险分级：按温度/烟气危险阈值取复合风险等级着色。
+ */
+export function createFireShader(options: {
+  temperatureLut: Uint8Array
+  smokeLut: Uint8Array
+  riskColors: [number, number, number][]
+}): CustomShader {
+  const risk = options.riskColors
+  const rc = (i: number): [number, number, number] => risk[i] ?? risk[risk.length - 1] ?? [1, 1, 1]
+  const rcv = (i: number): Cartesian3 => {
+    const c = rc(i)
+    return new Cartesian3(c[0], c[1], c[2])
+  }
+  return new CustomShader({
+    uniforms: {
+      uTemperatureLut: { type: UniformType.SAMPLER_2D, value: makeLutTexture(options.temperatureLut) },
+      uSmokeLut: { type: UniformType.SAMPLER_2D, value: makeLutTexture(options.smokeLut) },
+      uMode: { type: UniformType.FLOAT, value: 0 },
+      uOpacity: { type: UniformType.FLOAT, value: 0.62 },
+      uLighting: { type: UniformType.FLOAT, value: 0.35 },
+      /** 烟气 Beer-Lambert 消光系数 */
+      uSmokeExtinction: { type: UniformType.FLOAT, value: 2.8 },
+      uSmokeGamma: { type: UniformType.FLOAT, value: 1.1 },
+      /** 高温核心自发光强度 */
+      uTempEmission: { type: UniformType.FLOAT, value: 0.85 },
+      /** 温度危险阈值（归一化 0~1） */
+      uRt0: { type: UniformType.FLOAT, value: (60 - 20) / 880 },
+      uRt1: { type: UniformType.FLOAT, value: (150 - 20) / 880 },
+      uRt2: { type: UniformType.FLOAT, value: (350 - 20) / 880 },
+      uRt3: { type: UniformType.FLOAT, value: (600 - 20) / 880 },
+      /** 烟气危险阈值（归一化 0~1） */
+      uRs0: { type: UniformType.FLOAT, value: 50 / 400 },
+      uRs1: { type: UniformType.FLOAT, value: 150 / 400 },
+      uRs2: { type: UniformType.FLOAT, value: 250 / 400 },
+      uRs3: { type: UniformType.FLOAT, value: 400 / 400 },
+      uRisk0: { type: UniformType.VEC3, value: rcv(0) },
+      uRisk1: { type: UniformType.VEC3, value: rcv(1) },
+      uRisk2: { type: UniformType.VEC3, value: rcv(2) },
+      uRisk3: { type: UniformType.VEC3, value: rcv(3) },
+      uRisk4: { type: UniformType.VEC3, value: rcv(4) }
+    },
+    fragmentShaderText: `
+      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+        vec4 meta = fsInput.metadata.color;
+        float temp = clamp(meta.r, 0.0, 1.0);
+        float smoke = clamp(meta.g, 0.0, 1.0);
+        float turb = clamp(meta.b, 0.0, 1.0);
+        float valid = meta.a;
+        vec3 color = vec3(0.0);
+        float alpha = 0.0;
+        if (valid > 0.01) {
+          float ext = 1.0 - exp(-pow(smoke, max(0.05, uSmokeGamma)) * uSmokeExtinction);
+          float hot = smoothstep(0.05, 0.8, temp);
+          if (uMode < 0.5) {
+            // 复合态势：烟气越浓越黑，高温核心偏红黄并自发光
+            vec3 smokeCol = mix(vec3(0.5, 0.49, 0.47), vec3(0.05, 0.045, 0.05), smoothstep(0.15, 0.85, smoke));
+            vec3 fireCol = mix(vec3(0.86, 0.2, 0.03), vec3(1.0, 0.88, 0.45), smoothstep(0.0, 0.55, hot));
+            color = mix(smokeCol, fireCol, hot);
+            color *= (0.72 + 0.5 * turb);
+            alpha = uOpacity * (ext * (0.65 + 0.55 * turb) * (1.0 - 0.6 * hot) + hot * uTempEmission);
+          } else if (uMode < 1.5) {
+            // 温度场
+            vec4 c = texture(uTemperatureLut, vec2(temp, 0.5));
+            color = min(vec3(1.5), c.rgb * (1.0 + 0.5 * hot));
+            alpha = uOpacity * clamp(c.a, 0.0, 1.0) * smoothstep(0.0, 0.22, temp) * (0.8 + 0.4 * turb);
+          } else if (uMode < 2.5) {
+            // 烟气浓度
+            vec4 c = texture(uSmokeLut, vec2(smoke, 0.5));
+            color = c.rgb;
+            alpha = uOpacity * ext * (0.68 + 0.55 * turb);
+          } else {
+            // 风险分级：温度/烟气各自分级取较大者
+            float tb = step(uRt0, temp) + step(uRt1, temp) + step(uRt2, temp) + step(uRt3, temp);
+            float sb = step(uRs0, smoke) + step(uRs1, smoke) + step(uRs2, smoke) + step(uRs3, smoke);
+            float band = max(tb, sb);
+            vec3 rc = uRisk0;
+            if (band > 3.5) rc = uRisk4;
+            else if (band > 2.5) rc = uRisk3;
+            else if (band > 1.5) rc = uRisk2;
+            else if (band > 0.5) rc = uRisk1;
+            float sev = band / 4.0;
+            color = rc;
+            alpha = uOpacity * smoothstep(0.0, 0.3, max(temp, smoke)) * (0.45 + 0.55 * sev) * (0.8 + 0.4 * turb);
+          }
+        }
+        ${SHADING}
+        material.diffuse = color * shade;
+        material.alpha = clamp(alpha, 0.0, 1.0);
+      }
+    `
+  })
+}
+
+/** 火灾风险分级色（安全→极高危），供风险 LUT 纹理与 UI 图例共用 */
+export function fireRiskLut(colors: [number, number, number][]): Uint8Array {
+  const lut = new Uint8Array(LUT_WIDTH * 4)
+  const bands = colors.length || 1
+  for (let i = 0; i < LUT_WIDTH; i += 1) {
+    const t = i / (LUT_WIDTH - 1)
+    const seg = Math.min(bands - 1, Math.floor(t * bands))
+    const c = colors[seg] ?? [120, 120, 120]
+    lut[i * 4] = c[0]
+    lut[i * 4 + 1] = c[1]
+    lut[i * 4 + 2] = c[2]
+    lut[i * 4 + 3] = 255
+  }
+  return lut
 }
 
 /** 分类体着色器：VEC4 元数据 .r=分类码、.g=有效掩膜，经分类色板纹理映射颜色 */

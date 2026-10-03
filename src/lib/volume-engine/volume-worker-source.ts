@@ -377,6 +377,68 @@ function prepare(kind, p) {
     const sy = p.sourceY != null ? p.sourceY : 0.5;
     return { kind, buildings: boxes, source: { x: sx, y: sy } };
   }
+  if (kind === 'plume') {
+    // 含水层/隔水层分层（归一化埋深，0 地表 → 1 底界 120 m）
+    const aquifers = [
+      { top: 0.0, bottom: 0.20, perm: 22, por: 32 },
+      { top: 0.20, bottom: 0.33, perm: 0.02, por: 9 },
+      { top: 0.33, bottom: 0.60, perm: 12, por: 26 },
+      { top: 0.60, bottom: 0.73, perm: 0.02, por: 8 },
+      { top: 0.73, bottom: 1.0, perm: 6, por: 20 }
+    ];
+    return {
+      kind,
+      flowDir: ((p.flowDir != null ? p.flowDir : 68) * Math.PI) / 180,
+      aquifers,
+      source: { x: p.sourceX != null ? p.sourceX : 0.30, y: p.sourceY != null ? p.sourceY : 0.42 }
+    };
+  }
+  if (kind === 'mining') {
+    const dir = ((p.oreDir != null ? p.oreDir : 42) * Math.PI) / 180;
+    const rich = p.oreRich != null ? p.oreRich : 0.6;
+    const count = Math.max(1, Math.round(p.lodes != null ? p.lodes : 4));
+    const lodes = [];
+    for (let i = 0; i < count; i += 1) {
+      const t = (i + 0.5) / count;
+      lodes.push({
+        x: 0.28 + 0.46 * t + (rand() - 0.5) * 0.1,
+        y: 0.30 + 0.44 * (1 - t) + (rand() - 0.5) * 0.1,
+        z: 0.28 + 0.5 * rand(),
+        rx: 0.055 + 0.06 * rand(),
+        ry: 0.05 + 0.05 * rand(),
+        rz: 0.06 + 0.07 * rand(),
+        peak: (0.55 + 0.85 * rand()) * (0.55 + 0.8 * rich),
+        auBias: rand(),
+        feBias: rand()
+      });
+    }
+    return {
+      kind,
+      lodes,
+      oreDir: dir,
+      supergene: p.supergene != null ? p.supergene : 0.5,
+      complexity: p.complexity != null ? p.complexity : 0.5
+    };
+  }
+  if (kind === 'flood') {
+    return { kind, riverAmp: 0.16, riverFreq: 3.6 };
+  }
+  if (kind === 'fire') {
+    return {
+      kind,
+      sources: [
+        { x: p.fireX != null ? p.fireX : 0.44, y: p.fireY != null ? p.fireY : 0.54, fuel: 1.0, phase: 0.0 },
+        { x: 0.32, y: 0.47, fuel: 0.55, phase: 1.3 },
+        { x: 0.58, y: 0.60, fuel: 0.4, phase: 2.6 }
+      ]
+    };
+  }
+  if (kind === 'ocean') {
+    return {
+      kind,
+      eddy: { x: 0.62, y: 0.58, r: 0.18, strength: p.eddy != null ? p.eddy : 0.6 }
+    };
+  }
   return { kind };
 }
 
@@ -760,6 +822,280 @@ function cfdValue(nx, ny, nz, tn, channel) {
 }
 
 /* ------------------------------------------------------------------ *
+ * 第二批案例场函数：地下水污染羽流 / 矿体品位 / 洪水 / 火灾 / 海洋
+ * ------------------------------------------------------------------ */
+
+// 含水层物性：按归一化埋深返回渗透系数或孔隙率
+function plumeAquiferProp(depth, key) {
+  var a = ctx.aquifers;
+  for (var i = 0; i < a.length; i += 1) {
+    if (depth >= a[i].top && depth <= a[i].bottom) return key === 'perm' ? a[i].perm : a[i].por;
+  }
+  return key === 'perm' ? 0.02 : 8;
+}
+
+// 平流—弥散—衰减解析羽流：源持续释放，沿地下水流向迁移、侧向弥散、沿程衰减
+function plumeValue(nx, ny, nz, tn, channel) {
+  var src = ctx.source;
+  var fd = ctx.flowDir;
+  var depth = 1 - nz;
+  var vel = params.velocity != null ? params.velocity : 0.5;
+  var disp = params.dispersion != null ? params.dispersion : 0.5;
+  var decay = params.decay != null ? params.decay : 0.4;
+
+  var dx = nx - src.x;
+  var dy = ny - src.y;
+  var along = dx * Math.cos(fd) + dy * Math.sin(fd);
+  var cross = -dx * Math.sin(fd) + dy * Math.cos(fd);
+
+  var targetDepth = 0.45;
+  var decayK = decay * 0.55;
+  var sig = disp * 0.9;
+  var amp = 400;
+  var flatVert = 0;
+  if (channel === 'cr6') { targetDepth = 0.10; decayK = decay * 1.5; sig = disp * 1.6; amp = 30; }
+  else if (channel === 'tds') { targetDepth = 0.47; decayK = decay * 0.45; sig = disp * 1.0; amp = 1600; flatVert = 1; }
+
+  var growth = smoothstep(0.0, 0.35, tn);
+  var travel = (0.16 + 0.5 * vel) * growth;
+  var front = along / Math.max(0.04, travel);
+  if (front < 0) front = 0;
+  var ahead = smoothstep(1.2, 0.72, front);
+  var alongDecay = Math.exp(-front * (0.6 + 2.2 * decayK));
+  var sigmaY = 0.026 + sig * 0.11 * (0.3 + front);
+  var lateral = Math.exp(-(cross * cross) / (2 * sigmaY * sigmaY));
+
+  var perm = plumeAquiferProp(depth, 'perm');
+  var aquitard = perm < 0.5 ? 0.16 : 1.0;
+  var vert = Math.exp(-Math.pow((depth - targetDepth) / 0.16, 2));
+  if (flatVert) vert = 0.35 + 0.65 * vert;
+
+  var conc = amp * growth * ahead * alongDecay * lateral * vert * aquitard;
+  conc += 0.08 * amp * growth * Math.exp(-(cross * cross) / (2 * Math.pow(sigmaY * 2.2, 2))) * vert;
+  if (conc < 0.02) conc = 0;
+  return {
+    value: clamp(conc, 0, amp),
+    valid: conc > 0.05 ? 1 : 0,
+    density: clamp(conc / amp, 0, 1),
+    quality: clamp(0.35 + 0.5 * vert + 0.2 * (1 - aquitard), 0, 1)
+  };
+}
+
+// 钻孔样品 IDW 化的矿化强度：多条透镜状矿体 + 走向薄板 + 浅部次生富集 + 地质噪声
+function miningIntensity(nx, ny, nz, channel) {
+  var lodes = ctx.lodes;
+  var best = 0;
+  var sum = 0;
+  for (var i = 0; i < lodes.length; i += 1) {
+    var L = lodes[i];
+    var ex = (nx - L.x) / L.rx;
+    var ey = (ny - L.y) / L.ry;
+    var ez = (nz - L.z) / L.rz;
+    var q = ex * ex + ey * ey + ez * ez;
+    if (q > 18) continue;
+    var g = Math.exp(-q);
+    var pr = L.peak;
+    if (channel === 'au') pr *= 0.55 + 0.95 * L.auBias;
+    else if (channel === 'fe') pr *= 0.75 + 0.6 * L.feBias;
+    if (g > best) best = g;
+    sum += g * pr;
+  }
+  var dir = ctx.oreDir;
+  var s = (nx - 0.5) * Math.cos(dir) + (ny - 0.5) * Math.sin(dir);
+  var band = Math.exp(-Math.pow(s / 0.22, 2));
+  var layering = 0.6 + 0.4 * Math.sin(nz * 9 + s * 6);
+  var stratified = band * layering * 0.22 * (channel === 'fe' ? 1.6 : 0.9);
+  var base = sum + stratified;
+  if (channel !== 'au') base += smoothstep(0.68, 0.98, nz) * ctx.supergene * 0.5;
+  var noise = 0.85 + 0.3 * Math.sin(nx * 13.1 + ny * 11.3 + nz * 15.7) * ctx.complexity;
+  return (base + 0.04 + 0.03 * best) * noise;
+}
+
+function miningValue(nx, ny, nz, tn, channel) {
+  var g = miningIntensity(nx, ny, nz, channel);
+  var value;
+  if (channel === 'au') value = clamp(g * 4.2, 0, 4);
+  else if (channel === 'fe') value = clamp(6 + g * 42, 0, 60);
+  else value = clamp(0.05 + g * 1.8, 0, 2);
+  var max = channel === 'au' ? 4 : channel === 'fe' ? 60 : 2;
+  return { value: value, valid: 1, density: clamp(value / max, 0, 1), quality: 1 };
+}
+
+// 洪水：河道下切 + 堤防 + 城市平台复合地形（归一化高程）
+function floodTerrain(nx, ny) {
+  var amp = ctx.riverAmp;
+  var freq = ctx.riverFreq;
+  var yc = 0.5 + amp * Math.sin(nx * freq) + 0.05 * Math.sin(nx * 9.1);
+  var dch = Math.abs(ny - yc);
+  var channel = 0.07 * smoothstep(0.10, 0.0, dch);
+  var levee = 0.06 * Math.exp(-Math.pow((dch - 0.11) / 0.035, 2)) * (params.levee != null ? params.levee : 0.4);
+  var plain = 0.22 + 0.10 * (ny - 0.5) + 0.05 * Math.sin(nx * 5.3) * Math.cos(ny * 4.1);
+  var city = 0.10 * smoothstep(0.14, 0.03, Math.sqrt((nx - 0.5) * (nx - 0.5) + (ny - 0.56) * (ny - 0.56)));
+  return clamp(plain - channel + levee + city, 0.02, 0.62);
+}
+
+// 洪水过程线：涨洪 → 洪峰 → 退水
+function floodHydrograph(tn) {
+  var peakPos = 0.42;
+  if (tn <= peakPos) return smoothstep(0.0, peakPos, tn);
+  return 1 - 0.55 * smoothstep(peakPos, 1.0, tn);
+}
+
+function floodSurface(nx, ny, tn) {
+  var rainfall = params.rainfall != null ? params.rainfall : 0.6;
+  var riverFlow = params.riverFlow != null ? params.riverFlow : 0.6;
+  var peak = params.peakDepth != null ? params.peakDepth : 5;
+  var shape = floodHydrograph(tn);
+  var yc = 0.5 + ctx.riverAmp * Math.sin(nx * ctx.riverFreq) + 0.05 * Math.sin(nx * 9.1);
+  var nearRiver = Math.exp(-Math.pow((ny - yc) / 0.24, 2));
+  var amp = (peak * shape / 30) * (0.30 + 0.70 * nearRiver) * (0.5 + 0.85 * rainfall);
+  return 0.20 + 0.06 * riverFlow + amp;
+}
+
+function floodDepthNorm(nx, ny, tn) {
+  var d = floodSurface(nx, ny, tn) - floodTerrain(nx, ny);
+  return d > 0 ? d : 0;
+}
+
+function floodVector(nx, ny, nz, tn) {
+  var depthN = floodDepthNorm(nx, ny, tn);
+  if (depthN <= 0.0008) return { ux: 0, uy: 0, uz: 0, solid: 0 };
+  var roughness = params.roughness != null ? params.roughness : 0.035;
+  var riverFlow = params.riverFlow != null ? params.riverFlow : 0.6;
+  var slope = 0.0015 + 0.004 * (1 - nx);
+  var v = 30 * Math.pow(depthN, 0.62) * Math.sqrt(slope) * (0.6 + 0.8 * riverFlow) / Math.max(0.02, roughness / 0.035);
+  v = clamp(v, 0, 6);
+  var dyc = ctx.riverAmp * ctx.riverFreq * Math.cos(nx * ctx.riverFreq) + 0.455 * Math.cos(nx * 9.1);
+  var tl = Math.sqrt(1 + dyc * dyc) || 1;
+  return { ux: v / tl, uy: v * dyc / tl, uz: -0.05 * v * (1 - 2 * nz), solid: 0 };
+}
+
+function floodValue(nx, ny, nz, tn, channel) {
+  var depthN = floodDepthNorm(nx, ny, tn);
+  if (depthN <= 0.0008) return { value: 0, valid: 0 };
+  if (channel === 'level') return { value: clamp(floodSurface(nx, ny, tn) * 30, 0, 30), valid: 1, density: clamp(depthN * 3, 0, 1), quality: 1 };
+  if (channel === 'speed') {
+    var vec = floodVector(nx, ny, nz, tn);
+    var sp = Math.sqrt(vec.ux * vec.ux + vec.uy * vec.uy + vec.uz * vec.uz);
+    return { value: clamp(sp, 0, 6), valid: 1, density: clamp(sp / 6, 0, 1), quality: 1 };
+  }
+  return { value: clamp(depthN * 30, 0, 12), valid: 1, density: clamp(depthN * 3, 0, 1), quality: 1 };
+}
+
+function fireIntensity(tn, fuel, phase) {
+  return smoothstep(0.0, 0.30, tn + phase * 0.03) * (0.6 + 0.4 * fuel);
+}
+
+function firePlumeTop(tn) {
+  var heat = params.heat != null ? params.heat : 1;
+  var spread = params.spread != null ? params.spread : 0.5;
+  return clamp(0.18 + 0.5 * heat * (0.6 + 0.4 * spread) * smoothstep(0.0, 0.35, tn), 0.2, 0.92);
+}
+
+function fireFlowDir() {
+  return ((params.windDir != null ? params.windDir : 235) * Math.PI) / 180 + Math.PI;
+}
+
+// 环境风 + 火源上升气流
+function fireVector(nx, ny, nz, tn) {
+  var sp = params.windSpeed != null ? params.windSpeed : 6;
+  var flow = fireFlowDir();
+  var shear = 0.5 + 0.9 * nz;
+  var ux = Math.cos(flow) * sp * shear;
+  var uy = Math.sin(flow) * sp * shear;
+  var uz = 0.1 * sp * nz;
+  var srcs = ctx.sources;
+  for (var i = 0; i < srcs.length; i += 1) {
+    var s = srcs[i];
+    var dx = nx - s.x;
+    var dy = ny - s.y;
+    var r2 = dx * dx + dy * dy;
+    var inten = fireIntensity(tn, s.fuel, s.phase);
+    var core = inten * Math.exp(-r2 / (2 * 0.05 * 0.05)) * (1 - smoothstep(0.3, 0.8, nz));
+    uz += 2.4 * core;
+    ux += Math.cos(flow) * 1.5 * core * nz;
+    uy += Math.sin(flow) * 1.5 * core * nz;
+  }
+  return { ux: ux, uy: uy, uz: uz, solid: 0 };
+}
+
+// 多源浮升烟羽：温度近火源高、随高度衰减；烟气抬升、顺风拉长
+function fireValue(nx, ny, nz, tn, channel) {
+  var ambient = 20;
+  var heat = params.heat != null ? params.heat : 1;
+  var spread = params.spread != null ? params.spread : 0.5;
+  var flow = fireFlowDir();
+  var zTop = firePlumeTop(tn);
+  var temp = ambient;
+  var smoke = 0;
+  var srcs = ctx.sources;
+  for (var i = 0; i < srcs.length; i += 1) {
+    var s = srcs[i];
+    var inten = fireIntensity(tn, s.fuel, s.phase);
+    if (inten <= 0.001) continue;
+    var bend = (0.35 + 0.5 * spread) * Math.min(nz / Math.max(0.15, zTop), 1.2);
+    var cx = s.x + Math.cos(flow) * bend * 0.45;
+    var cy = s.y + Math.sin(flow) * bend * 0.45;
+    var dx = nx - cx;
+    var dy = ny - cy;
+    var d2 = dx * dx + dy * dy;
+    var sigmaT = 0.03 + 0.09 * (nz / Math.max(0.12, zTop)) * (0.6 + 0.8 * spread);
+    var vertT = Math.exp(-nz / Math.max(0.08, zTop * 0.4));
+    temp += 900 * heat * inten * Math.exp(-d2 / (2 * sigmaT * sigmaT)) * vertT * smoothstep(0, 0.02, nz);
+    var sigmaS = 0.06 + 0.16 * (nz / Math.max(0.12, zTop)) * (0.7 + 0.9 * spread);
+    var smokeVert = Math.exp(-Math.pow((nz - 0.5 * zTop) / (0.38 * zTop + 0.06), 2));
+    smoke += 420 * inten * Math.exp(-d2 / (2 * sigmaS * sigmaS)) * smokeVert;
+  }
+  if (channel === 'smoke') return { value: clamp(smoke, 0, 400), valid: smoke > 1 ? 1 : 0, density: clamp(smoke / 400, 0, 1), quality: 1 };
+  if (channel === 'visibility') {
+    var vis = 1500 * Math.exp(-smoke / 110);
+    return { value: clamp(vis, 0, 1500), valid: smoke > 1 ? 1 : 0, density: clamp(1 - vis / 1500, 0, 1), quality: 1 };
+  }
+  return { value: clamp(temp, ambient, 900), valid: temp > ambient + 2 ? 1 : 0, density: clamp((temp - ambient) / 880, 0, 1), quality: 1 };
+}
+
+// 温盐深：季节与纬度梯度驱动的层化结构，含中尺度冷涡
+function oceanValue(nx, ny, nz, tn, channel) {
+  var depth = 1 - nz;
+  var sst = params.sst != null ? params.sst : 24;
+  var season = params.season != null ? params.season : 0.4;
+  var front = params.front != null ? params.front : 0.5;
+  var seasonT = 3.5 * Math.sin(tn * 6.283 + 1.0) * season;
+  var latGrad = (ny - 0.5) * 4 * (0.4 + 0.6 * front);
+  var ed = ctx.eddy;
+  var er2 = Math.pow((nx - ed.x) / ed.r, 2) + Math.pow((ny - ed.y) / ed.r, 2);
+  var eddySST = -3.5 * ed.strength * Math.exp(-er2);
+  var mld = params.mixedLayer != null ? params.mixedLayer : 0.18;
+  var therm = 1 / (1 + Math.exp((depth - mld) / 0.06));
+  var T = 2 + (sst + seasonT + latGrad + eddySST - 2) * therm;
+  if (T < -1.5) T = -1.5;
+  var coastal = smoothstep(0.0, 0.35, nx);
+  var S = 30.4 + 4.0 * coastal + 0.6 * (ny - 0.5) + 0.4 * (1 - therm) - 0.5 * season * therm;
+  var rho = 1024.0 + 0.78 * (S - 33) - 0.15 * (T - 15) + 0.9 * depth;
+  if (channel === 'salinity') return { value: clamp(S, 30, 36), valid: 1, density: clamp((S - 30) / 6, 0, 1), quality: 1 };
+  if (channel === 'density') return { value: clamp(rho, 1020, 1028), valid: 1, density: clamp((rho - 1020) / 8, 0, 1), quality: 1 };
+  return { value: clamp(T, -2, 32), valid: 1, density: clamp((T + 2) / 34, 0, 1), quality: 1 };
+}
+
+// 地转流：中尺度涡旋 + 近岸急流 + 垂向剪切
+function oceanVector(nx, ny, nz, tn) {
+  var depth = 1 - nz;
+  var ed = ctx.eddy;
+  var dx = nx - ed.x;
+  var dy = ny - ed.y;
+  var r2 = dx * dx + dy * dy;
+  var swirl = ed.strength * Math.exp(-r2 / (2 * ed.r * ed.r));
+  var ux = -dy * swirl * 9;
+  var uy = dx * swirl * 9;
+  ux += 0.45 * Math.exp(-Math.pow((ny - 0.34) / 0.20, 2)) * (1 - 0.55 * depth);
+  uy += 0.10 * Math.cos(nx * 5.2) * (1 - 0.5 * depth);
+  var uz = 0.03 * Math.sin((nx + ny) * 5.0) * depth;
+  ux *= 1 - 0.4 * depth;
+  uy *= 1 - 0.4 * depth;
+  return { ux: ux, uy: uy, uz: uz, solid: 0 };
+}
+
+/* ------------------------------------------------------------------ *
  * 统一采样
  * ------------------------------------------------------------------ */
 
@@ -768,6 +1104,11 @@ function sampleScalar(kind, nx, ny, nz, tn, channel) {
   if (kind === 'pm25') return pm25Value(nx, ny, nz, tn, channel);
   if (kind === 'wind') return { value: windValue(nx, ny, nz, channel), valid: 1 };
   if (kind === 'cfd') return cfdValue(nx, ny, nz, tn, channel);
+  if (kind === 'plume') return plumeValue(nx, ny, nz, tn, channel);
+  if (kind === 'mining') return miningValue(nx, ny, nz, tn, channel);
+  if (kind === 'flood') return floodValue(nx, ny, nz, tn, channel);
+  if (kind === 'fire') return fireValue(nx, ny, nz, tn, channel);
+  if (kind === 'ocean') return oceanValue(nx, ny, nz, tn, channel);
   return { value: 0, valid: 0 };
 }
 
@@ -853,7 +1194,7 @@ function handleTile(message) {
   }
 
   // 写入 LRU 缓存（发送转移原数组，缓存保存副本）
-  if ((sceneKind === 'radar' || sceneKind === 'geology' || sceneKind === 'pm25') && tileCache.size < TILE_CACHE_MAX) {
+  if ((sceneKind === 'radar' || sceneKind === 'geology' || sceneKind === 'pm25' || sceneKind === 'plume' || sceneKind === 'mining' || sceneKind === 'ocean') && tileCache.size < TILE_CACHE_MAX) {
     tileCache.set(cacheKey, metadata.slice(0));
   }
   self.postMessage(
@@ -916,6 +1257,37 @@ function cfdInletSeed(rand, state, i) {
   state.positions[i * 3 + 2] = 0.02 + 0.3 * rand();
 }
 
+// 向量粒子布种：按场景把粒子释放到有意义的区域（河道 / 火源 / 全海 / 来流面）
+function sceneParticleSeed(rand, state, i, respawnMode) {
+  var p = state.positions;
+  if (sceneKind === 'cfd') { cfdInletSeed(rand, state, i); return; }
+  if (sceneKind === 'flood') {
+    var px = rand();
+    var yc0 = 0.5 + ctx.riverAmp * Math.sin(px * ctx.riverFreq) + 0.05 * Math.sin(px * 9.1);
+    p[i * 3] = px;
+    p[i * 3 + 1] = clamp(yc0 + (rand() - 0.5) * 0.12, 0.02, 0.98);
+    p[i * 3 + 2] = 0.08 + 0.5 * rand();
+    return;
+  }
+  if (sceneKind === 'fire') {
+    var fi = Math.floor(rand() * ctx.sources.length);
+    var s = ctx.sources[fi] || { x: 0.5, y: 0.5 };
+    p[i * 3] = clamp(s.x + (rand() - 0.5) * 0.12, 0.01, 0.99);
+    p[i * 3 + 1] = clamp(s.y + (rand() - 0.5) * 0.12, 0.01, 0.99);
+    p[i * 3 + 2] = 0.02 + 0.5 * rand();
+    return;
+  }
+  if (sceneKind === 'ocean') {
+    p[i * 3] = 0.05 + 0.9 * rand();
+    p[i * 3 + 1] = 0.05 + 0.9 * rand();
+    p[i * 3 + 2] = 0.05 + 0.9 * rand();
+    return;
+  }
+  p[i * 3] = respawnMode ? rand() * 0.15 : rand();
+  p[i * 3 + 1] = rand();
+  p[i * 3 + 2] = 0.02 + 0.9 * rand();
+}
+
 function handleParticleInit(message) {
   const count = Math.max(1, message.count);
   const rand = mulberry32((params.seed || 1) + 977);
@@ -924,13 +1296,7 @@ function handleParticleInit(message) {
   const lives = new Float32Array(count);
   const state = { count, positions, ages, lives };
   for (let i = 0; i < count; i += 1) {
-    if (sceneKind === 'cfd') {
-      cfdInletSeed(rand, state, i);
-    } else {
-      positions[i * 3] = rand();
-      positions[i * 3 + 1] = rand();
-      positions[i * 3 + 2] = 0.02 + 0.9 * rand();
-    }
+    sceneParticleSeed(rand, state, i, false);
     ages[i] = rand() * 2.5;
     lives[i] = 2 + 2.5 * rand();
   }
@@ -939,13 +1305,7 @@ function handleParticleInit(message) {
 }
 
 function respawn(state, i, rand) {
-  if (sceneKind === 'cfd') {
-    cfdInletSeed(rand, state, i);
-  } else {
-    state.positions[i * 3] = rand() * 0.15;
-    state.positions[i * 3 + 1] = rand();
-    state.positions[i * 3 + 2] = 0.02 + 0.9 * rand();
-  }
+  sceneParticleSeed(rand, state, i, true);
   state.ages[i] = 0;
   state.lives[i] = 2 + 2.5 * rand();
 }
@@ -967,6 +1327,9 @@ function handleParticleTick(message) {
     let v;
     if (sceneKind === 'wind') v = windVector(nx, ny, nz);
     else if (sceneKind === 'cfd') v = cfdVector(nx, ny, nz, tn);
+    else if (sceneKind === 'flood') v = floodVector(nx, ny, nz, tn);
+    else if (sceneKind === 'fire') v = fireVector(nx, ny, nz, tn);
+    else if (sceneKind === 'ocean') v = oceanVector(nx, ny, nz, tn);
     else v = { ux: 0, uy: 0, uz: 0 };
     if (v.solid) {
       respawn(state, i, rand);

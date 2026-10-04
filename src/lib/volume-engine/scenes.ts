@@ -41,6 +41,10 @@ export type VectorSpec = {
   palette: string
   defaultCount: number
   defaultSize: number
+  /** 粒子不透明度，默认 0.92 */
+  alpha?: number
+  /** 粒子始终绘制在体数据之上（关闭深度测试），用于地下水等需透出体外的流场 */
+  alwaysOnTop?: boolean
 }
 
 export type SceneSpec = {
@@ -324,6 +328,9 @@ export const PM25_CONFIG: Pm25Config = {
 /** 地下水污染羽流 —— 污染物类型 */
 export type PlumeContaminantKind = 'tce' | 'cr6' | 'tds'
 
+/** 含水层 / 隔水层类型 */
+export type PlumeAquiferType = 'aquifer' | 'aquitard'
+
 export type PlumeAquiferDef = {
   code: number
   name: string
@@ -331,8 +338,21 @@ export type PlumeAquiferDef = {
   top: number
   /** 底界埋深（m） */
   bottom: number
-  porosity: string
-  permeability: string
+  type: PlumeAquiferType
+  /** 有效孔隙度（0~1） */
+  porosity: number
+  /** 渗透系数（m/d） */
+  conductivity: number
+  /** 纵向弥散度（m） */
+  longitudinalDispersion: number
+  /** 横向弥散度（m） */
+  transverseDispersion: number
+  /** 垂向弥散度（m） */
+  verticalDispersion: number
+  /** 隔水层泄漏系数（0~1，含水层为 1） */
+  leakageFactor: number
+  color: string
+  opacity: number
   role: string
 }
 
@@ -344,63 +364,164 @@ export type PlumeWellDef = {
   y: number
   /** 采样 / 滤水管深度（m） */
   depth: number
+  /** 筛管顶界埋深（m） */
+  screenTop: number
+  /** 筛管底界埋深（m） */
+  screenBottom: number
+  /** 抽采井抽水量（m³/d） */
+  pumpingRateM3D?: number
+  /** 该井监测的含水层码 */
+  monitorLayerCodes: number[]
 }
 
-export type PlumeCameraPreset = 'overview' | 'plume' | 'source' | 'section' | 'wells' | 'top'
+/** 污染源区（地表厂区下伏释放区） */
+export type PlumeSourceZoneDef = {
+  x: number
+  y: number
+  rx: number
+  ry: number
+  /** 释放区顶界埋深（m） */
+  top: number
+  /** 释放区底界埋深（m） */
+  bottom: number
+  massRate: number
+  color: string
+}
+
+/** 污染物统一输运参数（同一水动力场下的差异化参数） */
+export type PlumeTransportDef = {
+  /** 源强（对应通道浓度上限） */
+  sourceMass: number
+  /** 相对迁移性：>1 更快、前缘更远 */
+  mobility: number
+  /** 衰减速率系数 */
+  decay: number
+  /** 横向弥散放大因子 */
+  lateralSpread: number
+  /** 垂向扩散放大因子 */
+  verticalSpread: number
+  /** 深部赋存偏好（正=偏深，负=偏浅） */
+  depthBias: number
+  /** 主要赋存含水层码 */
+  primaryLayers: number[]
+}
+
+export type PlumeContaminantDef = {
+  name: string
+  unit: string
+  max: number
+  palette: string
+  hint: string
+  /** 风险边界阈值（风险等值面外层） */
+  threshold: number
+  /** 污染核心阈值（核心等值面内层） */
+  coreThreshold: number
+  transport: PlumeTransportDef
+}
+
+export type PlumeCameraPreset = 'site' | 'plume' | 'source' | 'section' | 'capture' | 'top'
 
 export type PlumeConfig = {
   siteName: string
   aquifers: PlumeAquiferDef[]
   wells: PlumeWellDef[]
+  sourceZone: PlumeSourceZoneDef
   /** 地下水流向（度） */
   flowDir: number
+  /** 地下水位埋深（m） */
+  waterTableM: number
+  /** 水平水力梯度 */
+  hydraulicGradient: number
+  /** 垂向水力梯度（控制越流补给） */
+  verticalGradient: number
+  /** 场地水平尺度（m），用于把归一化距离换算为米制统计 */
+  domainSizeM: number
   depthMarks: number[]
   /** 风险分级浓度阈值（按当前污染物单位，运行时按通道换算） */
   riskThresholds: number[]
-  contaminants: Record<PlumeContaminantKind, { name: string; unit: string; max: number; palette: string; hint: string }>
+  contaminants: Record<PlumeContaminantKind, PlumeContaminantDef>
   camera: Record<PlumeCameraPreset, { label: string; heading: number; pitch: number; rangeFactor: number }>
   /** 单个时间步代表的月数 */
   timeStepMonths: number
+  /** 抽采井开始抽水的时间步（从 0 计） */
+  captureStartStep: number
+  /** 抽采捕获区半径（m） */
+  captureRadiusM: number
 }
 
 /**
- * 地下水污染羽流专属配置：含水层分层、井位清单、地下水流向、污染物清单、风险阈值与相机预设。
+ * 地下水污染羽流专属配置：水文地质分层、井位清单、地下水流向、污染源区、
+ * 污染物输运参数、风险阈值与相机预设。
  */
 export const PLUME_CONFIG: PlumeConfig = {
   siteName: '太湖平原某化工遗留场地',
   aquifers: [
-    { code: 1, name: '潜水含水层', top: 0, bottom: 24, porosity: '高', permeability: '高', role: '浅层潜水' },
-    { code: 2, name: '粉质黏土隔水层', top: 24, bottom: 40, porosity: '低', permeability: '极低', role: '弱透水层' },
-    { code: 3, name: '第一承压含水层', top: 40, bottom: 72, porosity: '较高', permeability: '较高', role: '主采水层' },
-    { code: 4, name: '黏土隔水层', top: 72, bottom: 88, porosity: '低', permeability: '极低', role: '隔水底板' },
-    { code: 5, name: '第二承压含水层', top: 88, bottom: 120, porosity: '中', permeability: '中', role: '深部含水层' }
+    { code: 1, name: '潜水含水层', top: 0, bottom: 24, type: 'aquifer', porosity: 0.30, conductivity: 22, longitudinalDispersion: 12, transverseDispersion: 3.2, verticalDispersion: 0.9, leakageFactor: 1, color: '#3d8bfd', opacity: 0.16, role: '浅层潜水 · 主污染赋存层' },
+    { code: 2, name: '粉质黏土隔水层', top: 24, bottom: 40, type: 'aquitard', porosity: 0.09, conductivity: 0.02, longitudinalDispersion: 1.2, transverseDispersion: 0.4, verticalDispersion: 0.15, leakageFactor: 0.08, color: '#b7a06a', opacity: 0.24, role: '弱透水层 · 越流屏障' },
+    { code: 3, name: '第一承压含水层', top: 40, bottom: 72, type: 'aquifer', porosity: 0.26, conductivity: 12, longitudinalDispersion: 9, transverseDispersion: 2.6, verticalDispersion: 0.7, leakageFactor: 1, color: '#2bb6c9', opacity: 0.14, role: '主采水层 · 抽采目标层' },
+    { code: 4, name: '黏土隔水层', top: 72, bottom: 88, type: 'aquitard', porosity: 0.08, conductivity: 0.02, longitudinalDispersion: 1.0, transverseDispersion: 0.35, verticalDispersion: 0.12, leakageFactor: 0.06, color: '#8e8e8e', opacity: 0.24, role: '隔水底板' },
+    { code: 5, name: '第二承压含水层', top: 88, bottom: 120, type: 'aquifer', porosity: 0.20, conductivity: 6, longitudinalDispersion: 6, transverseDispersion: 2.0, verticalDispersion: 0.5, leakageFactor: 0.5, color: '#1e5aa8', opacity: 0.16, role: '深部含水层' }
   ],
   wells: [
-    { id: 'SRC-01', name: '污染源 SRC-01', kind: 'source', x: 0.30, y: 0.42, depth: 10 },
-    { id: 'MW-01', name: '监测井 MW-01', kind: 'monitor', x: 0.40, y: 0.44, depth: 18 },
-    { id: 'MW-02', name: '监测井 MW-02', kind: 'monitor', x: 0.52, y: 0.48, depth: 20 },
-    { id: 'MW-03', name: '监测井 MW-03', kind: 'monitor', x: 0.63, y: 0.55, depth: 52 },
-    { id: 'MW-04', name: '监测井 MW-04', kind: 'monitor', x: 0.70, y: 0.44, depth: 50 },
-    { id: 'MW-05', name: '监测井 MW-05', kind: 'monitor', x: 0.46, y: 0.62, depth: 56 },
-    { id: 'EW-01', name: '抽出处理井 EW-01', kind: 'extract', x: 0.58, y: 0.50, depth: 54 }
+    { id: 'SRC-01', name: '污染源 SRC-01', kind: 'source', x: 0.30, y: 0.42, depth: 10, screenTop: 2, screenBottom: 12, monitorLayerCodes: [1] },
+    { id: 'MW-01', name: '监测井 MW-01', kind: 'monitor', x: 0.40, y: 0.44, depth: 18, screenTop: 14, screenBottom: 20, monitorLayerCodes: [1] },
+    { id: 'MW-02', name: '监测井 MW-02', kind: 'monitor', x: 0.52, y: 0.48, depth: 20, screenTop: 16, screenBottom: 22, monitorLayerCodes: [1] },
+    { id: 'MW-03', name: '监测井 MW-03', kind: 'monitor', x: 0.63, y: 0.55, depth: 52, screenTop: 48, screenBottom: 56, monitorLayerCodes: [3] },
+    { id: 'MW-04', name: '监测井 MW-04', kind: 'monitor', x: 0.70, y: 0.44, depth: 50, screenTop: 46, screenBottom: 54, monitorLayerCodes: [3] },
+    { id: 'MW-05', name: '监测井 MW-05', kind: 'monitor', x: 0.46, y: 0.62, depth: 56, screenTop: 52, screenBottom: 58, monitorLayerCodes: [3] },
+    { id: 'EW-01', name: '抽出处理井 EW-01', kind: 'extract', x: 0.58, y: 0.50, depth: 54, screenTop: 42, screenBottom: 64, pumpingRateM3D: 1200, monitorLayerCodes: [3] }
   ],
+  sourceZone: { x: 0.30, y: 0.42, rx: 0.05, ry: 0.04, top: 0, bottom: 12, massRate: 1, color: '#ff5a3c' },
   flowDir: 68,
+  waterTableM: 8,
+  hydraulicGradient: 0.003,
+  verticalGradient: 0.0008,
+  domainSizeM: 3000,
   depthMarks: [20, 40, 60, 80, 100, 120],
   riskThresholds: [10, 25, 40, 60],
   contaminants: {
-    tce: { name: '三氯乙烯 (TCE)', unit: 'µg/L', max: 400, palette: 'contaminant', hint: 'Dense NAPL 溶解相，随地下水迁移，衰减慢、穿透承压层' },
-    cr6: { name: '六价铬 Cr(VI)', unit: 'mg/L', max: 30, palette: 'chromate', hint: '强迁移阴离子，主要赋存于浅层潜水含水层' },
-    tds: { name: '总溶解固体 TDS', unit: 'mg/L', max: 1600, palette: 'turbo', hint: '场地综合污染指标，覆盖全含水层系统' }
+    tce: {
+      name: '三氯乙烯 (TCE)',
+      unit: 'µg/L',
+      max: 400,
+      palette: 'risk',
+      hint: 'Dense NAPL 溶解相，随地下水迁移，衰减慢、可穿透弱透水层进入承压含水层',
+      threshold: 50,
+      coreThreshold: 200,
+      transport: { sourceMass: 400, mobility: 0.9, decay: 0.35, lateralSpread: 1.0, verticalSpread: 1.0, depthBias: 0.35, primaryLayers: [1, 3, 5] }
+    },
+    cr6: {
+      name: '六价铬 Cr(VI)',
+      unit: 'mg/L',
+      max: 30,
+      palette: 'chromate',
+      hint: '强迁移阴离子，纵向迁移快、横向弥散宽，主要赋存于浅层潜水含水层',
+      threshold: 3,
+      coreThreshold: 12,
+      transport: { sourceMass: 30, mobility: 1.5, decay: 0.85, lateralSpread: 1.6, verticalSpread: 0.8, depthBias: -0.25, primaryLayers: [1] }
+    },
+    tds: {
+      name: '总溶解固体 TDS',
+      unit: 'mg/L',
+      max: 1600,
+      palette: 'risk',
+      hint: '近似保守示踪，衰减弱、垂向分布连续，适合观察整体盐化污染带',
+      threshold: 300,
+      coreThreshold: 900,
+      transport: { sourceMass: 1600, mobility: 1.15, decay: 0.1, lateralSpread: 1.2, verticalSpread: 1.6, depthBias: 0.1, primaryLayers: [1, 3, 5] }
+    }
   },
   camera: {
-    overview: { label: '全局', heading: 32, pitch: -34, rangeFactor: 1.05 },
-    plume: { label: '羽流主体', heading: 248, pitch: -24, rangeFactor: 0.68 },
-    source: { label: '源区', heading: 300, pitch: -18, rangeFactor: 0.42 },
-    section: { label: '沿流向剖面', heading: 68, pitch: -6, rangeFactor: 0.8 },
-    wells: { label: '监测井网', heading: 40, pitch: -40, rangeFactor: 0.8 },
-    top: { label: '俯视', heading: 0, pitch: -80, rangeFactor: 0.95 }
+    site: { label: '调查区', heading: 32, pitch: -26, rangeFactor: 1.02 },
+    plume: { label: '羽流主体', heading: 248, pitch: -22, rangeFactor: 0.62 },
+    source: { label: '源区下钻', heading: 300, pitch: -16, rangeFactor: 0.4 },
+    section: { label: 'A-B 剖面', heading: 68, pitch: -8, rangeFactor: 0.78 },
+    capture: { label: '抽采控制', heading: 20, pitch: -20, rangeFactor: 0.46 },
+    top: { label: '污染平面', heading: 0, pitch: -78, rangeFactor: 0.95 }
   },
-  timeStepMonths: 1
+  timeStepMonths: 1,
+  captureStartStep: 6,
+  captureRadiusM: 350
 }
 
 /** 三维矿体品位 —— 元素类型 */
@@ -815,19 +936,19 @@ export const SCENES: Record<SceneKind, SceneSpec> = {
     title: '空间分析-地下水污染羽流三维体',
     tag: 'Hydrology / Contaminant Plume',
     description:
-      '工业遗留场地地下水污染调查：以平流—弥散—衰变模型生成三维污染羽流，叠加潜水/承压多层含水层与隔水层，支持 TCE / 六价铬 / TDS 多污染物切换、风险浓度等值面、监测井浓度剖面、沿流向剖切与污染体积/前缘距离统计。',
+      '工业遗留场地地下水污染调查：以平流—弥散—衰减模型在多层含水层系统中生成三维污染羽流，叠加潜水/承压含水层与弱透水层、地下水流线与抽采井捕获区，支持 TCE / 六价铬 / TDS 多污染物切换、风险浓度等值面、监测井分层浓度剖面、A-B 工程剖面与污染体积/前缘距离/捕获率统计。',
     center: { lon: 120.32, lat: 31.48, height: 120 },
     volume: { width: 3000, depth: 3000, height: 120, base: -120 },
     channels: [
-      { key: 'tce', label: '三氯乙烯', unit: 'µg/L', min: 0, max: 400, palette: 'contaminant', mode: 'scalar', thresholds: [50, 100, 200], decimals: 0 },
-      { key: 'cr6', label: '六价铬', unit: 'mg/L', min: 0, max: 30, palette: 'chromate', mode: 'scalar', thresholds: [3, 6, 12], decimals: 2 },
-      { key: 'tds', label: '总溶解固体', unit: 'mg/L', min: 0, max: 1600, palette: 'turbo', mode: 'scalar', thresholds: [300, 600, 900], decimals: 0 }
+      { key: 'tce', label: '三氯乙烯', unit: 'µg/L', min: 0, max: 400, palette: 'risk', mode: 'scalar', thresholds: [50, 120, 200], decimals: 0 },
+      { key: 'cr6', label: '六价铬', unit: 'mg/L', min: 0, max: 30, palette: 'chromate', mode: 'scalar', thresholds: [3, 7, 12], decimals: 2 },
+      { key: 'tds', label: '总溶解固体', unit: 'mg/L', min: 0, max: 1600, palette: 'risk', mode: 'scalar', thresholds: [300, 600, 900], decimals: 0 }
     ],
     defaultChannel: 'tce',
     timeSteps: 24,
     timeStepUnit: '月',
     defaults: { tileSize: 16, levels: 4, sse: 12, stepSize: 1, nearest: false, opacity: 0.9, alphaFloor: 0 },
-    params: { seed: 20260929, flowDir: 68, velocity: 0.5, dispersion: 0.5, decay: 0.4, sourceX: 0.3, sourceY: 0.42, recharge: 0.5 }
+    params: { seed: 20260929, flowDir: 68, velocity: 0.5, dispersion: 0.5, decay: 0.4, sourceX: 0.3, sourceY: 0.42, recharge: 0.5, waterTable: 0.067, gradient: 0.003, capture: 1 }
   },
   mining: {
     kind: 'mining',

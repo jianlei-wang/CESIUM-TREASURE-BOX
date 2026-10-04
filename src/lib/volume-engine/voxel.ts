@@ -264,6 +264,61 @@ export function createPm25Shader(initialLut: Uint8Array): CustomShader {
 }
 
 /**
+ * 地下水污染羽流着色器：VEC4 元数据 .r=浓度、.g=有效掩膜、.b=污染体密度、.a=数据质量/赋存适宜度。
+ * 在风险传递函数基础上：
+ *   - 按密度（.b）执行 Beer-Lambert 消光，高浓度核心致密、低浓度近乎透明；
+ *   - 按质量（.a）调制置信度，弱透水层与远场低置信度适度减淡；
+ *   - 低于风险阈值的达标区保持透明，突出污染羽边界；
+ *   - 高浓度核心轻微提亮，强化污染中心的空间识别。
+ */
+export function createPlumeShader(initialLut: Uint8Array, riskThreshold = 0): CustomShader {
+  return new CustomShader({
+    uniforms: {
+      uTransferFunction: { type: UniformType.SAMPLER_2D, value: makeLutTexture(initialLut) },
+      uValueMin: { type: UniformType.FLOAT, value: 0 },
+      uValueMax: { type: UniformType.FLOAT, value: 1 },
+      uOpacity: { type: UniformType.FLOAT, value: 0.9 },
+      uLighting: { type: UniformType.FLOAT, value: 0.42 },
+      uDensityGamma: { type: UniformType.FLOAT, value: 1.1 },
+      /** 风险边界阈值（归一化 0~1）：低于此浓度视为达标、近乎透明 */
+      uRiskThreshold: { type: UniformType.FLOAT, value: Math.max(0, Math.min(1, riskThreshold)) },
+      /** 风险边界软过渡宽度 */
+      uRiskSoft: { type: UniformType.FLOAT, value: 0.06 },
+      /** 污染体密度增强系数 */
+      uDensityGain: { type: UniformType.FLOAT, value: 1.35 },
+      /** 低置信度处保留的最低不透明度比例 */
+      uQualityFloor: { type: UniformType.FLOAT, value: 0.3 },
+      /** Beer-Lambert 消光系数 */
+      uExtinction: { type: UniformType.FLOAT, value: 2.6 }
+    },
+    fragmentShaderText: `
+      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+        vec4 meta = fsInput.metadata.color;
+        float value = meta.r;
+        float valid = meta.g;
+        float density = clamp(meta.b, 0.0, 1.0);
+        float quality = clamp(meta.a, 0.0, 1.0);
+        vec3 color = vec3(0.0);
+        float alpha = 0.0;
+        if (valid > 0.5) {
+          float t = clamp((value - uValueMin) / max(0.000001, uValueMax - uValueMin), 0.0, 1.0);
+          vec4 c = texture(uTransferFunction, vec2(t, 0.5));
+          float gate = smoothstep(uRiskThreshold, uRiskThreshold + max(0.0001, uRiskSoft), t);
+          float dens = pow(clamp(density * uDensityGain, 0.0, 1.0), max(0.05, uDensityGamma));
+          float extinction = 1.0 - exp(-dens * max(0.0, uExtinction));
+          float q = mix(uQualityFloor, 1.0, quality);
+          color = min(vec3(1.0), c.rgb * (1.0 + 0.28 * smoothstep(0.55, 1.0, t)));
+          alpha = uOpacity * extinction * gate * q;
+        }
+        ${SHADING}
+        material.diffuse = color * shade;
+        material.alpha = clamp(alpha, 0.0, 1.0);
+      }
+    `
+  })
+}
+
+/**
  * 火灾体着色器：VEC4 元数据 .r=温度归一化、.g=烟气归一化、.b=湍流细节、.a=有效掩膜。
  * 在同一体数据上以 uMode 切换四种态势表达，无需重建瓦片：
  *   0 复合态势：低温烟气按 Beer-Lambert 消光呈灰黑、高温核心自发光；

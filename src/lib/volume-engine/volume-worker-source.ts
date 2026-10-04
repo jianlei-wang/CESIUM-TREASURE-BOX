@@ -423,19 +423,45 @@ function prepare(kind, p) {
     return { kind, buildings: boxes, source: { x: sx, y: sy } };
   }
   if (kind === 'plume') {
-    // 含水层/隔水层分层（归一化埋深，0 地表 → 1 底界 120 m）
-    const aquifers = [
-      { top: 0.0, bottom: 0.20, perm: 22, por: 32 },
-      { top: 0.20, bottom: 0.33, perm: 0.02, por: 9 },
-      { top: 0.33, bottom: 0.60, perm: 12, por: 26 },
-      { top: 0.60, bottom: 0.73, perm: 0.02, por: 8 },
-      { top: 0.73, bottom: 1.0, perm: 6, por: 20 }
+    // 多层含水层系统（归一化埋深，0 地表 → 1 底界 120 m）
+    // aquifer：1 含水层 / 0 弱透水层；disp* 为纵向/横向/垂向弥散度；leak 为越流穿透系数
+    var TOTAL = 120;
+    var layers = [
+      { code: 1, top: 0 / TOTAL, bottom: 24 / TOTAL, aquifer: 1, dispL: 12, dispT: 3.2, dispV: 0.9, leak: 1.0, cond: 22 },
+      { code: 2, top: 24 / TOTAL, bottom: 40 / TOTAL, aquifer: 0, dispL: 1.2, dispT: 0.4, dispV: 0.15, leak: 0.08, cond: 0.02 },
+      { code: 3, top: 40 / TOTAL, bottom: 72 / TOTAL, aquifer: 1, dispL: 9, dispT: 2.6, dispV: 0.7, leak: 1.0, cond: 12 },
+      { code: 4, top: 72 / TOTAL, bottom: 88 / TOTAL, aquifer: 0, dispL: 1.0, dispT: 0.35, dispV: 0.12, leak: 0.06, cond: 0.02 },
+      { code: 5, top: 88 / TOTAL, bottom: 1.0, aquifer: 1, dispL: 6, dispT: 2.0, dispV: 0.5, leak: 0.5, cond: 6 }
     ];
+    // 污染物输运参数：迁移性 / 衰减 / 弥散放大 / 深部偏好 / 主要赋存层
+    var transport = {
+      tce: { mobility: 0.9, decay: 0.35, lateral: 1.0, vertical: 1.0, depthBias: 0.35, primary: [1, 3, 5] },
+      cr6: { mobility: 1.5, decay: 0.85, lateral: 1.6, vertical: 0.8, depthBias: -0.25, primary: [1] },
+      tds: { mobility: 1.15, decay: 0.1, lateral: 1.2, vertical: 1.6, depthBias: 0.1, primary: [1, 3, 5] }
+    };
     return {
       kind,
+      totalDepth: TOTAL,
+      layers,
       flowDir: ((p.flowDir != null ? p.flowDir : 68) * Math.PI) / 180,
-      aquifers,
-      source: { x: p.sourceX != null ? p.sourceX : 0.30, y: p.sourceY != null ? p.sourceY : 0.42 }
+      source: {
+        x: p.sourceX != null ? p.sourceX : 0.30,
+        y: p.sourceY != null ? p.sourceY : 0.42,
+        rx: 0.05, ry: 0.04, top: 0 / TOTAL, bottom: 12 / TOTAL,
+        massRate: p.recharge != null ? (0.6 + 0.8 * p.recharge) : 1
+      },
+      wells: [
+        { id: 'MW-01', x: 0.40, y: 0.44, depth: 18 / TOTAL },
+        { id: 'MW-02', x: 0.52, y: 0.48, depth: 20 / TOTAL },
+        { id: 'MW-03', x: 0.63, y: 0.55, depth: 52 / TOTAL },
+        { id: 'MW-04', x: 0.70, y: 0.44, depth: 50 / TOTAL },
+        { id: 'MW-05', x: 0.46, y: 0.62, depth: 56 / TOTAL }
+      ],
+      pumping: { x: 0.58, y: 0.50, screenTop: 42 / TOTAL, screenBottom: 64 / TOTAL, radius: 350 / 3000, startStep: 6, rate: 1200, totalSteps: 24 },
+      transport,
+      waterTable: p.waterTable != null ? p.waterTable : 8 / TOTAL,
+      gradient: p.gradient != null ? p.gradient : 0.003,
+      timeStepMonths: 1
     };
   }
   if (kind === 'mining') {
@@ -864,60 +890,116 @@ function cfdValue(nx, ny, nz, tn, channel) {
  * 第二批案例场函数：地下水污染羽流 / 矿体品位 / 洪水 / 火灾 / 海洋
  * ------------------------------------------------------------------ */
 
-// 含水层物性：按归一化埋深返回渗透系数或孔隙率
-function plumeAquiferProp(depth, key) {
-  var a = ctx.aquifers;
+// 按归一化埋深定位含水层 / 弱透水层
+function plumeLayerAt(depth) {
+  var a = ctx.layers;
   for (var i = 0; i < a.length; i += 1) {
-    if (depth >= a[i].top && depth <= a[i].bottom) return key === 'perm' ? a[i].perm : a[i].por;
+    if (depth >= a[i].top && depth <= a[i].bottom) return a[i];
   }
-  return key === 'perm' ? 0.02 : 8;
+  return a[a.length - 1];
 }
 
-// 平流—弥散—衰减解析羽流：源持续释放，沿地下水流向迁移、侧向弥散、沿程衰减
+// 平流—弥散—衰减 + 多层越流 + 抽采捕获的三维污染羽流
+// 同一地下水流场下，不同污染物以 mobility / decay / 弥散 / 赋存层位差异化表现
 function plumeValue(nx, ny, nz, tn, channel) {
   var src = ctx.source;
   var fd = ctx.flowDir;
   var depth = 1 - nz;
+  var tr = ctx.transport[channel] || ctx.transport.tce;
   var vel = params.velocity != null ? params.velocity : 0.5;
   var disp = params.dispersion != null ? params.dispersion : 0.5;
   var decay = params.decay != null ? params.decay : 0.4;
+  var amp = channel === 'cr6' ? 30 : channel === 'tds' ? 1600 : 400;
 
   var dx = nx - src.x;
   var dy = ny - src.y;
   var along = dx * Math.cos(fd) + dy * Math.sin(fd);
   var cross = -dx * Math.sin(fd) + dy * Math.cos(fd);
 
-  var targetDepth = 0.45;
-  var decayK = decay * 0.55;
-  var sig = disp * 0.9;
-  var amp = 400;
-  var flatVert = 0;
-  if (channel === 'cr6') { targetDepth = 0.10; decayK = decay * 1.5; sig = disp * 1.6; amp = 30; }
-  else if (channel === 'tds') { targetDepth = 0.47; decayK = decay * 0.45; sig = disp * 1.0; amp = 1600; flatVert = 1; }
+  var layer = plumeLayerAt(depth);
 
-  var growth = smoothstep(0.0, 0.35, tn);
-  var travel = (0.16 + 0.5 * vel) * growth;
+  // 源区持续释放：前缘随迁移性推进，早期逐步展开
+  var growth = smoothstep(0.0, 0.32, tn);
+  var travel = (0.14 + 0.5 * vel) * tr.mobility * growth;
   var front = along / Math.max(0.04, travel);
   if (front < 0) front = 0;
-  var ahead = smoothstep(1.2, 0.72, front);
-  var alongDecay = Math.exp(-front * (0.6 + 2.2 * decayK));
-  var sigmaY = 0.026 + sig * 0.11 * (0.3 + front);
+  var ahead = smoothstep(1.25, 0.7, front);
+  var decayK = decay * tr.decay;
+  var alongDecay = Math.exp(-front * (0.5 + 2.2 * decayK));
+
+  // 横向弥散：源区宽度 + 随迁移距离展开
+  var sigmaY = Math.max(src.rx, 0.022 + disp * 0.10 * (0.3 + front) * tr.lateral);
   var lateral = Math.exp(-(cross * cross) / (2 * sigmaY * sigmaY));
 
-  var perm = plumeAquiferProp(depth, 'perm');
-  var aquitard = perm < 0.5 ? 0.16 : 1.0;
-  var vert = Math.exp(-Math.pow((depth - targetDepth) / 0.16, 2));
-  if (flatVert) vert = 0.35 + 0.65 * vert;
+  // 垂向赋存：主含水层加权中心 + 深部偏好，弱透水层按越流系数衰减
+  var center = 0;
+  var wsum = 0;
+  for (var li = 0; li < tr.primary.length; li += 1) {
+    var L = ctx.layers[tr.primary[li] - 1];
+    var w = L.aquifer ? 1 : 0.3;
+    center += w * 0.5 * (L.top + L.bottom);
+    wsum += w;
+  }
+  center = center / Math.max(0.001, wsum) + 0.05 * tr.depthBias;
+  var vertSigma = 0.11 * tr.vertical * (1 + 0.25 * front);
+  var vert = Math.exp(-Math.pow((depth - center) / vertSigma, 2));
+  vert = vert * (layer.aquifer ? 1 : layer.leak);
 
-  var conc = amp * growth * ahead * alongDecay * lateral * vert * aquitard;
-  conc += 0.08 * amp * growth * Math.exp(-(cross * cross) / (2 * Math.pow(sigmaY * 2.2, 2))) * vert;
+  var conc = amp * src.massRate * growth * ahead * alongDecay * lateral * vert;
+
+  // 沿流向平流拖尾：低浓度羽尾
+  conc += 0.08 * amp * growth * Math.exp(-(cross * cross) / (2 * Math.pow(sigmaY * 2.2, 2))) * vert * (layer.aquifer ? 0.6 : 0.25);
+
+  // 抽采井捕获效应：投运后井周形成快速汇流与下游浓度削弱
+  var pw = ctx.pumping;
+  var monthIdx = tn * ((pw && pw.totalSteps ? pw.totalSteps : 24) - 1);
+  if (pw && monthIdx >= pw.startStep) {
+    var pdx = nx - pw.x;
+    var pdy = ny - pw.y;
+    var pr = Math.sqrt(pdx * pdx + pdy * pdy);
+    var infl = pw.radius * (1 + 0.06 * (monthIdx - pw.startStep));
+    var cap = Math.exp(-(pr * pr) / (2 * Math.pow(infl * 0.55, 2)));
+    var bandC = 0.5 * (pw.screenTop + pw.screenBottom);
+    var depthBand = Math.exp(-Math.pow((depth - bandC) / 0.16, 2));
+    var pump = cap * depthBand;
+    conc = conc * (1 + 0.35 * pump) * (1 - 0.28 * pump);
+  }
+
   if (conc < 0.02) conc = 0;
+  var density = clamp(conc / amp, 0, 1);
+  var quality = clamp(0.3 + 0.55 * vert + 0.15 * (layer.aquifer ? 1 : 0.2) - 0.15 * (monthIdx / 23), 0, 1);
   return {
     value: clamp(conc, 0, amp),
     valid: conc > 0.05 ? 1 : 0,
-    density: clamp(conc / amp, 0, 1),
-    quality: clamp(0.35 + 0.5 * vert + 0.2 * (1 - aquitard), 0, 1)
+    density: density,
+    quality: quality
   };
+}
+
+// 地下水流场：区域水平流（按含水层渗透性定速）+ 越流垂向分量 + 抽采井汇
+function plumeVector(nx, ny, nz, tn) {
+  var depth = 1 - nz;
+  var layer = plumeLayerAt(depth);
+  var cond = layer.cond != null ? layer.cond : 1;
+  var base = 0.18 + 0.82 * Math.min(1, cond / 22);
+  if (!layer.aquifer) base *= 0.04; // 弱透水层近于滞流，流线在此终止
+  var ux = Math.cos(ctx.flowDir) * base;
+  var uy = Math.sin(ctx.flowDir) * base;
+  // 垂向分量：由垂向水力梯度控制，浅部向下补给、深部缓慢升流
+  var uz = 0.22 * (ctx.gradient - 0.003) * 60 + 0.05 * (depth - 0.5) * base;
+  var pw = ctx.pumping;
+  var monthIdx = pw ? tn * ((pw.totalSteps || 24) - 1) : 0;
+  if (pw && monthIdx >= pw.startStep) {
+    var dx = nx - pw.x;
+    var dy = ny - pw.y;
+    var r = Math.sqrt(dx * dx + dy * dy) + 1e-4;
+    var bandC = 0.5 * (pw.screenTop + pw.screenBottom);
+    var band = Math.exp(-Math.pow((depth - bandC) / 0.15, 2));
+    var pull = 0.45 * band / (1 + r * 12);
+    ux -= (dx / r) * pull;
+    uy -= (dy / r) * pull;
+  }
+  return { ux: ux, uy: uy, uz: uz, solid: 0 };
 }
 
 // 钻孔样品 IDW 化的矿化强度：多条透镜状矿体 + 走向薄板 + 浅部次生富集 + 地质噪声
@@ -1505,6 +1587,26 @@ function sceneParticleSeed(rand, state, i, respawnMode) {
     p[i * 3 + 2] = 0.05 + 0.9 * rand();
     return;
   }
+  if (sceneKind === 'plume') {
+    // 各含水层内随机释放：粒子随区域地下水流平流，并在抽采井附近被捕获
+    var aqs = [];
+    for (var pi = 0; pi < ctx.layers.length; pi += 1) {
+      if (ctx.layers[pi].aquifer) aqs.push(ctx.layers[pi]);
+    }
+    if (!aqs.length) aqs = ctx.layers;
+    var Lp = aqs[Math.floor(rand() * aqs.length)];
+    // 源区附近释放，随地下水向下游运移并汇入抽采井，形成沿羽流路径的示踪流
+    var ang = rand() * Math.PI * 2;
+    var rad = Math.pow(rand(), 0.55) * 0.34;
+    p[i * 3] = clamp(ctx.source.x + Math.cos(ang) * rad, 0.02, 0.98);
+    p[i * 3 + 1] = clamp(ctx.source.y + Math.sin(ang) * rad, 0.02, 0.98);
+    p[i * 3 + 2] = clamp(
+      1 - 0.5 * (Lp.top + Lp.bottom) + (rand() - 0.5) * 0.5 * (Lp.bottom - Lp.top),
+      0.03,
+      0.97
+    );
+    return;
+  }
   p[i * 3] = respawnMode ? rand() * 0.15 : rand();
   p[i * 3 + 1] = rand();
   p[i * 3 + 2] = 0.02 + 0.9 * rand();
@@ -1552,6 +1654,7 @@ function handleParticleTick(message) {
     else if (sceneKind === 'flood') v = floodVector(nx, ny, nz, tn);
     else if (sceneKind === 'fire') v = fireVector(nx, ny, nz, tn);
     else if (sceneKind === 'ocean') v = oceanVector(nx, ny, nz, tn);
+    else if (sceneKind === 'plume') v = plumeVector(nx, ny, nz, tn);
     else v = { ux: 0, uy: 0, uz: 0 };
     if (v.solid) {
       respawn(state, i, rand);
@@ -1563,7 +1666,9 @@ function handleParticleTick(message) {
     }
     let x = nx + v.ux * dt * scale[0];
     let y = ny + v.uy * dt * scale[1];
-    let z = nz + v.uz * dt * scale[2] + 0.02 * dt;
+    // 地下水粒子不附加通用浮升项，保持在含水层内水平运移
+    const buoy = sceneKind === 'plume' ? 0 : 0.02 * dt;
+    let z = nz + v.uz * dt * scale[2] + buoy;
     state.ages[i] += dt;
     if (x < 0 || x > 1 || y < 0 || y > 1 || z < 0 || z > 1 || state.ages[i] > state.lives[i]) {
       respawn(state, i, rand);

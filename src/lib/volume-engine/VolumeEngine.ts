@@ -50,6 +50,7 @@ import { channelOf, FIRE_CONFIG, type ChannelSpec, type SceneSpec } from './scen
 import {
   createCategoricalShader,
   createFireShader,
+  createPlumeShader,
   createPm25Shader,
   createRadarShader,
   createScalarShader,
@@ -110,6 +111,8 @@ export type LineOverlayResult = {
   positions: Float32Array
   offsets: Uint32Array
   speeds: Float32Array
+  /** 可选：按折线序号（0..offsets.length-2）给出的 RGB（0~1）颜色，未提供时按 speedPalette / color 统一着色 */
+  colors?: Float32Array
 }
 
 const EMPTY_LINES: LineOverlayResult = {
@@ -120,8 +123,66 @@ const EMPTY_LINES: LineOverlayResult = {
 
 export { EMPTY_LINES }
 
+/** 分层地质体：归一化包围盒（x/y 水平、z 垂直，0~1）+ 颜色与不透明度 */
+export type LayerVolume = {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+  minZ: number
+  maxZ: number
+  color: [number, number, number]
+  opacity: number
+}
+
 function clamp01(value: number): number {
   return value < 0 ? 0 : value > 1 ? 1 : value
+}
+
+/**
+ * 生成仅含四个竖直侧壁的开口盒体几何（无顶 / 底面）。
+ * 用于分层地质体：以水平色带表达地层，同时保持体域内部通透，避免遮挡体渲染主体。
+ */
+function createWallGeometry(minimum: Cartesian3, maximum: Cartesian3): Geometry {
+  const x0 = minimum.x
+  const y0 = minimum.y
+  const z0 = minimum.z
+  const x1 = maximum.x
+  const y1 = maximum.y
+  const z1 = maximum.z
+  const positions = new Float64Array([
+    x0, y0, z0, x1, y0, z0, x1, y1, z0, x0, y1, z0,
+    x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1
+  ])
+  const normals = new Float32Array([
+    0, -1, 0, 1, 0, 0, 0, 1, 0, -1, 0, 0,
+    0, -1, 0, 1, 0, 0, 0, 1, 0, -1, 0, 0
+  ])
+  const indices = new Uint16Array([
+    0, 1, 5, 0, 5, 4,
+    1, 2, 6, 1, 6, 5,
+    2, 3, 7, 2, 7, 6,
+    3, 0, 4, 3, 4, 7
+  ])
+  const center = new Cartesian3((x0 + x1) * 0.5, (y0 + y1) * 0.5, (z0 + z1) * 0.5)
+  const radius = 0.5 * Math.hypot(x1 - x0, y1 - y0, z1 - z0)
+  return new Geometry({
+    attributes: {
+      position: new GeometryAttribute({
+        componentDatatype: ComponentDatatype.DOUBLE,
+        componentsPerAttribute: 3,
+        values: positions
+      }),
+      normal: new GeometryAttribute({
+        componentDatatype: ComponentDatatype.FLOAT,
+        componentsPerAttribute: 3,
+        values: normals
+      })
+    } as unknown as GeometryAttributes,
+    indices,
+    primitiveType: PrimitiveType.TRIANGLES,
+    boundingSphere: new BoundingSphere(center, radius)
+  })
 }
 
 /** 火灾风险分级色（安全→极高危），转为 0~1 的 RGB 供着色器使用 */
@@ -259,7 +320,7 @@ export class VolumeEngine {
   private buildTime = 0
 
   private shader: CustomShader | undefined
-  private shaderMode: 'scalar' | 'categorical' | 'radar' | 'pm25' | 'fire' | undefined
+  private shaderMode: 'scalar' | 'categorical' | 'radar' | 'pm25' | 'fire' | 'plume' | undefined
   /** 最近一次写入 GPU 的传递函数字节；内容不变时跳过重建贴图，避免重建后一帧白闪 */
   private lutCache: Uint8Array | undefined
   private primitive: VoxelPrimitive | undefined
@@ -295,7 +356,15 @@ export class VolumeEngine {
   private analysisSeq = 0
   private pendingAnalysis = new Map<number, { resolve: (result: unknown) => void; reject: (error: Error) => void }>()
   private lineCollection: PolylineCollection | undefined
+  /** 独立的流线层：与地质骨架分离，便于单独应用速度渐变 / 尾迹收束等流线样式 */
+  private flowLineCollection: PolylineCollection | undefined
   private arrowCollection: PolylineCollection | undefined
+  /** 流线“顶部点串”：禁用深度测试直绘于体数据之上，避免体内折线被不透明体遮挡 */
+  private flowBeadCollection: PointPrimitiveCollection | undefined
+  /** 分层地质体（含水层 / 弱透水层）半透明盒体 */
+  private levelBodyPrimitive: Primitive | undefined
+  private levelBodyDefs: LayerVolume[] = []
+  private levelBodyOpacityScale = 1
   private isoPrimitives = new Map<string, Primitive>()
   private markerCollection: PointPrimitiveCollection | undefined
   private markerLabelCollection: LabelCollection | undefined
@@ -551,16 +620,19 @@ export class VolumeEngine {
 
   private ensureShader(): CustomShader {
     const mode = this.activeChannel.mode
-    const variant: 'scalar' | 'categorical' | 'radar' | 'pm25' | 'fire' =
+    const variant: 'scalar' | 'categorical' | 'radar' | 'pm25' | 'fire' | 'plume' =
       mode === 'categorical'
         ? 'categorical'
         : (this.spec.kind === 'radar'
             ? 'radar'
             : (this.spec.kind === 'pm25'
                 ? 'pm25'
-                : (this.spec.kind === 'fire' ? 'fire' : 'scalar')))
+                : (this.spec.kind === 'fire'
+                    ? 'fire'
+                    : (this.spec.kind === 'plume' ? 'plume' : 'scalar'))))
     if (!this.shader || this.shaderMode !== variant) {
       const layerGating = this.spec.kind === 'geology'
+      const riskThreshold = this.plumeRiskThresholdNorm()
       if (variant === 'categorical') {
         this.shader = createCategoricalShader(this.spec.categories ?? [], { layerGating })
       } else if (variant === 'radar') {
@@ -575,6 +647,8 @@ export class VolumeEngine {
           smokeLut: buildTransferLut('smoke', { alphaFloor: 0.02 }),
           riskColors: FIRE_RISK_RGB
         })
+      } else if (variant === 'plume') {
+        this.shader = createPlumeShader(buildTransferLut(this.paletteKey, { alphaFloor: 0 }), riskThreshold)
       } else {
         this.shader = createScalarShader(buildTransferLut(this.paletteKey, { alphaFloor: this.alphaFloor }), { layerGating })
       }
@@ -582,6 +656,16 @@ export class VolumeEngine {
       this.lutCache = undefined
     }
     return this.shader
+  }
+
+  /** 污染羽流风险边界阈值（归一化），优先取显式阈值，其次取通道首档阈值 */
+  private plumeRiskThresholdNorm(): number {
+    const ch = this.activeChannel
+    const explicit = this.thresholdData
+    const fallback = ch.thresholds && ch.thresholds.length ? ch.thresholds[0] : this.valueMin
+    const t = explicit !== undefined ? explicit : fallback
+    const span = this.valueMax - this.valueMin || 1
+    return clamp01((t - this.valueMin) / span)
   }
 
   private createPrimitive(): void {
@@ -808,6 +892,7 @@ export class VolumeEngine {
       if (this.shader.uniforms.uValueMin) this.shader.uniforms.uValueMin.value = this.valueMin
       if (this.shader.uniforms.uValueMax) this.shader.uniforms.uValueMax.value = this.valueMax
       this.shader.uniforms.uOpacity.value = this.opacity
+      if (this.shader.uniforms.uRiskThreshold) this.shader.uniforms.uRiskThreshold.value = this.plumeRiskThresholdNorm()
       if (this.shader.uniforms.uLogScale) this.shader.uniforms.uLogScale.value = this.logScale ? 1 : 0
       if (this.shader.uniforms.uLogMin) this.shader.uniforms.uLogMin.value = Math.log(Math.max(this.valueMin, 1e-6))
       if (this.shader.uniforms.uLogMax) this.shader.uniforms.uLogMax.value = Math.log(Math.max(this.valueMax, 1e-6))
@@ -1097,13 +1182,15 @@ export class VolumeEngine {
 
   /* ---------------------------- Overlays ---------------------------- */
 
-  private ensureLineCollection(): PolylineCollection | undefined {
+  private ensureLineCollection(layer: 'base' | 'flow' = 'base'): PolylineCollection | undefined {
     if (!this.viewer || this.viewer.isDestroyed()) return undefined
-    if (!this.lineCollection) {
-      this.lineCollection = new PolylineCollection({ modelMatrix: this.modelMatrix })
-      this.viewer.scene.primitives.add(this.lineCollection)
-    }
-    return this.lineCollection
+    const existing = layer === 'flow' ? this.flowLineCollection : this.lineCollection
+    if (existing) return existing
+    const created = new PolylineCollection({ modelMatrix: this.modelMatrix })
+    this.viewer.scene.primitives.add(created)
+    if (layer === 'flow') this.flowLineCollection = created
+    else this.lineCollection = created
+    return created
   }
 
   private ensureMarkerCollection(): PointPrimitiveCollection | undefined {
@@ -1143,9 +1230,15 @@ export class VolumeEngine {
       alphaEnd?: number
       /** 线宽同时随局部速度加权（高速更宽），用于强化速度几何表达 */
       widthBySpeed?: boolean
+      /** 以带箭头折线（PolylineArrow）整条渲染，用于流线方向表达 */
+      arrow?: boolean
+      /** 以发光折线（PolylineGlow，带锥形收束）渲染整条流线，用于强调流线主体 */
+      glow?: boolean
+      /** 折线所属图层：base 为地质骨架 / 标注，flow 为动态流线（独立集合，可单独淡出与着色） */
+      layer?: 'base' | 'flow'
     } = {}
   ): void {
-    const collection = this.ensureLineCollection()
+    const collection = this.ensureLineCollection(options.layer ?? 'base')
     if (!collection) return
     collection.removeAll()
     if (!result || !result.positions.length || result.offsets.length < 2) {
@@ -1156,6 +1249,11 @@ export class VolumeEngine {
     const min = options.speedMin ?? 0
     const max = options.speedMax ?? 1
     const fallback = Color.fromCssColorString(options.color ?? '#67e8f9')
+    const lineColors = result.colors
+    const lineColorAt = (s: number, alpha: number): Color | undefined => {
+      if (!lineColors || s * 3 + 2 >= lineColors.length) return undefined
+      return new Color(lineColors[s * 3], lineColors[s * 3 + 1], lineColors[s * 3 + 2], alpha)
+    }
     const segments = Math.max(1, Math.min(48, Math.round(options.segments ?? 1)))
     const alphaStart = clamp01(options.alphaStart ?? 0.2)
     const alphaEnd = clamp01(options.alphaEnd ?? 0.95)
@@ -1168,6 +1266,68 @@ export class VolumeEngine {
       return new Color(lut[idx * 4] / 255, lut[idx * 4 + 1] / 255, lut[idx * 4 + 2] / 255, alpha)
     }
     const offsets = result.offsets
+    if (options.glow) {
+      // 发光流线：整条 PolylineGlow（带锥形收束），可选在末段叠加箭头指示方向
+      for (let s = 0; s + 1 < offsets.length; s += 1) {
+        const start = offsets[s]
+        const end = offsets[s + 1]
+        const points = end - start
+        if (points < 2) continue
+        const positions: Cartesian3[] = []
+        for (let i = start; i < end; i += 1) {
+          positions.push(new Cartesian3(result.positions[i * 3], result.positions[i * 3 + 1], result.positions[i * 3 + 2]))
+        }
+        const color = (!lut && lineColorAt(s, alphaEnd)) || colorAt(result.speeds[start], alphaEnd)
+        collection.add({
+          positions,
+          material: Material.fromType('PolylineGlow', { color, glowPower: 0.1, taperPower: 0.15 }),
+          width: widthEnd
+        })
+        if (options.arrow) {
+          const cut = Math.max(0, positions.length - 1 - Math.max(2, Math.round((points - 1) * 0.24)))
+          const tail = positions.slice(cut)
+          if (tail.length >= 2) {
+            collection.add({
+              positions: tail,
+              material: Material.fromType('PolylineArrow', { color }),
+              width: widthEnd * 1.25
+            })
+          }
+        }
+      }
+      this.viewer?.scene.requestRender()
+      return
+    }
+    if (options.arrow) {
+      // 带箭头折线：沿流线分成若干段，每段末端一个箭头，形成连续的流向指示
+      const chunks = Math.max(1, Math.min(12, Math.round(options.segments ?? 1)))
+      for (let s = 0; s + 1 < offsets.length; s += 1) {
+        const start = offsets[s]
+        const end = offsets[s + 1]
+        const points = end - start
+        if (points < 2) continue
+        const piece = chunks <= 1 ? points - 1 : Math.max(1, Math.floor((points - 1) / chunks))
+        for (let c = 0; c < points - 1; c += piece) {
+          const last = Math.min(points - 1, c + piece)
+          const positions: Cartesian3[] = []
+          for (let i = c; i <= last; i += 1) {
+            const g = start + i
+            positions.push(new Cartesian3(result.positions[g * 3], result.positions[g * 3 + 1], result.positions[g * 3 + 2]))
+          }
+          if (positions.length < 2) continue
+          const speed = result.speeds[start + c]
+          collection.add({
+            positions,
+            material: Material.fromType('PolylineArrow', {
+              color: (!lut && lineColorAt(s, alphaEnd)) || colorAt(speed, alphaEnd)
+            }),
+            width: widthEnd
+          })
+        }
+      }
+      this.viewer?.scene.requestRender()
+      return
+    }
     for (let s = 0; s + 1 < offsets.length; s += 1) {
       const start = offsets[s]
       const end = offsets[s + 1]
@@ -1180,7 +1340,7 @@ export class VolumeEngine {
         }
         collection.add({
           positions,
-          material: Material.fromType('Color', { color: colorAt(result.speeds[start], alphaEnd) }),
+          material: Material.fromType('Color', { color: (!lut && lineColorAt(s, alphaEnd)) || colorAt(result.speeds[start], alphaEnd) }),
           width: widthEnd
         })
         continue
@@ -1201,7 +1361,7 @@ export class VolumeEngine {
         const width = widthStart + (widthEnd - widthStart) * widthMix
         collection.add({
           positions,
-          material: Material.fromType('Color', { color: colorAt(result.speeds[start + c], alpha) }),
+          material: Material.fromType('Color', { color: (!lut && lineColorAt(s, alpha)) || colorAt(result.speeds[start + c], alpha) }),
           width
         })
       }
@@ -1209,16 +1369,103 @@ export class VolumeEngine {
     this.viewer?.scene.requestRender()
   }
 
+  /**
+   * 将流线渲染为“顶部点串”（禁用深度测试，直绘于体数据之上）。
+   * 体数据不透明时会遮挡其内部的折线，点串作为始终可见的流线骨架，
+   * 并以沿线渐变的点径 / 透明度表达由尾到头的流向。
+   */
+  setFlowBeads(
+    result: LineOverlayResult | undefined,
+    options: {
+      speedPalette?: string
+      speedMin?: number
+      speedMax?: number
+      color?: string
+      /** 基准点径（像素），沿流线由尾到头放大 */
+      pixelSize?: number
+      /** 采样步长：每隔多少个折线顶点取一个点串节点 */
+      stride?: number
+      /** 末端透明度 */
+      alpha?: number
+    } = {}
+  ): void {
+    if (this.flowBeadCollection && this.viewer && !this.viewer.isDestroyed()) {
+      this.viewer.scene.primitives.remove(this.flowBeadCollection)
+    }
+    this.flowBeadCollection = undefined
+    if (!this.viewer || this.viewer.isDestroyed() || !result || !result.positions.length || result.offsets.length < 2) {
+      this.viewer?.scene.requestRender()
+      return
+    }
+    const lut = options.speedPalette ? buildTransferLut(options.speedPalette) : undefined
+    const min = options.speedMin ?? 0
+    const max = options.speedMax ?? 1
+    const fallback = Color.fromCssColorString(options.color ?? '#67e8f9')
+    const baseSize = options.pixelSize ?? 3.2
+    const stride = Math.max(1, Math.round(options.stride ?? 3))
+    const alphaBase = clamp01(options.alpha ?? 0.9)
+    const lineColors = result.colors
+    const collection = new PointPrimitiveCollection({ modelMatrix: this.modelMatrix })
+    const offsets = result.offsets
+    for (let s = 0; s + 1 < offsets.length; s += 1) {
+      const start = offsets[s]
+      const end = offsets[s + 1]
+      const count = end - start
+      if (count < 2) continue
+      for (let i = 0; i < count; i += stride) {
+        const g = start + i
+        const t = count <= 1 ? 1 : i / (count - 1)
+        let color: Color
+        if (!lut && lineColors && s * 3 + 2 < lineColors.length) {
+          color = new Color(lineColors[s * 3], lineColors[s * 3 + 1], lineColors[s * 3 + 2], 1)
+        } else if (!lut) {
+          color = fallback
+        } else {
+          const tt = clamp01((result.speeds[g] - min) / (max - min || 1))
+          const idx = Math.round(tt * 255)
+          color = new Color(lut[idx * 4] / 255, lut[idx * 4 + 1] / 255, lut[idx * 4 + 2] / 255, 1)
+        }
+        collection.add({
+          position: new Cartesian3(result.positions[g * 3], result.positions[g * 3 + 1], result.positions[g * 3 + 2]),
+          pixelSize: baseSize * (0.72 + 0.55 * t),
+          color: color.withAlpha(alphaBase * (0.45 + 0.55 * t)),
+          outlineColor: Color.fromCssColorString('#04121f').withAlpha(0.5),
+          outlineWidth: 1,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        })
+      }
+    }
+    this.viewer.scene.primitives.add(collection)
+    this.flowBeadCollection = collection
+    this.viewer.scene.requestRender()
+  }
+
+  /** 清除流线顶部点串 */
+  clearFlowBeads(): void {
+    if (this.flowBeadCollection && this.viewer && !this.viewer.isDestroyed()) {
+      this.viewer.scene.primitives.remove(this.flowBeadCollection)
+    }
+    this.flowBeadCollection = undefined
+    this.viewer?.scene.requestRender()
+  }
+
   setLineOverlaysVisible(visible: boolean): void {
     if (this.lineCollection) this.lineCollection.show = visible
+    if (this.flowLineCollection) this.flowLineCollection.show = visible
+    if (this.flowBeadCollection) this.flowBeadCollection.show = visible
     this.viewer?.scene.requestRender()
   }
 
   clearLines(): void {
-    if (this.lineCollection && this.viewer && !this.viewer.isDestroyed()) {
-      this.viewer.scene.primitives.remove(this.lineCollection)
+    const collections = [this.lineCollection, this.flowLineCollection, this.flowBeadCollection]
+    for (const collection of collections) {
+      if (collection && this.viewer && !this.viewer.isDestroyed()) {
+        this.viewer.scene.primitives.remove(collection)
+      }
     }
     this.lineCollection = undefined
+    this.flowLineCollection = undefined
+    this.flowBeadCollection = undefined
   }
 
   /**
@@ -1346,6 +1593,101 @@ export class VolumeEngine {
       this.viewer.scene.primitives.remove(primitive)
       this.isoPrimitives.delete(id)
     }
+  }
+
+  /**
+   * 渲染分层地质体（含水层 / 弱透水层）为半透明盒体：输入为归一化包围盒 0~1，
+   * 用于在三维场景中直观呈现地层结构与赋存层位，配合骨架线框共同表达地质模型。
+   */
+  setLevelBodies(levels: LayerVolume[] | undefined, visible = true, opacityScale = 1): void {
+    this.levelBodyOpacityScale = clamp01(opacityScale)
+    this.clearLevelBodies()
+    if (!this.viewer || this.viewer.isDestroyed() || !levels || !levels.length) {
+      this.viewer?.scene.requestRender()
+      return
+    }
+    const instances: GeometryInstance[] = []
+    const opacityFactor = clamp01(this.levelBodyOpacityScale)
+    levels.forEach((level, index) => {
+      const minZ = Math.min(level.minZ, level.maxZ)
+      const maxZ = Math.max(level.minZ, level.maxZ)
+      const minimum = this.localFromNormalized(
+        Math.min(level.minX, level.maxX),
+        Math.min(level.minY, level.maxY),
+        minZ
+      )
+      const maximum = this.localFromNormalized(
+        Math.max(level.minX, level.maxX),
+        Math.max(level.minY, level.maxY),
+        maxZ
+      )
+      instances.push(
+        new GeometryInstance({
+          id: `level-${index}`,
+          geometry: createWallGeometry(minimum, maximum),
+          attributes: {
+            color: ColorGeometryInstanceAttribute.fromColor(
+              new Color(
+                level.color[0],
+                level.color[1],
+                level.color[2],
+                clamp01(level.opacity * opacityFactor * 2.2)
+              )
+            )
+          }
+        })
+      )
+    })
+    const primitive = new Primitive({
+      geometryInstances: instances,
+      appearance: new PerInstanceColorAppearance({ translucent: true, closed: false, flat: false }),
+      modelMatrix: Matrix4.clone(this.modelMatrix),
+      asynchronous: false,
+      allowPicking: false
+    })
+    primitive.show = visible
+    this.viewer.scene.primitives.add(primitive)
+    this.levelBodyPrimitive = primitive
+    this.levelBodyDefs = levels.map((level) => ({ ...level }))
+    this.viewer.scene.requestRender()
+  }
+
+  /** 分层地质体显隐 */
+  setLevelBodiesVisible(visible: boolean): void {
+    if (this.levelBodyPrimitive) this.levelBodyPrimitive.show = visible
+    this.viewer?.scene.requestRender()
+  }
+
+  /** 分层地质体不透明度缩放（相对各层自身 opacity 的倍率） */
+  setLevelBodiesOpacity(scale: number): void {
+    const factor = clamp01(scale)
+    this.levelBodyOpacityScale = factor
+    if (!this.levelBodyPrimitive || !this.viewer || this.viewer.isDestroyed()) return
+    try {
+      for (let i = 0; i < this.levelBodyDefs.length; i += 1) {
+        const level = this.levelBodyDefs[i]
+        const attributes = this.levelBodyPrimitive.getGeometryInstanceAttributes(`level-${i}`)
+        if (attributes && attributes.color !== undefined) {
+          attributes.color = ColorGeometryInstanceAttribute.toValue(
+            new Color(level.color[0], level.color[1], level.color[2], clamp01(level.opacity * factor * 2.2))
+          )
+        }
+      }
+    } catch {
+      // 首次渲染前 batch table 尚未建立，缩放值已记录，将在下次 setLevelBodies 时生效
+      return
+    }
+    this.viewer.scene.requestRender()
+  }
+
+  /** 清除分层地质体 */
+  clearLevelBodies(): void {
+    if (this.levelBodyPrimitive && this.viewer && !this.viewer.isDestroyed()) {
+      this.viewer.scene.primitives.remove(this.levelBodyPrimitive)
+    }
+    this.levelBodyPrimitive = undefined
+    this.levelBodyDefs = []
+    this.viewer?.scene.requestRender()
   }
 
   /** 将归一化坐标（x/y 水平、z 垂直）换算为局部米坐标 */
@@ -1535,9 +1877,16 @@ export class VolumeEngine {
     const v = this.spec.volume
     const vector = this.spec.vector
     const count = positions.length / 3
+    const alpha = vector?.alpha ?? 0.92
+    const depthDistance = vector?.alwaysOnTop ? Number.POSITIVE_INFINITY : 0
     while (this.particlePoints.length < count) {
       this.particlePoints.push(
-        collection.add({ position: new Cartesian3(0, 0, 0), pixelSize: this.particleSize, color: Color.WHITE })
+        collection.add({
+          position: new Cartesian3(0, 0, 0),
+          pixelSize: this.particleSize,
+          color: Color.WHITE,
+          disableDepthTestDistance: depthDistance
+        })
       )
     }
     const min = this.bounds.min
@@ -1552,7 +1901,7 @@ export class VolumeEngine {
       )
       const t = Math.max(0, Math.min(1, (speeds[i] - (vector?.min ?? 0)) / span))
       const idx = Math.round(t * (LUT_WIDTH - 1))
-      point.color = new Color(lut[idx * 4] / 255, lut[idx * 4 + 1] / 255, lut[idx * 4 + 2] / 255, 0.92)
+      point.color = new Color(lut[idx * 4] / 255, lut[idx * 4 + 1] / 255, lut[idx * 4 + 2] / 255, alpha)
     }
     this.viewer?.scene.requestRender()
   }

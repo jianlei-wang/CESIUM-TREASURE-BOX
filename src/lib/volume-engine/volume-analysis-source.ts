@@ -23,6 +23,7 @@ function analysisVectorAt(nx, ny, nz, tn) {
   if (sceneKind === 'flood') return floodVector(nx, ny, nz, tn);
   if (sceneKind === 'fire') return fireVector(nx, ny, nz, tn);
   if (sceneKind === 'ocean') return oceanVector(nx, ny, nz, tn);
+  if (sceneKind === 'plume') return plumeVector(nx, ny, nz, tn);
   return { ux: 0, uy: 0, uz: 0, solid: 0 };
 }
 
@@ -822,6 +823,26 @@ function streamlineSeed(rand, levels, index, seedCount) {
     if (rand() < 0.18) z = 0.05 + 0.9 * rand();
     return { x: 0.04 + 0.92 * rand(), y: 0.04 + 0.92 * rand(), z: z < 0.03 ? 0.03 : z > 0.97 ? 0.97 : z };
   }
+  if (sceneKind === 'plume') {
+    // 各含水层内规则布种，形成随地下水流向运移的分层流线族
+    var aqs = [];
+    for (var ai = 0; ai < ctx.layers.length; ai += 1) {
+      if (ctx.layers[ai].aquifer) aqs.push(ctx.layers[ai]);
+    }
+    if (!aqs.length) aqs = ctx.layers;
+    var total = seedCount && seedCount > 1 ? seedCount : aqs.length;
+    var perLayer = Math.max(1, Math.floor(total / aqs.length));
+    var li = Math.floor(index / perLayer);
+    if (li > aqs.length - 1) li = aqs.length - 1;
+    var A = aqs[li];
+    var local = index - li * perLayer;
+    var cols = Math.max(1, Math.round(Math.sqrt(perLayer)));
+    var gx = ((local % cols) + 0.5) / cols;
+    var gy = (Math.floor(local / cols) + 0.5) / cols;
+    var zCenter = 1 - 0.5 * (A.top + A.bottom);
+    var z = clamp(zCenter + (rand() - 0.5) * 0.55 * (A.bottom - A.top), 0.03, 0.97);
+    return { x: clamp(0.06 + 0.88 * gx, 0.03, 0.97), y: clamp(0.06 + 0.88 * gy, 0.03, 0.97), z: z };
+  }
   return { x: 0.04 + 0.92 * rand(), y: 0.04 + 0.92 * rand(), z: 0.04 + 0.5 * rand() };
 }
 
@@ -1227,10 +1248,11 @@ function analyzeCfd(message, tn) {
  * 第二批案例领域分析：污染羽流 / 矿体品位 / 洪水 / 火灾 / 海洋
  * ------------------------------------------------------------------ */
 
-// 污染羽流：给定浓度阈值下的污染体积、影响面积、前缘迁移距离与分层赋存
+// 污染羽流：给定浓度阈值下的污染体积、影响面积、前缘迁移距离、分层赋存与抽采捕获率
 function analyzePlume(message, tn) {
   var channel = message.channel;
   var threshold = message.threshold != null ? message.threshold : 50;
+  var coreThreshold = message.coreThreshold != null ? message.coreThreshold : threshold * 2;
   var N = message.res || 40;
   var V = message.vres || 48;
   var volSize = message.volSize || [1, 1, 1];
@@ -1241,20 +1263,30 @@ function analyzePlume(message, tn) {
   var cosf = Math.cos(flow);
   var sinf = Math.sin(flow);
   var distScale = Math.sqrt(Math.pow(volSize[0] * cosf, 2) + Math.pow(volSize[1] * sinf, 2));
-  var aquifers = ctx.aquifers;
-  var aCount = new Float64Array(aquifers.length);
-  var aAbove = new Float64Array(aquifers.length);
+  var layers = ctx.layers;
+  var aVolume = new Float64Array(layers.length);
+  var aAbove = new Float64Array(layers.length);
   var columnAbove = new Uint8Array(N * N);
   var volume = 0;
+  var coreVolume = 0;
   var area = 0;
   var frontMax = 0;
   var maxConc = 0;
   var maxPos = [0, 0, 0];
   var sum = 0;
   var count = 0;
+  var aboveCount = 0;
+  var aboveAfterStart = 0;
+  var captured = 0;
+  var pw = ctx.pumping;
+  var monthIdx = pw ? tn * ((pw.totalSteps || 24) - 1) : 0;
   for (var iz = 0; iz < V; iz += 1) {
     var nz = (iz + 0.5) / V;
     var depth = 1 - nz;
+    var code = layers.length - 1;
+    for (var ai = 0; ai < layers.length; ai += 1) {
+      if (depth >= layers[ai].top && depth <= layers[ai].bottom) { code = ai; break; }
+    }
     for (var iy = 0; iy < N; iy += 1) {
       var ny = (iy + 0.5) / N;
       for (var ix = 0; ix < N; ix += 1) {
@@ -1265,39 +1297,51 @@ function analyzePlume(message, tn) {
         sum += s.value;
         if (s.value > maxConc) { maxConc = s.value; maxPos = [nx, ny, nz]; }
         if (s.value >= threshold) {
+          aboveCount += 1;
           volume += cellVol;
+          if (s.value >= coreThreshold) coreVolume += cellVol;
           columnAbove[iy * N + ix] = 1;
           var along = (nx - src.x) * cosf + (ny - src.y) * sinf;
           if (along > frontMax) frontMax = along;
-          var code = aquifers.length - 1;
-          for (var ai = 0; ai < aquifers.length; ai += 1) {
-            if (depth >= aquifers[ai].top && depth <= aquifers[ai].bottom) { code = ai; break; }
+          aVolume[code] += cellVol;
+          aAbove[code] += 1;
+          if (pw && monthIdx >= pw.startStep) {
+            aboveAfterStart += 1;
+            var cdx = nx - pw.x;
+            var cdy = ny - pw.y;
+            var cr = Math.sqrt(cdx * cdx + cdy * cdy);
+            var bandC = 0.5 * (pw.screenTop + pw.screenBottom);
+            if (cr <= pw.radius && Math.abs(depth - bandC) <= 0.13) captured += 1;
           }
-          aCount[code] += 1;
-          if (s.value >= threshold) aAbove[code] += 1;
         }
       }
     }
   }
   for (var ci = 0; ci < N * N; ci += 1) if (columnAbove[ci]) area += cellArea;
   var aquiferStats = [];
-  for (var k = 0; k < aquifers.length; k += 1) {
+  for (var k = 0; k < layers.length; k += 1) {
     aquiferStats.push({
-      code: k + 1,
-      above: aCount[k],
-      fraction: count ? aCount[k] / count : 0
+      code: layers[k].code,
+      above: aAbove[k],
+      volumeM3: aVolume[k],
+      fraction: aboveCount ? aAbove[k] / aboveCount : 0
     });
   }
   var result = {
     threshold: threshold,
+    coreThreshold: coreThreshold,
     volumeM3: volume,
+    coreVolumeM3: coreVolume,
     areaM2: area,
     frontDistanceM: frontMax * distScale,
     maxConc: maxConc,
     meanConc: count ? sum / count : 0,
     maxPos: maxPos,
     aquiferStats: aquiferStats,
-    sampleCount: count
+    captureRate: aboveAfterStart ? captured / aboveAfterStart : 0,
+    captureCount: captured,
+    sampleCount: count,
+    aboveCount: aboveCount
   };
   return { result: result, transfer: [] };
 }

@@ -109,12 +109,19 @@ button { border: 0; cursor: pointer; }
 .demo-card { min-width: 0; overflow: hidden; background: #fff; border: 1px solid #eaf0f6; border-radius: 10px; cursor: pointer; transition: transform .25s ease, box-shadow .25s ease; }
 .demo-card:not(.is-available) { cursor: default; }
 .demo-card:hover { transform: translateY(-5px); box-shadow: 0 13px 28px rgba(34,62,103,.12); }
-.thumbnail { position: relative; overflow: hidden; aspect-ratio: 16 / 9; background: #172944; }
+.thumbnail { position: relative; overflow: hidden; aspect-ratio: 16 / 9; background: #172944; perspective: 900px; }
+.thumbnail-flip { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform .6s cubic-bezier(.4,.2,.2,1); }
+.thumbnail:hover .thumbnail-flip { transform: rotateY(180deg); }
+.thumbnail-face { position: absolute; inset: 0; overflow: hidden; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.thumbnail-back { transform: rotateY(180deg); display: flex; flex-direction: column; gap: 5px; padding: 11px 12px; color: #e6eefb; background: linear-gradient(150deg, #1c3253, #0e1e37); }
+.thumbnail-back h4 { margin: 0; color: #fff; font-size: 12px; font-weight: 700; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.thumbnail-back p { flex: 1 1 auto; margin: 0; color: #a9bdd8; font-size: 10px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.thumbnail-cue { display: inline-flex; align-items: center; gap: 4px; margin-top: auto; color: #6db0f5; font-size: 10px; }
+.thumbnail-cue .el-icon { font-size: 12px; }
 .thumbnail img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .no-image { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 7px; color: #7c90ac; background: linear-gradient(145deg, #1b3152, #101f39); font-size: 11px; }
 .no-image .el-icon { font-size: 26px; color: #49628a; }
 .demo-tag { position: absolute; left: 9px; top: 9px; padding: 4px 7px; border: 1px solid rgba(255,255,255,.22); border-radius: 4px; color: rgba(255,255,255,.9); background: rgba(10,27,53,.44); backdrop-filter: blur(5px); font: 9px 'DM Mono', monospace; }
-.thumbnail-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 6px; color: #fff; font-size: 12px; opacity: 0; background: rgba(11,29,58,.34); transition: .2s; }.demo-card:hover .thumbnail-overlay { opacity: 1; }.thumbnail-overlay .el-icon { font-size: 16px; }
 .card-copy { padding: 12px 13px 11px; }.card-copy h3 { overflow: hidden; margin: 0; color: #263650; font-size: 13px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }.card-footer { justify-content: flex-start; gap: 8px; padding-top: 9px; border-top: 1px solid #f0f3f7; color: #6b7889; font-size: 10px; }.card-status { display: inline-flex; align-items: center; min-width: 0; gap: 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }.card-status .el-icon { flex: 0 0 auto; font-size: 12px; }.card-status.completed { color: #32a46d; }.card-status.developing { color: #9aa7b7; }
 .mobile-menu-button, .close-sidebar { display: none; }.sidebar-backdrop { display: none; }
 .empty-state { display: grid; place-items: center; align-content: center; min-height: 400px; color: #9ba8ba; }.empty-state .el-icon { font-size: 30px; }.empty-state h3 { margin: 12px 0 0; color: #586a83; font-size: 16px; }.empty-state p { margin: 5px 0; font-size: 12px; }

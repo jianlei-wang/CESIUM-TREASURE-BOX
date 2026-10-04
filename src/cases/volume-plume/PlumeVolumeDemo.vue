@@ -17,6 +17,7 @@ import {
   runPlumeIso,
   runPlumeProfile,
   runPlumeStats,
+  runPlumeStreamlines,
   type PlumeProfileResult,
   type PlumeStatsResult
 } from './plume-analysis'
@@ -27,34 +28,55 @@ const config = PLUME_CONFIG
 const panelOpen = ref(true)
 const V = spec.volume
 
-const CAMERA_ORDER = ['overview', 'plume', 'source', 'section', 'wells', 'top'] as const
-const camera = ref<(typeof CAMERA_ORDER)[number]>('overview')
+const CAMERA_ORDER = ['site', 'plume', 'source', 'section', 'capture', 'top'] as const
+const camera = ref<(typeof CAMERA_ORDER)[number]>('site')
 
 const firstThreshold = spec.channels[0].thresholds?.[0] ?? 50
 const threshold = ref(firstThreshold)
 const isoEnabled = ref(true)
 const flowVisible = ref(true)
 const wellsVisible = ref(true)
+const aquifersVisible = ref(true)
+const aquiferBodiesVisible = ref(true)
+const aquiferBodiesOpacity = ref(0.7)
+const captureVisible = ref(true)
 const selectedWellId = ref(config.wells[1]?.id ?? config.wells[0].id)
 const stats = ref<PlumeStatsResult | null>(null)
 const busy = ref(false)
 const wellCanvas = ref<HTMLCanvasElement | null>(null)
+const density = ref(spec.defaults.tileSize)
+const DENSITY_PRESETS = [
+  { tileSize: 16, levels: 4, label: '128³' },
+  { tileSize: 24, levels: 4, label: '192³' },
+  { tileSize: 32, levels: 4, label: '256³' }
+] as const
 let overlay: PlumeOverlayHandle | undefined
+let flowLines: Awaited<ReturnType<typeof runPlumeStreamlines>> | null = null
+const baselineCache = new Map<string, PlumeProfileResult>()
 
 const scene = useVolumeScene(spec, {
   onReady: (engine) => {
-    engine.setRenderParams({ densityGamma: 1.2, thresholdSoft: 0.04, lighting: 0.4 })
+    engine.setRenderParams({ densityGamma: 1.1, thresholdSoft: 0.05, lighting: 0.42 })
     engine.setBackgroundMode('engineering')
     overlay = installPlumeOverlay(engine)
-    overlay.update({ flowVisible: flowVisible.value, wellsVisible: wellsVisible.value, activeWellId: selectedWellId.value })
-    const cam = config.camera.overview
+    overlay.update({
+      flowVisible: flowVisible.value,
+      wellsVisible: wellsVisible.value,
+      aquifersVisible: aquifersVisible.value,
+      aquiferBodiesVisible: aquiferBodiesVisible.value,
+      aquiferBodiesOpacity: aquiferBodiesOpacity.value,
+      captureVisible: captureVisible.value,
+      activeWellId: selectedWellId.value,
+      timeStep: scene.ui.timeStep
+    })
+    const cam = config.camera.site
     engine.flyToView(cam.heading, cam.pitch, cam.rangeFactor, 0)
-    void refreshStats()
-    void refreshIso()
-    void refreshWell()
+    const initialStep = Math.min(spec.timeSteps - 1, config.captureStartStep + 5)
+    if (initialStep !== scene.ui.timeStep) scene.setTimeStep(initialStep)
+    else void refreshAll()
   }
 })
-const { container, sliceCanvas } = scene
+const { container } = scene
 
 const meta = computed(() => scene.active())
 const thresholdList = computed(() => meta.value.thresholds ?? [meta.value.min, meta.value.max])
@@ -71,12 +93,18 @@ function colorAt(value: number): [number, number, number] {
 
 /* ----------------------------- 分析 ----------------------------- */
 
+const coreThreshold = computed(() => {
+  const cont = config.contaminants[scene.ui.channel as keyof typeof config.contaminants]
+  return cont?.coreThreshold ?? threshold.value * 2
+})
+
 async function refreshStats(engine = scene.engine.value): Promise<void> {
   if (!engine) return
   try {
     stats.value = await runPlumeStats(engine, {
       channel: scene.ui.channel,
       threshold: threshold.value,
+      coreThreshold: coreThreshold.value,
       volSize: [V.width, V.depth, V.height]
     })
   } catch {
@@ -86,37 +114,81 @@ async function refreshStats(engine = scene.engine.value): Promise<void> {
 
 async function refreshIso(engine = scene.engine.value): Promise<void> {
   if (!engine) return
-  engine.clearIsosurface()
+  engine.clearIsosurface('plume-iso')
+  engine.clearIsosurface('plume-core')
   if (!isoEnabled.value) return
   busy.value = true
   try {
-    const result = await runPlumeIso(engine, scene.ui.channel, threshold.value, [V.width, V.depth, V.height])
-    if (result && result.count) {
-      engine.setIsosurface(result.positions, result.normals, colorAt(threshold.value), 0.5, 'plume-iso')
+    const outer = await runPlumeIso(engine, scene.ui.channel, threshold.value, [V.width, V.depth, V.height])
+    if (outer && outer.count) {
+      engine.setIsosurface(outer.positions, outer.normals, colorAt(threshold.value), 0.3, 'plume-iso')
+    }
+    const core = await runPlumeIso(engine, scene.ui.channel, coreThreshold.value, [V.width, V.depth, V.height], 48)
+    if (core && core.count) {
+      engine.setIsosurface(core.positions, core.normals, colorAt(coreThreshold.value), 0.72, 'plume-core')
     }
   } finally {
     busy.value = false
   }
 }
 
-let lastProfile: PlumeProfileResult | undefined
 async function refreshWell(engine = scene.engine.value): Promise<void> {
   if (!engine) return
   const well = selectedWell.value
+  const cacheKey = `${scene.ui.channel}|${well.id}`
+  let baseline = baselineCache.get(cacheKey)
+  if (!baseline) {
+    try {
+      baseline = await runPlumeProfile(engine, well.x, well.y, scene.ui.channel, 60, Math.max(0, config.captureStartStep - 1))
+      baselineCache.set(cacheKey, baseline)
+    } catch {
+      baseline = undefined
+    }
+  }
   const profile = await runPlumeProfile(engine, well.x, well.y, scene.ui.channel, 60)
-  lastProfile = profile
   await nextTick()
   const canvas = wellCanvas.value
-  if (canvas && lastProfile) drawWellProfile(canvas, lastProfile, meta.value.max, threshold.value)
+  if (canvas) {
+    drawWellProfile(canvas, profile, {
+      config,
+      well,
+      valueMax: meta.value.max,
+      threshold: threshold.value,
+      coreThreshold: coreThreshold.value,
+      baseline,
+      unit: meta.value.unit
+    })
+  }
+}
+
+async function refreshFlowLines(engine = scene.engine.value): Promise<void> {
+  if (!engine) return
+  try {
+    flowLines = await runPlumeStreamlines(engine, scene.ui.timeStep, [V.width, V.depth, V.height], 12)
+  } catch {
+    flowLines = null
+  }
+  overlay?.update({ flowLines })
 }
 
 function refreshOverlay(): void {
-  overlay?.update({ flowVisible: flowVisible.value, wellsVisible: wellsVisible.value, activeWellId: selectedWellId.value })
+  overlay?.update({
+    flowVisible: flowVisible.value,
+    wellsVisible: wellsVisible.value,
+    aquifersVisible: aquifersVisible.value,
+    aquiferBodiesVisible: aquiferBodiesVisible.value,
+    aquiferBodiesOpacity: aquiferBodiesOpacity.value,
+    captureVisible: captureVisible.value,
+    activeWellId: selectedWellId.value,
+    timeStep: scene.ui.timeStep,
+    flowLines
+  })
 }
 
 /* ----------------------------- 交互 ----------------------------- */
 
 function onChannel(key: string): void {
+  baselineCache.clear()
   scene.setChannel(key)
   const ch = spec.channels.find((c) => c.key === key) ?? spec.channels[0]
   threshold.value = ch.thresholds?.[0] ?? ch.min
@@ -129,6 +201,11 @@ function pickThreshold(value: number): void {
   void refreshIso()
   void refreshStats()
   void refreshWell()
+}
+
+function selectDensity(tileSize: number, levels: number): void {
+  density.value = tileSize
+  scene.setPreset(tileSize, levels)
 }
 
 function zoomToWell(id: string): void {
@@ -150,6 +227,7 @@ function refreshAll(): void {
   void refreshStats()
   void refreshIso()
   void refreshWell()
+  void refreshFlowLines()
 }
 
 watch(
@@ -158,6 +236,8 @@ watch(
     if (isoEnabled.value) void refreshIso()
     void refreshStats()
     void refreshWell()
+    void refreshFlowLines()
+    refreshOverlay()
   }
 )
 
@@ -171,36 +251,51 @@ onBeforeUnmount(() => {
 const kpiCards = computed(() => {
   const s = stats.value
   if (!s) return []
-  return [
+  const cards = [
     { label: '污染体积', value: (s.volumeM3 / 10000).toFixed(1), unit: '万 m³' },
+    { label: '核心体积', value: (s.coreVolumeM3 / 10000).toFixed(2), unit: '万 m³' },
     { label: '影响面积', value: (s.areaM2 / 10000).toFixed(1), unit: '万 m²' },
     { label: '前缘距离', value: s.frontDistanceM.toFixed(0), unit: 'm' },
     { label: '峰值浓度', value: s.maxConc.toFixed(meta.value.decimals ?? 0), unit: meta.value.unit }
   ]
+  if (scene.ui.timeStep >= config.captureStartStep) {
+    cards.push({ label: '抽采捕获率', value: (s.captureRate * 100).toFixed(0), unit: '%' })
+  }
+  return cards
 })
 
 const statsItems = computed<StatItem[]>(() => {
   const s = stats.value
+  const aquiferCount = config.aquifers.filter((a) => a.type === 'aquifer').length
+  const aquitardCount = config.aquifers.length - aquiferCount
   const items: StatItem[] = [
     { label: '场地', value: config.siteName },
-    { label: '含水层', value: `${config.aquifers.length} 层` },
+    { label: '含水层 / 隔水层', value: `${aquiferCount} / ${aquitardCount} 层` },
     { label: '井位', value: `${config.wells.length} 口` },
     { label: '地下水流向', value: `${config.flowDir}°` },
-    { label: '当前污染物', value: meta.value.label }
+    { label: '当前污染物', value: meta.value.label },
+    { label: '模拟时间', value: `第 ${scene.ui.timeStep + 1} 个月` }
   ]
   if (s) {
     items.push({ label: '平均浓度', value: `${s.meanConc.toFixed(meta.value.decimals ?? 0)} ${meta.value.unit}` })
-    items.push({ label: '超标体元', value: s.sampleCount.toLocaleString() })
+    items.push({ label: '超标体元', value: s.aboveCount.toLocaleString() })
+    if (scene.ui.timeStep >= config.captureStartStep) {
+      items.push({ label: '捕获体元', value: s.captureCount.toLocaleString() })
+    }
   }
   return items
 })
 
-const clipRows = computed<StatItem[]>(() => [
-  { label: '污染物', value: meta.value.label },
-  { label: '剖切方位', value: `${scene.ui.azimuth}°` },
-  { label: '剖切倾角', value: `${scene.ui.tilt}°` },
-  { label: '剖切偏移', value: `${scene.ui.offset}%` }
-])
+const aquiferRows = computed(() =>
+  config.aquifers.map((a) => ({
+    code: a.code,
+    name: a.name,
+    range: `${a.top}–${a.bottom} m`,
+    type: a.type,
+    role: a.role,
+    color: a.color
+  }))
+)
 
 const pickedView = computed<PickedView | null>(() => {
   const p = scene.picked.value
@@ -218,15 +313,14 @@ const pickedView = computed<PickedView | null>(() => {
     title="地下水污染羽流体"
     :status="scene.status.value"
     :panel-open="panelOpen"
+    :show-clip-panel="false"
+    :left-width="'min(276px, calc(100% - 24px))'"
     :legend-css="legendCss"
     :legend-min="String(scene.active().min)"
     :legend-max="`${scene.active().max} ${scene.active().unit}`"
     :stats="statsItems"
-    :clip-rows="clipRows"
-    :has-slice="scene.hasSlice.value"
     :picked="pickedView"
     @toggle-panel="panelOpen = !panelOpen"
-    @download-slice="scene.downloadSlice()"
   >
     <template #scene>
       <div ref="container" class="vol-cesium"></div>
@@ -236,50 +330,15 @@ const pickedView = computed<PickedView | null>(() => {
           <b>{{ card.value }}<i>{{ card.unit }}</i></b>
         </div>
       </div>
-      <div class="pl-cam">
-        <button
-          v-for="key in CAMERA_ORDER"
-          :key="key"
-          type="button"
-          class="pl-cam-btn"
-          :class="{ active: camera === key }"
-          @click="flyTo(key)"
-        >
-          {{ config.camera[key].label }}
-        </button>
-      </div>
-    </template>
-
-    <template #slice>
-      <canvas ref="sliceCanvas" :class="{ hidden: !scene.hasSlice.value }"></canvas>
-    </template>
-
-    <template #dock>
-      <div class="pl-dock">
-        <div class="pl-dock-title">井孔浓度曲线 · {{ selectedWell.id }}</div>
-        <canvas ref="wellCanvas" width="210" height="150" class="pl-well-canvas"></canvas>
-        <div class="pl-dock-caption">地表 ↑ 埋深 {{ V.height }} m ↓ · 阈值 {{ threshold }} {{ meta.unit }}</div>
-        <div class="pl-well-chips">
-          <button
-            v-for="well in config.wells"
-            :key="well.id"
-            type="button"
-            class="pl-well-chip"
-            :class="{ active: well.id === selectedWellId }"
-            @click="zoomToWell(well.id)"
-          >
-            {{ well.id }}
-          </button>
-        </div>
-      </div>
     </template>
 
     <template #legend>
       <div class="pl-site">{{ config.siteName }}</div>
       <div class="pl-aquifers">
-        <div v-for="a in config.aquifers" :key="a.code" class="pl-aquifer">
+        <div v-for="a in aquiferRows" :key="a.code" class="pl-aquifer" :title="a.role">
+          <span class="pl-aquifer-swatch" :style="{ background: a.color, opacity: a.type === 'aquifer' ? 0.85 : 0.95 }"></span>
           <span class="pl-aquifer-name">{{ a.name }}</span>
-          <b>{{ a.top }}–{{ a.bottom }} m</b>
+          <b>{{ a.range }}</b>
         </div>
       </div>
       <div class="pl-thresholds">
@@ -294,9 +353,30 @@ const pickedView = computed<PickedView | null>(() => {
           {{ t }} {{ meta.unit }}
         </button>
       </div>
+      <div class="pl-well-block">
+        <div class="pl-well-title">{{ selectedWell.name }} · 分层浓度曲线</div>
+        <canvas ref="wellCanvas" width="240" height="150" class="pl-well-canvas"></canvas>
+        <div class="pl-dock-caption">
+          筛管 {{ selectedWell.screenTop }}–{{ selectedWell.screenBottom }} m · 监测
+          {{ selectedWell.monitorLayerCodes.map((c) => config.aquifers.find((a) => a.code === c)?.name).join(' / ') }}
+        </div>
+        <div class="pl-well-chips">
+          <button
+            v-for="well in config.wells"
+            :key="well.id"
+            type="button"
+            class="pl-well-chip"
+            :class="{ active: well.id === selectedWellId }"
+            @click="zoomToWell(well.id)"
+          >
+            {{ well.id }}
+          </button>
+        </div>
+      </div>
       <div class="pl-note">
-        浓度场由平流—弥散—衰变模型生成：源区持续释放，沿地下水流向迁移、侧向弥散、沿程衰减；
-        低渗透隔水层显著抑制垂向穿透，承压含水层形成独立污染层。
+        三维体由多层含水层中的平流—弥散—衰减模型生成：源区持续释放，沿地下水流向迁移、侧向弥散、沿程衰减；
+        弱透水层按越流系数抑制垂向穿透。等值面外圈为{{ threshold }} {{ meta.unit }}风险边界、内圈为{{ coreThreshold.toFixed(0) }} {{ meta.unit }}污染核心；
+        {{ scene.ui.timeStep >= config.captureStartStep ? '抽出处理井 EW-01 已投运，形成捕获区。' : '抽采井将在第 ' + (config.captureStartStep + 1) + ' 个月投运。' }}
       </div>
     </template>
 
@@ -340,22 +420,46 @@ const pickedView = computed<PickedView | null>(() => {
       </div>
 
       <div class="pl-block">
-        <div class="vol-section">地下水流向与井位</div>
+        <div class="vol-section">地层与调查对象</div>
         <div class="vol-row">
-          <span class="vol-label">流向箭头</span>
+          <span class="vol-label">含水层骨架</span>
+          <button class="vol-switch" :class="{ 'is-on': aquifersVisible }" @click="aquifersVisible = !aquifersVisible; refreshOverlay()"><span></span></button>
+        </div>
+        <div class="vol-row">
+          <span class="vol-label">含水层地质体</span>
+          <button class="vol-switch" :class="{ 'is-on': aquiferBodiesVisible }" @click="aquiferBodiesVisible = !aquiferBodiesVisible; refreshOverlay()"><span></span></button>
+        </div>
+        <div class="vol-row">
+          <span class="vol-label">地质体不透明度</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            :value="aquiferBodiesOpacity"
+            @input="aquiferBodiesOpacity = Number(($event.target as HTMLInputElement).value); refreshOverlay()"
+          />
+          <span class="vol-value">{{ Math.round(aquiferBodiesOpacity * 100) }}%</span>
+        </div>
+        <div class="vol-row">
+          <span class="vol-label">地下水流线</span>
           <button class="vol-switch" :class="{ 'is-on': flowVisible }" @click="flowVisible = !flowVisible; refreshOverlay()"><span></span></button>
         </div>
         <div class="vol-row">
           <span class="vol-label">监测井网</span>
           <button class="vol-switch" :class="{ 'is-on': wellsVisible }" @click="wellsVisible = !wellsVisible; refreshOverlay()"><span></span></button>
         </div>
-        <div class="pl-hint">箭头为区域地下水主流向 {{ config.flowDir }}°，监测井点击可定位并提取浓度曲线。</div>
+        <div class="vol-row">
+          <span class="vol-label">抽采捕获区</span>
+          <button class="vol-switch" :class="{ 'is-on': captureVisible }" @click="captureVisible = !captureVisible; refreshOverlay()"><span></span></button>
+        </div>
+        <div class="pl-hint">地下水流向约 {{ config.flowDir }}°，流线按含水层分层；抽出井 EW-01 自第 {{ config.captureStartStep + 1 }} 个月起形成捕获区。</div>
       </div>
 
       <div class="pl-block">
         <div class="vol-section">时间演变（{{ spec.timeStepUnit }}）</div>
         <div class="vol-row">
-          <span class="vol-label">时间步</span>
+          <span class="vol-label">模拟月份</span>
           <input
             type="range"
             min="0"
@@ -364,9 +468,14 @@ const pickedView = computed<PickedView | null>(() => {
             :value="scene.ui.timeStep"
             @input="scene.setTimeStep(Number(($event.target as HTMLInputElement).value))"
           />
-          <span class="vol-value">{{ scene.ui.timeStep + 1 }}/{{ spec.timeSteps }}</span>
+          <span class="vol-value">第 {{ scene.ui.timeStep + 1 }}/{{ spec.timeSteps }} 月</span>
         </div>
         <button class="pl-btn ghost" @click="scene.togglePlay()">{{ scene.ui.playing ? '暂停' : '自动播放' }}</button>
+        <div class="pl-hint">
+          {{ scene.ui.timeStep >= config.captureStartStep
+            ? '抽采井运行中：井周快速汇流、下游浓度持续削弱。'
+            : `再经过 ${config.captureStartStep - scene.ui.timeStep} 个月抽采井投运。` }}
+        </div>
       </div>
 
       <div class="pl-block">
@@ -384,10 +493,33 @@ const pickedView = computed<PickedView | null>(() => {
         <div class="vol-row">
           <span class="vol-label">密度</span>
           <div class="pl-seg">
-            <button type="button" class="pl-seg-btn" @click="scene.setPreset(16, 4)">128³</button>
-            <button type="button" class="pl-seg-btn" @click="scene.setPreset(24, 4)">192³</button>
-            <button type="button" class="pl-seg-btn" @click="scene.setPreset(32, 4)">256³</button>
+            <button
+              v-for="preset in DENSITY_PRESETS"
+              :key="preset.label"
+              type="button"
+              class="pl-seg-btn"
+              :class="{ active: density === preset.tileSize }"
+              @click="selectDensity(preset.tileSize, preset.levels)"
+            >
+              {{ preset.label }}
+            </button>
           </div>
+        </div>
+      </div>
+
+      <div class="pl-block">
+        <div class="vol-section">视角预设</div>
+        <div class="pl-cams">
+          <button
+            v-for="key in CAMERA_ORDER"
+            :key="key"
+            type="button"
+            class="pl-seg-btn"
+            :class="{ active: camera === key }"
+            @click="flyTo(key)"
+          >
+            {{ config.camera[key].label }}
+          </button>
         </div>
       </div>
 
@@ -417,7 +549,7 @@ const pickedView = computed<PickedView | null>(() => {
 
     <template #actions>
       <button class="vol-action" :disabled="busy" @click="refreshAll()">重新分析</button>
-      <button class="vol-action ghost" @click="flyTo('overview')">恢复视图</button>
+      <button class="vol-action ghost" @click="flyTo('site')">恢复视图</button>
     </template>
   </VolumeShell>
 </template>
@@ -465,6 +597,17 @@ const pickedView = computed<PickedView | null>(() => {
   border-color: #2f80ed;
   color: #fff;
 }
+.pl-seg-btn.active {
+  border-color: #65d3eb;
+  background: rgba(101, 211, 235, 0.24);
+  color: #fff;
+  font-weight: 600;
+}
+.pl-cams {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
 .pl-btn {
   width: 100%;
   height: 26px;
@@ -501,9 +644,23 @@ const pickedView = computed<PickedView | null>(() => {
 }
 .pl-aquifer {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 5px;
   font-size: 10px;
   color: #c3d5e8;
+}
+.pl-aquifer-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  flex: 0 0 auto;
+}
+.pl-aquifer-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pl-aquifer b {
   color: #9fb8d4;
@@ -542,14 +699,13 @@ const pickedView = computed<PickedView | null>(() => {
 .pl-kpi {
   position: absolute;
   top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: calc(24px + min(276px, calc(100% - 24px)));
+  right: calc(22px + min(276px, calc(100% - 24px)));
   z-index: 9;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 4px;
-  max-width: min(560px, calc(100% - 360px));
   pointer-events: none;
 }
 .pl-kpi-card {
@@ -581,42 +737,12 @@ const pickedView = computed<PickedView | null>(() => {
   font-style: normal;
   font-weight: 500;
 }
-.pl-cam {
-  position: absolute;
-  bottom: 14px;
-  right: 14px;
-  z-index: 9;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  max-width: 320px;
-  justify-content: flex-end;
+.pl-well-block {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(157, 188, 224, 0.2);
 }
-.pl-cam-btn {
-  padding: 5px 10px;
-  border: 1px solid rgba(157, 188, 224, 0.35);
-  border-radius: 6px;
-  background: rgba(8, 24, 48, 0.85);
-  color: #b9d2ea;
-  font-size: 10px;
-  cursor: pointer;
-}
-.pl-cam-btn.active,
-.pl-cam-btn:hover {
-  border-color: #ffd21e;
-  background: rgba(255, 210, 30, 0.22);
-  color: #fff;
-}
-.pl-dock {
-  width: 226px;
-  padding: 10px 12px;
-  border: 1px solid rgba(157, 188, 224, 0.28);
-  border-radius: 9px;
-  background: rgba(10, 26, 52, 0.9);
-  backdrop-filter: blur(6px);
-  color: #dce8f5;
-}
-.pl-dock-title {
+.pl-well-title {
   font-size: 11px;
   font-weight: 700;
   color: #ffd21e;
@@ -655,7 +781,8 @@ const pickedView = computed<PickedView | null>(() => {
 }
 @media (max-width: 860px) {
   .pl-kpi {
-    max-width: calc(100% - 24px);
+    left: 12px;
+    right: 12px;
     top: auto;
     bottom: 52px;
   }

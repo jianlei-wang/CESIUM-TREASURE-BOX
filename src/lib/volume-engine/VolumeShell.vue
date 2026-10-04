@@ -21,8 +21,10 @@ const props = withDefaults(
     hasSlice?: boolean
     sliceSize?: number
     picked?: PickedView | null
+    /** 左侧面板宽度（CSS 长度） */
+    leftWidth?: string
   }>(),
-  { showClipPanel: true }
+  { showClipPanel: true, leftWidth: 'min(224px, calc(100% - 24px))' }
 )
 
 const emit = defineEmits<{
@@ -37,7 +39,7 @@ const okStatus = () => props.status.startsWith('✓')
   <div class="vol-shell">
     <slot name="scene"></slot>
 
-    <div class="vol-left">
+    <div class="vol-left" :style="{ width: props.leftWidth }">
       <div v-if="props.showClipPanel" class="vol-panel vol-clip">
         <div class="vol-panel-title">剖切面预览</div>
         <div class="vol-slice-wrap">

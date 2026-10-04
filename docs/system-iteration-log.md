@@ -5450,6 +5450,87 @@ https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer
 - `npm run build`（`vue-tsc -b && vite build`）退出码 0；产物含约 10KB 的 radar icon 资源（`dist/assets/icon-*.webp`，与写入文件字节数一致）。
 - headless（Playwright + chromium-1148/SwiftShader）首页搜索「雷达回波」：首张卡片标题为「气象可视化-三维雷达回波与对流分析」，卡片 `<img>` 命中 `.../volume-radar/icon.webp`，`complete=true`、`naturalWidth×naturalHeight=300×145`，无占位图；仅存在既有外部噪音错误（Bing 403、favicon 404）。
 
+### V2.22 地下水污染羽流三维体升级为调查工作台 + 四项交互迭代
+
+**目标**：按《空间分析-地下水污染羽流三维体》优化文档，将该案例从通用体渲染堆功能重构为「多层含水层地下水污染调查工作台」；随后按第二轮反馈完成四项迭代：① 移除剖切面预览浮层；② 重排布局避免遮挡；③ 密度选中态高亮；④ 优化地下水流线渲染。
+
+**实施内容**：
+
+1. `src/lib/volume-engine/scenes.ts`：`PLUME_CONFIG` 重写为 5 层含水层 / 弱透水层（孔隙度、渗透系数、弥散度、越流系数、颜色、不透明度、role），井带 `depth/screenTop/screenBottom/pumpingRateM3D/monitorLayerCodes`，新增 `sourceZone` / `waterTableM` / `hydraulicGradient` / `verticalGradient` / `domainSizeM` / `captureStartStep`(6) / `captureRadiusM`(350) / `timeStepMonths`(1)、相机预设 `site/plume/source/section/capture/top`；污染物 `tce/cr6/tds` 带 `threshold/coreThreshold/transport`；plume scene 通道色带 `risk` / `chromate`，24 个月时间步。
+2. `volume-worker-source.ts` `prepare()` plume 分支：生成分层含水层几何（归一化埋深 0→1 对应 120 m）、污染物输运参数、井组与抽采井（筛管 42–64 m、起始第 6 月、速率 1200）与区域水位 / 水力梯度；新增 `plumeLayerAt()` / `plumeValue()`（分层平流—弥散—衰减 + 越流 + 抽采捕获）/ `plumeVector()`（按含水层渗透性定速 + 越流转垂向分量 + 抽采井汇）。
+3. `volume-analysis-source.ts`：`analysisVectorAt` / `streamlineSeed`（plume 分层布种）/ `analyzeStreamlines`（`bidirectional`）/ `analyzePlume`（`coreThreshold` / `coreVolumeM3` / 分层赋存 / `captureRate` / `captureCount` / `aboveCount`）。
+4. `voxel.ts` 新增 `createPlumeShader(initialLut, riskThreshold)`；`VolumeEngine.ts` 接入 `plume` 着色器变体、`plumeRiskThresholdNorm()`、`refreshShader` 同步 `uRiskThreshold`。
+5. `palette.ts` 新增 `risk` 风险色带与 `flow` 流线色带（滞流青 → 流畅亮青，低端保持可见亮度）。
+6. 迭代①/②：`PlumeVolumeDemo.vue` 以 `:show-clip-panel="false"` 关闭剖切预览并移除 `#slice` 槽，删除场景内 `.pl-cam` 相机浮层，相机预设迁入右侧 `#dock` 控制面板（3 列网格）的新 `.pl-cams` 区块，消除浮层遮挡。
+7. 迭代③：新增 `density` ref 与 `DENSITY_PRESETS`(128³ / 192³ / 256³)、`selectDensity(tileSize, levels)`，分段按钮用 `.pl-seg-btn.active` 高亮当前体素分辨率。
+8. 迭代④：`VolumeEngine.ts` 拆出独立 `flowLineCollection`，`ensureLineCollection(layer: 'base' | 'flow')`、`setLines(..., { layer })`、`setLineOverlaysVisible`/`clearLines` 同时管理两层；`plume-overlays.ts` `rebuildLines()` 将含水层骨架 / 井管 / 捕获环（base 层）与流线（flow 层，`speedPalette:'flow'`、速度加权线宽、沿线渐隐）分层绘制；`PlumeVolumeDemo.vue` 以 36 条种子运行 `runPlumeStreamlines`。
+
+**验证标准**：
+
+- `npx vue-tsc -b` 退出码 0；内联 Worker 经 `vm.Script` 语法校验通过（源码无反向引号 / `${}`）。
+- headless（Playwright + chromium-1148/SwiftShader，1440×900）搜索「空间分析-地下水污染羽流三维体」进入案例：`.vol-clip=null`（剖切浮层已移除）、`.pl-cam=null`（相机浮层已移除）、dock 与右列控制面板同高且不重叠；`.pl-seg-btn` 中 `128³ active:true`、相机 `调查区 active:true`；点击 `192³` 后高亮切换且 KPI 仍为 `4500.0万 m³ / 1299.38万 m³ / 171.0万 m² / 1149m`，体数据正常重建。
+- 截图中流线呈一束可见青色线族（黄色羽流本体周围可见平流方向与抽采井弯曲），弱透水层段近于滞流、线宽随流速变化；仅存在外部 Bing 影像 403/404 噪音错误。
+
+### V2.23 地下水污染羽流三维体（系统迭代第二轮：顶部信息避让 + 地下水流线顶部点串）
+
+**目标**：处理用户第二轮反馈：① 顶部中部 KPI 信息被井孔剖面面板遮盖；② 地下水流线因体数据不透明而零碎、辨识度差，需彻底优化。
+
+**实施内容**：
+
+1. 迭代①：`PlumeVolumeDemo.vue` 的 `.pl-kpi` 由居中（`left:50%; transform:translateX(-50%)`）改为落在左侧图例与右侧 dock 之间的空带（`left:248px`、`right: calc(22px + min(276px, calc(100% - 24px)) + 238px)`），并在 `@media (max-width:860px)` 下回落为通栏底部布局，消除与井孔剖面面板的重叠。
+2. 迭代②：定位根因为流线为体数据内部折线，不透明羽流会按其深度遮挡大部分线段，单纯调色 / 调宽无法解决。`VolumeEngine.ts` 新增 `setFlowBeads()` / `clearFlowBeads()`：以 `PointPrimitiveCollection` + `disableDepthTestDistance: Infinity` 将各条流线采样为“顶部点串”，沿程以点径与透明度由尾到头渐变表达流向，直绘于体数据之上始终可见；`setLineOverlaysVisible` / `clearLines` 同步纳管该集合。
+3. `plume-overlays.ts`：地下水流线由 `setLines(..., { layer:'flow', arrow:true })` 切换为 `setFlowBeads(..., { speedPalette:'flow', speedMin:0.3, speedMax:1.3, pixelSize:3.0, stride:2 })`；地质骨架 / 井管 / 捕获环仍走 base 折线层。`destroy()` 改调 `clearFlowBeads()`。
+
+**验证标准**：
+
+- `npx vue-tsc -b` 退出码 0。
+- headless（Playwright + chromium-1148/SwiftShader，1440×900）进入案例：`.pl-kpi` bbox `[345,216,462,74]`，dock `[819,216,226,633]`、controls `[1055,216,276,633]`，三者无重叠；`.vol-clip=null`、`.pl-cam=null`。
+- 截图中流线以亮青点串形态跨越黄色羽流本体与各含水层始终可见，主平流方向由污染源指向下游并受抽采井牵引弯曲；仅存在外部 Bing 影像 403/404 噪音错误。
+
+### V2.24 地下水污染羽流三维体（分层浓度曲线迁入左侧图例面板）
+
+**目标**：按用户反馈，将原本位于中部 `#dock` 浮层的「分层浓度曲线」面板迁入左侧图例列，统一左侧为资料面板、中部让位给三维场景。
+
+**实施内容**：
+
+1. `PlumeVolumeDemo.vue`：删除 `<template #dock>` 浮层，把井名标题、`wellCanvas`、筛管说明与井位选择 chips 移入 `<template #legend>` 的阈值 chips 之后，新增 `.pl-well-block` / `.pl-well-title` 分隔样式（替换原 `.pl-dock` / `.pl-dock-title`）；画布尺寸随后调整为 240×150 以适配加宽后的左侧面板（见 V2.25）。
+2. `.pl-kpi` 右侧约束去除原为 dock 预留的 238px，重新居中于图例与右侧控制面板之间的空带（实测 bbox `[345,216,700,35]`）。
+
+**验证标准**：
+
+- `npx vue-tsc -b` 退出码 0。
+- headless 截图：`.vol-dock-slot=null`（中部浮层已移除），`.pl-kpi` `[345,216,700,35]`、legend `[109,216,224,633]`、controls `[1055,216,276,633]` 互不重叠；分层浓度曲线与井位 chips 完整显示于左侧面板内。
+
+### V2.25 地下水污染羽流三维体（左侧面板加宽 + 含水层地质体渲染与控制）
+
+**目标**：处理用户反馈：① 左侧资料面板偏窄，分层浓度曲线与井位信息拥挤；② 仅有地质骨架线框，需把具体含水层 / 弱透水层地质体也渲染出来，并可控制其显隐与不透明度。
+
+**实施内容**：
+
+1. `VolumeShell.vue`：新增 `leftWidth` prop（默认 `min(224px, calc(100% - 24px))`，不影响其他案例），`.vol-left` 宽度改由该 prop 驱动。羽流案例传入 `min(276px, calc(100% - 24px))` 将左面板加宽；`PlumeVolumeDemo.vue` 的 `.pl-kpi` 左右约束随之改为 `calc(24px + min(276px, calc(100% - 24px)))` / `calc(22px + min(276px, calc(100% - 24px)))`。
+2. `VolumeEngine.ts` 新增 `LayerVolume` 类型与 `setLevelBodies()` / `setLevelBodiesVisible()` / `setLevelBodiesOpacity()` / `clearLevelBodies()`：按各层归一化包围盒（x/y 取 0.02~0.98，z 取对应埋深区间）生成**仅含四个竖直侧壁的开口盒体几何**（模块级 `createWallGeometry`，无顶 / 底面），以 `PerInstanceColorAppearance({ translucent:true, closed:false })` 逐实例着色，颜色取各层 `color` 与 `opacity`（含 2.2 视觉增益并 clamp 到 1）；开口设计用于以水平色带表达地层，同时保持体域内部通透、不遮挡羽流体渲染。
+3. `plume-overlays.ts`：`PlumeOverlayState` 增加 `aquiferBodiesVisible`（默认 `true`）与 `aquiferBodiesOpacity`（默认 `0.7`）；`update()` 据此同步 `setLevelBodies` / `setLevelBodiesVisible` / `setLevelBodiesOpacity`，`destroy()` 调 `clearLevelBodies()`。
+4. `PlumeVolumeDemo.vue`：新增含水层地质体显隐开关与不透明度滑杆，绑定 `aquiferBodiesVisible` / `aquiferBodiesOpacity`。
+
+**验证标准**：
+
+- `npx vue-tsc -b` 退出码 0。
+- headless（Playwright + chromium-1148/SwiftShader，1440×900，plume 相机视角）截图：左侧面板宽 276px，分层浓度曲线（240×150）与井位 chips 完整显示；含水层侧壁以青 / 蓝色带呈现且不遮挡黄色羽流，顶部点串流线始终可见；仅存在外部 Bing 影像 404 噪音错误。
+
+### V2.26 案例卡片 Icon 悬停翻转交互
+
+**目标**：按用户反馈优化案例中心交互——鼠标悬停到案例卡片图标（缩略图）区域时，以翻转动效展示该案例的详情信息说明。
+
+**实施内容**：
+
+1. `src/App.vue`：卡片 `.thumbnail` 内重构为 3D 翻转结构 `.thumbnail-flip`（正面 `.thumbnail-front` 承载 icon 图 / 暂无截图占位与 `.demo-tag` 分类标签，背面 `.thumbnail-back` 承载标题、`description` 详情说明与「点击查看演示」提示）；移除原覆盖式 `.thumbnail-overlay`。
+2. `src/style.css`：`.thumbnail` 增加 `perspective: 900px`；`.thumbnail-flip` 设 `transform-style: preserve-3d` 与 `.6s` 缓动过渡，`.thumbnail:hover .thumbnail-flip` 触发 `rotateY(180deg)`；`.thumbnail-face` 统一 `backface-visibility: hidden`，`.thumbnail-back` 反向 `rotateY(180deg)` 呈现在背面；背面标题 `-webkit-line-clamp: 2`、说明 `-webkit-line-clamp: 4`，防止较长描述溢出。
+
+**验证标准**：
+
+- `npx vue-tsc -b` 退出码 0。
+- headless（Playwright + chromium-1148/SwiftShader，1440×900）悬停首张卡片：`.thumbnail-flip` 计算样式 `transform` 为 `matrix3d(-1,0,0,0,0,1,0,0,0,0,-1,0,0,0,0,1)`（即 `rotateY(180deg)`）、`transform-style: preserve-3d`、前后 `backface-visibility: hidden`、`.thumbnail` `perspective: 900px`；背面正确显示该案例 `description` 文本；仅 1 条外部 404 噪音错误。
+
 ## 后续迭代记录方式
 
 每次系统迭代按以下顺序追加内容：

@@ -442,13 +442,21 @@ onUnmounted(() => {
         <div v-if="visibleDemos.length" class="demo-grid">
           <article v-for="demo in visibleDemos" :key="demo.id" class="demo-card" :class="{ 'is-available': demo.available }" @click="openCase(demo)">
             <div class="thumbnail">
-              <img v-if="demo.icon" :src="demo.icon" :alt="demo.title" loading="lazy" decoding="async" />
-              <div v-else class="no-image">
-                <el-icon><Picture /></el-icon>
-                <span>暂无截图</span>
+              <div class="thumbnail-flip">
+                <div class="thumbnail-face thumbnail-front">
+                  <img v-if="demo.icon" :src="demo.icon" :alt="demo.title" loading="lazy" decoding="async" />
+                  <div v-else class="no-image">
+                    <el-icon><Picture /></el-icon>
+                    <span>暂无截图</span>
+                  </div>
+                  <span class="demo-tag">{{ demo.tag }}</span>
+                </div>
+                <div class="thumbnail-face thumbnail-back">
+                  <h4>{{ demo.title }}</h4>
+                  <p>{{ demo.description }}</p>
+                  <span class="thumbnail-cue">点击查看演示<el-icon><VideoPlay /></el-icon></span>
+                </div>
               </div>
-              <div class="thumbnail-overlay"><span>查看演示</span><el-icon><VideoPlay /></el-icon></div>
-              <span class="demo-tag">{{ demo.tag }}</span>
             </div>
             <div class="card-copy">
               <h3>{{ demo.title }}</h3>

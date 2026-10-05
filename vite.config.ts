@@ -1,3 +1,4 @@
+import { fileURLToPath, URL } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import cesium from 'vite-plugin-cesium'
@@ -24,6 +25,7 @@ const CESIUM_SYMBOLS = [
   'ColorGeometryInstanceAttribute', 'ColorMaterialProperty', 'ComponentDatatype',
   'ComputeCommand', 'ConstantPositionProperty', 'ConstantProperty', 'Credit',
   'CullFace', 'CustomDataSource', 'CustomShader', 'CzmlDataSource', 'DirectionalLight',
+  'Terrain',
   'DistanceDisplayCondition', 'DrawCommand', 'Ellipsoid', 'EllipsoidGeodesic',
   'EllipsoidGeometry', 'EllipsoidOutlineGeometry', 'EllipsoidSurfaceAppearance',
   'EllipsoidTerrainProvider', 'Entity', 'Event', 'DeveloperError', 'FrameRateMonitor', 'Framebuffer', 'GeoJsonDataSource', 'GeographicTilingScheme',
@@ -83,6 +85,11 @@ const cesiumDevGlobal: Plugin = {
 export default defineConfig({
   base: './',
   plugins: [vue(), cesium(), cesiumHtmlOptimize, cesiumDevGlobal],
+  resolve: {
+    alias: {
+      '@rt': fileURLToPath(new URL('./src/cases/red-tide-3d', import.meta.url))
+    }
+  },
   optimizeDeps: {
     exclude: ['cesium', 'dggal'],
     include: [

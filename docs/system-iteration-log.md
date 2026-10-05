@@ -5531,6 +5531,26 @@ https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer
 - `npx vue-tsc -b` 退出码 0。
 - headless（Playwright + chromium-1148/SwiftShader，1440×900）悬停首张卡片：`.thumbnail-flip` 计算样式 `transform` 为 `matrix3d(-1,0,0,0,0,1,0,0,0,0,-1,0,0,0,0,1)`（即 `rotateY(180deg)`）、`transform-style: preserve-3d`、前后 `backface-visibility: hidden`、`.thumbnail` `perspective: 900px`；背面正确显示该案例 `description` 文本；仅 1 条外部 404 噪音错误。
 
+### V2.27 系统 DEMO 新增「赤潮监测三维模拟仿真系统」
+
+**目标**：按用户要求将外部 `red-tide-3d-sim` 工程（v0.9.0）移植为本仓库「系统 DEMO」分类下的新案例，保持系统级全屏演示形态，不生成专属 icon（卡片保持「暂无截图」占位）。
+
+**实施内容**：
+
+1. 新建 `src/cases/red-tide-3d/`，迁入 `core`（Cesium/Three 双引擎、共享 WebGL2 上下文与深度复合）、`rendering`（体/表层/剖面/粒子/合成渲染器）、`simulation`（Worker + GPGPU 赤潮与海流仿真）、`components`（TopBar / ControlPanel / InfoPanel / ScientificPanel / TimelineBar）、`types` 与 `styles.css`；`App.vue` 改造为 `RedTideDemo.vue`（根节点 `.rt-shell`）。
+2. 去依赖化：原工程使用 Pinia `defineStore`，本仓库无该依赖，故将 `stores/red-tide.ts` 改写为基于 `reactive` 的模块级单例 `useRedTideStore()`，对外字段与方法签名保持不变，5 个面板组件零改动。
+3. 别名：将源码 32 处 `@/` 统一改为 `@rt/`，并在 `vite.config.ts` 与 `tsconfig.app.json` 增加 `@rt` → `src/cases/red-tide-3d` 的 alias/paths。
+4. dev 运行时：`import * as Cesium from 'cesium'` 走仓库 `cesium-global` 白名单 shim，向 `CESIUM_SYMBOLS` 补充本案例用到的 `Terrain`（`Camera` 等其余符号原已在列）。
+5. 样式隔离：`styles.css` 全部选择器以脚本加 `.rt-shell ` 前缀，去除 `:root` / `html,body,#app` / `body` / `button,input` / `button` 等全局规则，避免污染案例库外壳（原 `.app-shell`、`.topbar` 等类名与宿主冲突）。
+6. 类型适配（工作区 Cesium 1.144 公开类型差异）：`cesium-engine.ts` 以最小内部结构收窄 `Scene.context` / `Scene.fxaa`；`spatial.ts` 处理 `frustum.fovy` 可能为 `undefined`；`volume-renderer.ts` 补 `directMesh` 字段声明；`simulation.worker.ts` 将 transferable 的 `.buffer` 断言为 `ArrayBuffer`。
+7. `index.ts` 注册 `DemoCard`（`id: 'red-tide-3d'`、`category: 'system'`、无 `icon`），执行 `npm run sync`（299 条）与 `npm run case-list`。
+
+**验证标准**：
+
+- `npx vue-tsc -b` 退出码 0。
+- headless（Playwright + chromium-1148/SwiftShader，1600×950）进入案例：`.rt-shell` 存在，canvas `1600×874`，`.error-mask` 为 `null`，`.runtime-diagnostics` 为 `Cesium 1600×874 · Three 1600×874 · direct-framebuffer · objects 4 · gpu-gpgpu`。
+- 以 20× 速度播放 25s 后：时间轴推进至 `11:00`，最大浓度 / 影响面积演化曲线与 43 个采样点正常刷新，体渲染坐标框内呈现卫星底图上扩散的青绿色赤潮羽流；仅存在外部影像 403/404 与 SwiftShader 片元输出噪声告警。
+
 ## 后续迭代记录方式
 
 每次系统迭代按以下顺序追加内容：

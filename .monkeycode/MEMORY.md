@@ -32,6 +32,17 @@ Entries discovered by the Agent during task execution should follow this format:
 ## Entries
 
 [Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: Discovered by Agent while porting the external red-tide-3d-sim project into a new `system` case (src/cases/red-tide-3d)
+- Category: Workflow & Collaboration
+- Instructions:
+  - 外部工程整体移植为案例的固定流程：源码放入 `src/cases/<id>/` 并保留其目录结构；把 `@/` 别名统一 sed 为 `@rt/`，在 `vite.config.ts` 的 `resolve.alias` 与 `tsconfig.app.json` 的 `paths` 同时声明 `@rt` → `src/cases/<id>`（缺一不可，vue-tsc 与 dev 都要）。
+  - 本仓库未安装 pinia：外部工程若用 `defineStore`，改写为基于 `reactive` 的模块级单例 `useRedTideStore()`（`get` 计算属性 + `this` 方法），对外字段/方法签名保持不变，使用方组件无需改动；不要为此新增 pinia 依赖。
+  - 案例样式必须隔离：外部工程的全局 `styles.css`（尤其 `:root`/`html,body,#app`/`button` 及 `.app-shell`/`.topbar` 等与宿主同名类）会污染案例库外壳；做法是根类改 `.rt-shell` 并用脚本给所有选择器加 `.rt-shell ` 前缀（跳过根选择器与 `@keyframes`），再用 `import './styles.css'`。
+  - 运行时 Cesium 符号仍受 `CESIUM_SYMBOLS` 白名单约束（见 2026-09-28 条目）；本次移植补 `Terrain` 即可，`Camera` 等已在列。
+  - 工作区 Cesium 1.144 公开类型与外部工程（可能用了 `@cesium/engine` 覆盖版）有差异，常见需定点适配：`Scene.context`/`Scene.fxaa` 用最小内部结构收窄、`frustum.fovy` 可能 `undefined`、`Uint8Array.buffer` 传给 transferable 字段需断言 `as ArrayBuffer`。
+
+[Project Knowledge Summary]
 - Date: 2026-09-28
 - Context: Discovered by Agent while delivering 数据可视化-高性能海量体元素渲染 (src/cases/point-voxel-mass, VoxelPrimitive + Web Worker KNN/IDW)
 - Category: Environment Configuration

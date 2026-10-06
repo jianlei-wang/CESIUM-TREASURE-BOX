@@ -146,6 +146,7 @@ export class GpuRedTideSimulation {
   private lastComputeMs = 0
   private lastStatsAt = 0
   private cachedStats: FieldStats | null = null
+  private lastHealthyStats: FieldStats | null = null
   private statsReadbackPromise: Promise<FieldStats> | null = null
   private readback = new Uint8Array(1)
   private seedAtlas: Uint8Array
@@ -267,30 +268,55 @@ export class GpuRedTideSimulation {
     const now = performance.now()
     if (!force && this.cachedStats && now - this.lastStatsAt < 1000) return this.cachedStats
 
+    this.readerStateReset()
     this.renderer.readRenderTargetPixels(this.targets[this.frontIndex], 0, 0, this.atlasWidth, this.atlasHeight, this.readback)
-    this.cachedStats = this.calculateStats(this.readback)
-    this.lastStatsAt = now
-    return this.cachedStats
+    return this.commitStats(this.calculateStats(this.readback))
   }
 
   async statsAsync(force = false): Promise<FieldStats> {
     const now = performance.now()
     if (!force && this.cachedStats && now - this.lastStatsAt < 1000) return this.cachedStats
-    if (this.statsReadbackPromise) return this.statsReadbackPromise
+    if (this.statsReadbackPromise) {
+      if (!force) return this.statsReadbackPromise
+      await this.statsReadbackPromise.catch(() => undefined)
+    }
 
     const buffer = new Uint8Array(this.readback.length)
+    this.readerStateReset()
     this.statsReadbackPromise = this.renderer
       .readRenderTargetPixelsAsync(this.targets[this.frontIndex], 0, 0, this.atlasWidth, this.atlasHeight, buffer)
-      .then(() => {
-        this.cachedStats = this.calculateStats(buffer)
-        this.lastStatsAt = performance.now()
-        return this.cachedStats
-      })
+      .then(() => this.commitStats(this.calculateStats(buffer)))
       .finally(() => {
         this.statsReadbackPromise = null
       })
 
     return this.statsReadbackPromise
+  }
+
+  private commitStats(candidate: FieldStats): FieldStats {
+    if (candidate.max > 0) {
+      this.lastHealthyStats = candidate
+      this.cachedStats = candidate
+      this.lastStatsAt = performance.now()
+      return candidate
+    }
+    if (this.lastHealthyStats) return this.lastHealthyStats
+    this.cachedStats = candidate
+    this.lastStatsAt = performance.now()
+    return candidate
+  }
+
+  private readerStateReset(): void {
+    this.resetSharedState()
+  }
+
+  private resetSharedState(): void {
+    this.renderer.resetState()
+    const context = this.renderer.getContext()
+    if (context instanceof WebGL2RenderingContext) {
+      context.bindBuffer(context.PIXEL_PACK_BUFFER, null)
+      context.bindBuffer(context.PIXEL_UNPACK_BUFFER, null)
+    }
   }
 
   private calculateStats(data: Uint8Array): FieldStats {
@@ -348,6 +374,7 @@ export class GpuRedTideSimulation {
 
   quantizeField(out: Uint8Array): void {
     if (out.length !== this.grid.nx * this.grid.ny * this.grid.nz) throw new Error('GPU field output size mismatch.')
+    this.readerStateReset()
     this.renderer.readRenderTargetPixels(this.targets[this.frontIndex], 0, 0, this.atlasWidth, this.atlasHeight, this.readback)
     const data = this.readback
     for (let z = 0; z < this.grid.nz; z += 1) {
@@ -371,6 +398,7 @@ export class GpuRedTideSimulation {
 
   private captureSnapshot(timeSeconds: number): void {
     const buffer = new Uint8Array(this.readback.length)
+    this.readerStateReset()
     this.renderer.readRenderTargetPixels(
       this.targets[this.frontIndex],
       0,
@@ -379,6 +407,14 @@ export class GpuRedTideSimulation {
       this.atlasHeight,
       buffer,
     )
+    if (this.snapshots.size > 0) {
+      let max = 0
+      for (let i = 0; i < buffer.length; i += 4) {
+        const value = (buffer[i] * 256 + buffer[i + 1]) / 65535
+        if (value > max) max = value
+      }
+      if (max === 0) return
+    }
     this.snapshots.set(timeSeconds, buffer)
   }
 
@@ -454,9 +490,8 @@ export class GpuRedTideSimulation {
    * glDrawElements 导致的 “Must have element array buffer bound” 错误。
    */
   private renderComputePass(target: THREE.WebGLRenderTarget): void {
-    this.renderer.resetState()
+    this.resetSharedState()
     this.renderer.setRenderTarget(target)
-    this.renderer.clear()
     this.renderer.render(this.scene, this.camera)
     this.renderer.setRenderTarget(null)
     this.renderer.resetState()

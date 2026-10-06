@@ -131,6 +131,9 @@ export class FlowParticleRenderer {
   }
 
   dispose(): void {
+    // 必须从场景移除：否则切换到 GPU 流场后，本渲染器（占位数据全为零）会在研究区
+    // 西南角留下一个叠加饱和的白色点簇，表现为边界左下角的“箭头”残影。
+    this.points.removeFromParent()
     this.geometry.dispose()
     this.material.dispose()
   }

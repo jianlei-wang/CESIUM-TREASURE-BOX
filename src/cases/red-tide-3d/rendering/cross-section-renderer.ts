@@ -26,6 +26,7 @@ uniform float uThresholdHigh;
 uniform float uOpacity;
 uniform float uIsoValue;
 uniform float uAxisY;
+uniform float uSectionCoord;
 
 float decodeRG(vec4 c) {
   float hi = floor(c.r * 255.0 + 0.5);
@@ -63,8 +64,8 @@ vec3 transfer(float v) {
 }
 
 void main() {
-  float x01 = uAxisY > 0.5 ? vUv.x : 0.5;
-  float y01 = uAxisY > 0.5 ? 0.5 : vUv.x;
+  float x01 = uAxisY > 0.5 ? vUv.x : uSectionCoord;
+  float y01 = uAxisY > 0.5 ? uSectionCoord : vUv.x;
   float z01 = vUv.y;
   float value = sampleValue(vec3(x01, y01, z01));
   float alpha = smoothstep(uThresholdLow * 0.65, uThresholdHigh, value) * uOpacity;
@@ -82,6 +83,7 @@ export class CrossSectionRenderer {
   private readonly geometry: THREE.BufferGeometry
   private readonly material: THREE.ShaderMaterial
   private axis: 'x' | 'y' = 'x'
+  private sectionValue = 0
 
   constructor(scene: THREE.Scene, grid: GridSpec, atlasTexture: THREE.Texture | null = null) {
     this.grid = grid
@@ -122,6 +124,7 @@ export class CrossSectionRenderer {
         uOpacity: { value: 0.55 },
         uIsoValue: { value: 0.52 },
         uAxisY: { value: 0 },
+        uSectionCoord: { value: 0.5 },
       },
     })
 
@@ -161,15 +164,19 @@ export class CrossSectionRenderer {
       this.mesh.position.x = 0
     }
     positions.needsUpdate = true
-    this.setSectionX(this.mesh.position.x || this.mesh.position.y || 0)
+    this.setSectionX(this.sectionValue)
   }
 
   setSectionX(value: number): void {
+    const half = this.axis === 'x' ? this.grid.sizeX * 0.5 : this.grid.sizeY * 0.5
+    const clamped = THREE.MathUtils.clamp(value, -half, half)
+    this.sectionValue = clamped
     if (this.axis === 'x') {
-      this.mesh.position.x = THREE.MathUtils.clamp(value, -this.grid.sizeX * 0.5, this.grid.sizeX * 0.5)
+      this.mesh.position.x = clamped
     } else {
-      this.mesh.position.y = THREE.MathUtils.clamp(value, -this.grid.sizeY * 0.5, this.grid.sizeY * 0.5)
+      this.mesh.position.y = clamped
     }
+    this.material.uniforms.uSectionCoord.value = clamped / (half * 2) + 0.5
   }
 
   setThreshold(low: number, high: number): void {

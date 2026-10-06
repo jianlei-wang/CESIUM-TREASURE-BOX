@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRedTideStore } from '@rt/stores/red-tide'
+import { SIMULATION_MAX_SECONDS, useRedTideStore } from '@rt/stores/red-tide'
 
 const emit = defineEmits<{
   play: []
@@ -9,7 +9,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useRedTideStore()
-const maxSeconds = 48 * 3600
+const maxSeconds = SIMULATION_MAX_SECONDS
 const progress = computed(() => (store.elapsedSeconds / maxSeconds) * 100)
 const timeText = computed(() => {
   const h = Math.floor(store.elapsedSeconds / 3600)
@@ -31,7 +31,7 @@ function onSeek(event: Event): void {
       <div class="timeline-head">
         <span>2026-06-15</span>
         <strong>{{ timeText }}</strong>
-        <span>未来 +48h</span>
+        <span>未来 +72h</span>
       </div>
       <input
         class="timeline-input"
@@ -43,7 +43,7 @@ function onSeek(event: Event): void {
         :style="{ '--progress': `${progress}%` }"
         @input="onSeek"
       />
-      <div class="timeline-marks"><span>监测起点</span><span>+12h</span><span>+24h</span><span>+36h</span><span>+48h</span></div>
+      <div class="timeline-marks"><span>监测起点</span><span>+18h</span><span>+36h</span><span>+54h</span><span>+72h</span></div>
     </div>
     <div class="speed-group">
       <span>速度</span>

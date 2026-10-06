@@ -306,6 +306,7 @@ export class GpuFlowParticleSimulator {
   dispose(): void {
     if (this.destroyed) return
     this.destroyed = true
+    this.points.removeFromParent()
     this.geometry.dispose()
     this.renderMaterial.dispose()
     this.computeMaterial.dispose()

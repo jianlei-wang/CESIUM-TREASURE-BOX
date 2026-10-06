@@ -3,7 +3,26 @@ import type { FieldStats, MonitoringStation, SimulationComputeMode, StudyArea } 
 
 export type ParticleStyle = 'star' | 'arrow' | 'diamond' | 'ring'
 export type RedTideRenderMode = 'volume' | 'iso' | 'hybrid'
+
+export const SIMULATION_MAX_HOURS = 72
+export const SIMULATION_MAX_SECONDS = SIMULATION_MAX_HOURS * 3600
 export type SectionAxis = 'x' | 'y'
+export type RedTideModule = 'overview' | 'simulation' | 'parameters' | 'analysis' | 'monitoring'
+
+export interface RedTideModuleMeta {
+  id: RedTideModule
+  label: string
+  en: string
+  code: string
+}
+
+export const RED_TIDE_MODULES: readonly RedTideModuleMeta[] = [
+  { id: 'overview', label: '综合总览', en: 'OVERVIEW', code: '01' },
+  { id: 'simulation', label: '仿真推演', en: 'SIMULATION', code: '02' },
+  { id: 'parameters', label: '模型参数', en: 'PARAMETERS', code: '03' },
+  { id: 'analysis', label: '科研分析', en: 'ANALYSIS', code: '04' },
+  { id: 'monitoring', label: '监测站点', en: 'MONITORING', code: '05' },
+]
 
 export interface RedTideMetricPoint {
   time: number
@@ -62,9 +81,11 @@ function createRedTideStore() {
     playing: false,
     speed: 1,
     elapsedSeconds: 0,
+    activeModule: 'overview' as RedTideModule,
     thresholdLow: 0.08,
     thresholdHigh: 0.42,
     density: 1.72,
+    verticalExaggeration: 1,
     surfaceOpacity: 0.32,
     globeOpacity: 1,
     flowOpacity: 0.74,
@@ -89,7 +110,7 @@ function createRedTideStore() {
     showVolume: true,
     showSurface: true,
     showFlow: true,
-    particleStyle: 'star' as ParticleStyle,
+    particleStyle: 'arrow' as ParticleStyle,
     selectedStation: null as MonitoringStation | null,
     stats: { ...emptyStats } as FieldStats,
     metricsHistory: [] as RedTideMetricPoint[],

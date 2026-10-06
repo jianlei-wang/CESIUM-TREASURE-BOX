@@ -192,6 +192,7 @@ import icon_radar_scan_entity from './radar-scan-entity/icon.webp'
 import icon_radar_scan_primitive from './radar-scan-primitive/icon.webp'
 import icon_radar_wave from './radar-wave/icon.webp'
 import icon_rectangle_depth_map from './rectangle-depth-map/icon.webp'
+import icon_red_tide_3d from './red-tide-3d/icon.webp'
 import icon_regular_polygon from './regular-polygon/icon.webp'
 import icon_regular_polygon_edit from './regular-polygon-edit/icon.webp'
 import icon_ridge_valley_extraction from './ridge-valley-extraction/icon.webp'
@@ -791,7 +792,7 @@ export const demos: CaseMeta[] = [
   { id: "radar-scan-primitive", title: "三维特效-雷达扫描(Primitive)", category: "effects", description: "Primitive 实现的半球雷达扫描效果，与 Entity 版效果一致，支持扫描范围、旋转速度、竖立张角、颜色与半球/扫描面显隐等参数实时调节", tag: "雷达扫描", icon: icon_radar_scan_primitive, updatedAt: "2026-08-27", available: true },
   { id: "radar-wave", title: "三维特效-波纹雷达效果", category: "effects", description: "旋转扇形扫描与波浪纹理结合的雷达效果，支持颜色、扫描速度、半径、高度等参数实时调节，可点击地图定位", tag: "波纹雷达", icon: icon_radar_wave, updatedAt: "2026-08-31", available: true },
   { id: "rectangle-depth-map", title: "空间分析-深度图提取", category: "analysis", description: "支持输入四至经纬度或在地图上框选矩形区域，按分辨率或间距(米)采样地形高度，输出带 WGS84 地理坐标的 PNG 与 GeoTIFF 深度图", tag: "空间分析", icon: icon_rectangle_depth_map, updatedAt: "2026-08-25", available: true },
-  { id: "red-tide-3d", title: "赤潮监测三维模拟仿真系统", category: "system", description: "面向近岸海域赤潮监测的三维模拟仿真系统：以 Cesium 1.144 地球场景叠加 Three.js 体渲染，通过欧拉平流—扩散—生长模型驱动富营养化藻华演变；支持三维赤潮体 / 表层浓度场 / 海流粒子多图层联动，体 / 等值面 / 混合三种科研表达、垂向剖切与 X/Y 分析剖面、深度遮挡复合管线；提供监测浮标观测参数、最大浓度与影响面积演化曲线、影响体积 / 面积 / 深度统计，并支持 GPU GPGPU 与 Web Worker 双计算后端、48 小时时间轴推演与速度调节。", tag: "海洋立体仿真", updatedAt: "2026-10-05", available: true },
+  { id: "red-tide-3d", title: "赤潮监测三维模拟仿真系统", category: "system", description: "面向近岸海域赤潮监测的三维模拟仿真系统：以 Cesium 1.144 地球场景叠加 Three.js 体渲染，通过欧拉平流—扩散—生长模型驱动富营养化藻华演变；采用综合总览 / 仿真推演 / 模型参数 / 科研分析 / 监测站点五级一级菜单分页组织，配合常驻图层面板与图例面板，避免信息堆叠；支持三维赤潮体 / 表层浓度场 / 海流粒子多图层联动，体 / 等值面 / 混合三种科研表达、垂向剖切与 X/Y 分析剖面、深度遮挡复合管线；提供监测浮标观测参数、最大浓度与影响面积演化曲线、影响体积 / 面积 / 深度统计，并支持 GPU GPGPU 与 Web Worker 双计算后端、72 小时时间轴推演与速度调节。", tag: "海洋立体仿真", icon: icon_red_tide_3d, updatedAt: "2026-10-05", available: true },
   { id: "regular-polygon", title: "正多边形-规则多边形面", category: "draw", description: "左键定位中心并拖拽决定外接半径，右键结束；边数（3~12）与颜色实时可调。", tag: "面绘制", icon: icon_regular_polygon, updatedAt: "2026-09-06", available: true },
   { id: "regular-polygon-edit", title: "正多边形-编辑版", category: "draw", description: "绘制正多边形后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_regular_polygon_edit, updatedAt: "2026-09-06", available: true },
   { id: "ridge-valley-extraction", title: "山脊线与山谷线提取", category: "analysis", description: "基于 Cesium 真实地形的山脊线/山谷线自动提取：在地图上绘制分析区域后按米级间距采样全球地形生成 DEM，焦点统计区分正负地形，山脊沿原始 DEM、山谷沿反地形分别执行填洼、D8 流向与汇流累积，提取零汇流候选后经邻域统计与阈值筛选，最终用 Zhang-Suen 细化与折线矢量化输出结果；支持栅格图层化渲染与图例说明、晕渲与太阳光照调节、线要素样式定制、技术路线说明、耗时统计、分析报告在线预览与 PDF 导出，以及 GeoJSON / PNG 导出", tag: "Cesium, 水文分析, 山脊线, 山谷线, 矢量化", icon: icon_ridge_valley_extraction, updatedAt: "2026-09-19", available: true },

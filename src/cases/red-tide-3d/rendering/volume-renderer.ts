@@ -14,7 +14,11 @@ precision highp sampler2D;
 precision highp sampler3D;
 
 in vec2 vUv;
-out vec4 outColor;
+// renderTarget 使用 count:2 的多重渲染目标，必须为每个颜色附件声明对应输出，
+// 否则 WebGL2 会报 "Active draw buffers with missing fragment shader outputs"，
+// 导致整个体渲染 pass 失效（三维赤潮体开关无任何视觉变化）。
+layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outLinearDepth;
 
 uniform sampler3D uVolume;
 uniform sampler2D uAtlas;
@@ -44,6 +48,14 @@ const float DEPTH_SCALE = 2000000.0;
 
 float decodeDepth32(vec4 c) {
   return dot(c, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
+}
+
+vec4 packDepth32(float v) {
+  v = clamp(v, 0.0, 1.0);
+  vec4 enc = vec4(1.0, 255.0, 65025.0, 16581375.0) * v;
+  enc = fract(enc);
+  enc -= enc.yzww * vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 0.0);
+  return enc;
 }
 
 float decodeRG(vec4 c) {
@@ -138,6 +150,12 @@ void main() {
   float stepLength = clamp(extent / 520.0 * uStepScale, 90.0, 340.0);
   stepLength *= mix(0.74, 1.0, abs(rayDir.z));
 
+  // 近距斜视下固定步长会在平滑密度场上采样出一圈圈同心带状伪影（“洋葱圈”）。
+  // 逐像素抖动起始偏移打散相干条纹，并让步长随离相机距离增大（近细远粗），
+  // 在不显著增加采样次数的前提下消除近景带状伪影。
+  float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  float t = tStart + jitter * stepLength;
+
   vec3 lightDir = normalize(vec3(-0.32, 0.40, 0.86));
   vec3 accumColor = vec3(0.0);
   float accumAlpha = 0.0;
@@ -145,9 +163,10 @@ void main() {
   float firstDepth = DEPTH_SCALE;
 
   for (int i = 0; i < 560; i++) {
-    float t = tStart + float(i) * stepLength;
     if (t >= tEnd || accumAlpha > 0.986) break;
     vec3 p = rayOrigin + rayDir * t;
+    // 先推进采样位置，保证后续 continue 不会停在原地造成死循环。
+    t += stepLength * (0.5 + 0.5 * clamp(t / extent, 0.0, 1.0));
 
     if (uClipEnabled > 0.5 && dot(uClipPlane.xyz, p) + uClipPlane.w < 0.0) continue;
 
@@ -186,6 +205,8 @@ void main() {
   if (accumAlpha < 0.004) discard;
   float edge = smoothstep(0.0, 0.14, accumAlpha);
   outColor = vec4(accumColor / max(accumAlpha, 0.001), clamp(accumAlpha * edge, 0.0, 0.96));
+  float depth01 = firstDepth >= DEPTH_SCALE ? 1.0 : clamp(firstDepth / DEPTH_SCALE, 0.0, 1.0);
+  outLinearDepth = packDepth32(depth01);
 }`
 
 // 直接绘制路径只输出颜色；此前 `//` 单行注释曾把这个声明吞掉，导致
@@ -439,6 +460,24 @@ export class VolumeRenderer {
   }
 
   setDensity(value: number): void { this.material.uniforms.uDensity.value = value; this.directMaterial.uniforms.uDensity.value = value }
+
+  /**
+   * 纵向夸张：保持体数据垂向中心位置不变，围绕中心对称地拉伸 scale 倍。
+   * 放大时顶部与底部同时向外扩展，缩小时同时向内收拢。
+   */
+  setVerticalScale(scale: number): void {
+    const s = THREE.MathUtils.clamp(Number.isFinite(scale) ? scale : 1, 0.02, 20)
+    const top = this.grid.surfaceHeight
+    const bottom = -this.grid.depth
+    const center = (top + bottom) * 0.5
+    const half = (top - bottom) * 0.5
+    const scaledTop = center + half * s
+    const scaledBottom = center - half * s
+    for (const material of [this.material, this.directMaterial]) {
+      material.uniforms.uBoxMax.value.z = scaledTop
+      material.uniforms.uBoxMin.value.z = scaledBottom
+    }
+  }
 
   setScientificState(state: VolumeRenderState): void {
     const modeMap = { volume: 0, iso: 1, hybrid: 2 } as const

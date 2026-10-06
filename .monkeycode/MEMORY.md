@@ -1019,6 +1019,18 @@ Entries discovered by the Agent during task execution should follow this format:
   - 本案例 headless 验证固定用法：dev server 端口 5173；`chromium.launch({ headless:true, executablePath:'/root/.cache/ms-playwright/chromium-1148/chrome-linux/chrome', args:['--no-sandbox','--enable-unsafe-swiftshader','--use-gl=angle','--use-angle=swiftshader','--ignore-gpu-blocklist'] })`，脚本可直接 `import { chromium } from 'file:///tmp/opencode/node_modules/playwright-core/index.mjs'`。进入案例必须走真实 UI：点 `.category-item`（系统DEMO）→ 点 `.demo-card`（赤潮）→ 等 `.rt-shell .cesium-host canvas` → 约 14s。层开关的 DOM 定位是 `input[aria-label="三维赤潮体"]` / `input[aria-label="表层浓度场"]` 等（LayerPanel 的 checkbox 不在 `<label>` 内）。
   - 类型检查门禁：本案例改动后用后台终端跑 `npx vue-tsc -b --pretty false` 即可（0 输出 + exit 0 视为通过），无需完整 `vite build`。
 
+[Project Knowledge Summary]
+- Date: 2026-10-06
+- Context: Discovered by Agent while refactoring the D3 地理大数据 module (CesiumJS 1.144 × D3.js)
+- Category: Workflow & Collaboration / Build Methods
+- Instructions:
+  - 新版 D3 地理大数据模块集中在 `src/lib/d3geo/`（core/buffer、core/lod、core/geo、data/loaders+parsers+synthetic、spatial、analysis、render、workers、performance、cases、D3CaseShell.vue）；案例 spec 写在 `src/lib/d3geo/cases/d3-*.ts`，入口在 `src/cases/d3-*/index.ts`（`createD3Case(spec)` 包 `D3CaseShell.vue`）。
+  - 旧版 45 个 d3 案例入口已非破坏性迁移到 `retired/d3-legacy/`（在 `src/` 之外，不参与 vue-tsc/vite 编译），保留文件不删除。当前启用 13 个旗舰 d3 案例。
+  - 案例元数据由 `scripts/sync-cases.mjs` 扫描 `src/cases/<dir>/index.ts` 生成 `src/cases/manifest.ts`；新增/移动案例后必须运行 `npm run sync`。
+  - 仅 TypeScript 门禁可用 `NODE_OPTIONS=--max-old-space-size=5120 npx vue-tsc --noEmit -p tsconfig.app.json`（后台终端 memory_percent=55、约 1.9 GiB 峰值、约 2 分钟）。当前仓库存在 2 条与 d3geo 无关的预存错误：`src/cases/tiles-3d-local/Tiles3DLocalDemo.vue` 的 `fetch` body 类型（Document vs XMLHttpRequestBodyInit），跑 typecheck 时需忽略。
+  - 纯随机数据只允许出现在 `src/lib/d3geo/data/synthetic/`，由唯一入口 `d3-synthetic-lab` 案例调用，界面明确标注「合成数据 · 仅压测」；其余案例一律装配 `public/geo/` 下的真实数据（USGS quakes、OpenFlights routes/airports、world-countries TopoJSON、world-cities、china-provinces）。
+  - `LabelOptions` 已支持 `pixelOffset?: [number, number]` 与 `pixelOffsetY?: number`（映射到 Cesium label.pixelOffset）。
+
 
 
 

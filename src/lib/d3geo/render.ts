@@ -221,6 +221,10 @@ export type LabelOptions = {
   outlineWidth?: number
   disableDepthTest?: boolean
   scaleByDistance?: [number, number, number, number]
+  /** 屏幕像素偏移 [x, y]，y 为负表示上移。 */
+  pixelOffset?: [number, number]
+  /** 仅垂直像素偏移（上移为负）。 */
+  pixelOffsetY?: number
 }
 
 export function addLabel(ds: CustomDataSource, lon: number, lat: number, text: string, options: LabelOptions = {}): Entity {
@@ -236,6 +240,8 @@ export function addLabel(ds: CustomDataSource, lon: number, lat: number, text: s
     disableDepthTestDistance: options.disableDepthTest ? Number.POSITIVE_INFINITY : 0
   }
   if (options.scaleByDistance) label.scaleByDistance = new NearFarScalar(...options.scaleByDistance)
+  if (options.pixelOffset) label.pixelOffset = new Cartesian2(...options.pixelOffset)
+  else if (options.pixelOffsetY !== undefined) label.pixelOffset = new Cartesian2(0, options.pixelOffsetY)
   return ds.entities.add({ position: Cartesian3.fromDegrees(lon, lat), label })
 }
 

@@ -1,5 +1,6 @@
 import type { Viewer } from 'cesium'
 import type { Component } from 'vue'
+import type { GeoProfiler } from './performance/profiler'
 
 /** 单个案例可调参数值。 */
 export type D3SettingValue = string | number | boolean
@@ -55,14 +56,18 @@ export type D3CaseContext = {
   settings: D3Settings
   status: (text: string) => void
   legend: (items: D3LegendItem[]) => void
+  /** 性能基准：上报数据 / 耗时 / LOD 指标。 */
+  profiler: GeoProfiler
   /** 注册每帧回调，返回取消函数。 */
   onFrame: (cb: (time: number, delta: number) => void) => () => void
   /** 注册清理函数，案例重建时自动调用。 */
   onCleanup: (fn: () => void) => void
   /** 追加一个覆盖在画布上的 HTML/SVG 元素，重建时自动移除。 */
-  overlay: (el: HTMLElement) => void
+  overlay: (el: HTMLElement, interactive?: boolean) => void
   /** 创建一个批量点图元集合并纳入自动清理。 */
   pointCollection: () => import('cesium').PointPrimitiveCollection
+  /** 创建一个 CPU 图元（Primitive/自定义）并纳入自动清理。 */
+  addPrimitive: <T extends object>(primitive: T) => T
   /** 清空当前案例添加的所有实体与图层。 */
   clear: () => void
 }

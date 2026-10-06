@@ -12,6 +12,7 @@ import {
 } from 'cesium'
 import { createMapScene, destroyScene, loadBingImagery } from '../cesium-scene'
 import { createD3Context, type D3ContextHost } from './context'
+import { GeoProfiler } from './performance/profiler'
 import { rampCss } from './palettes'
 import type { D3CaseContext, D3CaseSpec, D3Control, D3LegendItem, D3SettingValue, D3Settings } from './types'
 
@@ -24,6 +25,14 @@ const legend = shallowRef<D3LegendItem[]>([])
 const error = ref('')
 const cursor = ref<{ lon: number; lat: number } | null>(null)
 const rampPreview = ref<Record<string, string>>({})
+const profiler = new GeoProfiler()
+const perfView = ref<{ fps: number; frameMs: number; memoryMB: number; stats: Array<[string, string | number]> }>({
+  fps: 0,
+  frameMs: 0,
+  memoryMB: 0,
+  stats: []
+})
+let lastPerfUpdate = 0
 
 let viewer: Viewer | undefined
 let host: D3ContextHost | undefined
@@ -93,6 +102,16 @@ function frameLoop(time: number): void {
   const delta = lastFrame ? time - lastFrame : 16
   lastFrame = time
   host?.runFrame(time, delta)
+  profiler.tick(time)
+  if (time - lastPerfUpdate >= 400) {
+    lastPerfUpdate = time
+    perfView.value = {
+      fps: profiler.fps,
+      frameMs: profiler.frameMs,
+      memoryMB: profiler.memoryMB,
+      stats: Object.entries(profiler.snapshot())
+    }
+  }
   rafId = requestAnimationFrame(frameLoop)
 }
 
@@ -109,6 +128,7 @@ onMounted(() => {
     viewer,
     dataSource,
     settings,
+    profiler,
     setStatus: (text) => {
       status.value = text
     },
@@ -151,6 +171,23 @@ onBeforeUnmount(() => {
 <template>
   <div class="d3-shell">
     <div ref="mapEl" class="d3-map"></div>
+
+    <div class="d3-perf">
+      <div class="perf-head">D3 GEO PERFORMANCE</div>
+      <div class="perf-vitals">
+        <span :class="perfView.fps >= 45 ? 'good' : perfView.fps >= 30 ? 'ok' : 'bad'">
+          <b>FPS</b>{{ perfView.fps }}
+        </span>
+        <span><b>Frame</b>{{ perfView.frameMs.toFixed(1) }}<i>ms</i></span>
+        <span><b>MEM</b>{{ Math.round(perfView.memoryMB) }}<i>MB</i></span>
+      </div>
+      <div v-if="perfView.stats.length" class="perf-stats">
+        <div v-for="[key, value] in perfView.stats" :key="key" class="perf-row">
+          <span class="perf-key">{{ key }}</span>
+          <span class="perf-value">{{ value }}</span>
+        </div>
+      </div>
+    </div>
 
     <aside class="d3-panel">
       <div class="panel-head">
@@ -271,6 +308,88 @@ onBeforeUnmount(() => {
 .d3-map {
   position: absolute;
   inset: 0;
+}
+
+.d3-perf {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  min-width: 220px;
+  max-width: 300px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(8, 15, 30, 0.82);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #e2e8f0;
+  font-size: 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 14px 36px rgba(2, 6, 23, 0.5);
+  pointer-events: none;
+}
+
+.perf-head {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: #38bdf8;
+  margin-bottom: 8px;
+}
+
+.perf-vitals {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.perf-vitals b {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: #64748b;
+}
+
+.perf-vitals i {
+  font-style: normal;
+  font-size: 9px;
+  color: #64748b;
+  margin-left: 1px;
+}
+
+.perf-vitals .good {
+  color: #4ade80;
+}
+
+.perf-vitals .ok {
+  color: #facc15;
+}
+
+.perf-vitals .bad {
+  color: #f87171;
+}
+
+.perf-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  padding-top: 7px;
+  max-height: 42vh;
+  overflow: hidden;
+}
+
+.perf-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.perf-key {
+  color: #94a3b8;
+}
+
+.perf-value {
+  color: #7dd3fc;
+  font-variant-numeric: tabular-nums;
 }
 
 .d3-panel {

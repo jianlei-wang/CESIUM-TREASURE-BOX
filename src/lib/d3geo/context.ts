@@ -1,5 +1,6 @@
 import { PointPrimitiveCollection, type CustomDataSource, type Viewer } from 'cesium'
 import type { D3CaseContext, D3LegendItem, D3Settings } from './types'
+import type { GeoProfiler } from './performance/profiler'
 
 export type D3ContextHost = {
   ctx: D3CaseContext
@@ -15,10 +16,11 @@ export function createD3Context(options: {
   viewer: Viewer
   dataSource: CustomDataSource
   settings: D3Settings
+  profiler: GeoProfiler
   setStatus: (text: string) => void
   setLegend: (items: D3LegendItem[]) => void
 }): D3ContextHost {
-  const { viewer, dataSource, settings } = options
+  const { viewer, dataSource, settings, profiler } = options
   const cleanupFns: Array<() => void> = []
   const overlays: HTMLElement[] = []
   const frameCallbacks = new Set<(time: number, delta: number) => void>()
@@ -44,6 +46,7 @@ export function createD3Context(options: {
       }
     }
     frameCallbacks.clear()
+    profiler.clearStats()
   }
 
   const ctx: D3CaseContext = {
@@ -52,6 +55,7 @@ export function createD3Context(options: {
     settings,
     status: options.setStatus,
     legend: options.setLegend,
+    profiler,
     onFrame: (cb) => {
       frameCallbacks.add(cb)
       return () => frameCallbacks.delete(cb)
@@ -59,10 +63,10 @@ export function createD3Context(options: {
     onCleanup: (fn) => {
       cleanupFns.push(fn)
     },
-    overlay: (el) => {
+    overlay: (el, interactive = false) => {
       el.style.position = 'absolute'
       el.style.inset = '0'
-      el.style.pointerEvents = 'none'
+      el.style.pointerEvents = interactive ? 'auto' : 'none'
       viewer.container.appendChild(el)
       overlays.push(el)
     },
@@ -71,6 +75,11 @@ export function createD3Context(options: {
       viewer.scene.primitives.add(collection)
       trackedPrimitives.push(collection)
       return collection
+    },
+    addPrimitive: <T extends object>(primitive: T): T => {
+      viewer.scene.primitives.add(primitive as never)
+      trackedPrimitives.push(primitive)
+      return primitive
     },
     clear: reset
   }

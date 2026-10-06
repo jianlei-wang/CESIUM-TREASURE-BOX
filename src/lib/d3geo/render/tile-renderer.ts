@@ -1,0 +1,137 @@
+/**
+ * 矢量瓦片渲染：z/x/y → 瓦片范围 → 要素裁剪 → MVT 坐标 → PBF → Cesium Primitive。
+ */
+import { Cartesian3, Color, PolygonHierarchy, type CustomDataSource } from 'cesium'
+import type { GeoFeature } from '../data/loaders'
+import { addPolyline } from '../render'
+import type { MvtGeometryInput } from '../data/parsers/mvt'
+import type { Bounds } from '../data/loaders'
+
+export type TileCoord = { z: number; x: number; y: number }
+
+/** 经纬度 → Web Mercator 瓦片坐标。 */
+export function lonLatToTile(lon: number, lat: number, zoom: number): { x: number; y: number } {
+  const n = 2 ** zoom
+  const x = ((lon + 180) / 360) * n
+  const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat))
+  const rad = (clampedLat * Math.PI) / 180
+  const y = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n
+  return { x, y }
+}
+
+/** 瓦片 → 经纬度范围。 */
+export function tileBounds(coord: TileCoord): Bounds {
+  const n = 2 ** coord.z
+  const west = (coord.x / n) * 360 - 180
+  const east = ((coord.x + 1) / n) * 360 - 180
+  const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * coord.y) / n))) * 180) / Math.PI
+  const south = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (coord.y + 1)) / n))) * 180) / Math.PI
+  return { west, south, east, north }
+}
+
+/** 经纬度 → 瓦片内像素坐标（extent 通常 4096）。 */
+export function lonLatToTilePixel(lon: number, lat: number, coord: TileCoord, extent: number): [number, number] {
+  const world = 2 ** coord.z
+  const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat))
+  const rad = (clampedLat * Math.PI) / 180
+  const worldX = ((lon + 180) / 360) * world * extent
+  const worldY = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * world * extent
+  return [worldX - coord.x * extent, worldY - coord.y * extent]
+}
+
+function geometryBounds(geometry: GeoFeature['geometry']): Bounds {
+  let west = Number.POSITIVE_INFINITY
+  let south = Number.POSITIVE_INFINITY
+  let east = Number.NEGATIVE_INFINITY
+  let north = Number.NEGATIVE_INFINITY
+  const visit = (coords: unknown): void => {
+    if (!Array.isArray(coords)) return
+    if (typeof coords[0] === 'number') {
+      const lon = coords[0] as number
+      const lat = coords[1] as number
+      if (lon < west) west = lon
+      if (lon > east) east = lon
+      if (lat < south) south = lat
+      if (lat > north) north = lat
+      return
+    }
+    for (const child of coords) visit(child)
+  }
+  visit((geometry as { coordinates: unknown }).coordinates)
+  return { west, south, east, north }
+}
+
+function intersects(a: Bounds, b: Bounds): boolean {
+  return !(a.east < b.west || a.west > b.east || a.north < b.south || a.south > b.north)
+}
+
+/** 把真实面要素按 z/x/y 编码为 MVT 几何（真实 PBF 生命周期）。 */
+export function tileFeatures(features: GeoFeature[], coord: TileCoord, extent = 4096): MvtGeometryInput[] {
+  const bounds = tileBounds(coord)
+  const output: MvtGeometryInput[] = []
+  for (const item of features) {
+    const geometry = item.geometry
+    if (!intersects(geometryBounds(geometry), bounds)) continue
+    const name = String(item.properties.name ?? '')
+    if (geometry.type === 'Polygon') {
+      for (const ring of geometry.coordinates) {
+        output.push({
+          type: 'Polygon',
+          coordinates: ring.map(([lon, lat]) => lonLatToTilePixel(lon, lat, coord, extent).map(Math.round)),
+          properties: { name }
+        })
+      }
+    } else if (geometry.type === 'MultiPolygon') {
+      for (const polygon of geometry.coordinates) {
+        for (const ring of polygon) {
+          output.push({
+            type: 'Polygon',
+            coordinates: ring.map(([lon, lat]) => lonLatToTilePixel(lon, lat, coord, extent).map(Math.round)),
+            properties: { name }
+          })
+        }
+      }
+    } else if (geometry.type === 'Point') {
+      output.push({
+        type: 'Point',
+        coordinates: [lonLatToTilePixel(geometry.coordinates[0], geometry.coordinates[1], coord, extent).map(Math.round)],
+        properties: { name }
+      })
+    }
+  }
+  return output
+}
+
+/** 把解码后的 MVT 几何渲染回经纬度（贴地填充 / 描边）。 */
+export function renderTileGeometry(
+  dataSource: CustomDataSource,
+  geometries: MvtGeometryInput[],
+  coord: TileCoord,
+  extent: number,
+  color: string
+): number {
+  const bounds = tileBounds(coord)
+  const toLonLat = (px: number, py: number): [number, number] => [
+    bounds.west + (px / extent) * (bounds.east - bounds.west),
+    bounds.north - (py / extent) * (bounds.north - bounds.south)
+  ]
+  let count = 0
+  for (const geometry of geometries) {
+    const points = geometry.coordinates.map(([px, py]) => toLonLat(px, py))
+    if (geometry.type === 'Polygon' && points.length >= 3) {
+      dataSource.entities.add({
+        polygon: {
+          hierarchy: new PolygonHierarchy(points.map(([lon, lat]) => Cartesian3.fromDegrees(lon, lat))),
+          material: Color.fromCssColorString(color).withAlpha(0.55),
+          outline: true,
+          outlineColor: Color.fromCssColorString('#0f172a')
+        }
+      })
+      count += 1
+    } else if (geometry.type === 'LineString' && points.length >= 2) {
+      addPolyline(dataSource, points, { color, width: 2, alpha: 0.8 })
+      count += 1
+    }
+  }
+  return count
+}

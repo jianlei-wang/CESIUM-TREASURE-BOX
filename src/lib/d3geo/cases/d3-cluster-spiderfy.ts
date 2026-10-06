@@ -1,160 +1,209 @@
-import { Cartesian2, ScreenSpaceEventType, type Entity } from 'cesium'
+import { Cartesian2, Cartesian3, Color, ScreenSpaceEventHandler, ScreenSpaceEventType, type PointPrimitiveCollection } from 'cesium'
 import type { D3CaseSpec } from '../types'
-import { CHINA_CITIES, clusteredPoints } from '../data'
-import { ramp } from '../palettes'
-import { addLabel, addPoint, addPolygon, addPolyline, circlePolygon, type LonLat } from '../render'
+import type { GeoPointBuffer } from '../core/buffer'
+import { screenGridCluster } from '../spatial/quadtree'
+import { ramp, categorical } from '../palettes'
+import { formatCount, normalize } from '../core/geo'
+import { loadQuakes } from './_data'
+import { PALETTE_OPTIONS, rampLegend } from './_kit'
 
-type Cluster = { center: LonLat; members: LonLat[] }
-
-/** 简易网格聚类：按阈值步长分桶，桶内点的均值为簇中心。 */
-function clusterPoints(points: LonLat[], cellDeg: number): Cluster[] {
-  const buckets = new Map<string, LonLat[]>()
-  for (const point of points) {
-    const key = `${Math.floor(point[0] / cellDeg)},${Math.floor(point[1] / cellDeg)}`
-    const bucket = buckets.get(key)
-    if (bucket) bucket.push(point)
-    else buckets.set(key, [point])
-  }
-  const clusters: Cluster[] = []
-  for (const members of buckets.values()) {
-    let lon = 0
-    let lat = 0
-    for (const member of members) {
-      lon += member[0]
-      lat += member[1]
-    }
-    clusters.push({ center: [lon / members.length, lat / members.length], members })
-  }
-  return clusters
-}
+type Cluster = { index: number; lon: number; lat: number; members: number[]; mean: number; min: number; max: number }
 
 const spec: D3CaseSpec = {
   id: 'd3-cluster-spiderfy',
   meta: {
-    title: '聚合气泡簇与爆炸展开',
-    subtitle: '网格聚类 + circlePolygon → 扇形 spiderfy 展开',
-    description: '先按距离阈值聚合成气泡簇，点击圆圈用扇形布局展开内部子点。',
-    tag: 'D3 聚类 · spiderfy',
-    accent: '#f472b6',
+    title: '聚类 + 蜘蛛展开 · 屏幕空间交互',
+    subtitle: '真实事件 → 屏幕网格聚类 → 点击展开成员',
+    description:
+      '对 USGS 真实地震事件做屏幕空间网格聚类，聚合点大小映射数量、颜色映射均值；点击聚合点展开为蜘蛛图成员点，并给出数量 / 极值 / 均值 / 类别分布。',
+    tag: 'Cluster · Spiderfy · 屏幕空间',
+    accent: '#34d399',
     tips: [
-      '先按聚类距离把邻近点归入网格桶，桶内均值作为簇中心',
-      '每个簇用 circlePolygon 绘制圆面并以 addLabel 标注数量',
-      '点击簇后沿圆周扇形（spiderfy）展开成员点，viewer.screenSpaceEventHandler 负责拾取与清理'
+      '输入为真实地震事件坐标，聚类尺度随屏幕像素变化',
+      '点击聚合点触发蜘蛛展开，成员用偏移点与连线表达',
+      '统计随交互实时给出：count / min / max / mean / 类别分布'
     ]
   },
   defaults: {
-    clusterDist: 2,
-    spiderRadius: 90000,
-    pointCount: 4000,
-    showLabels: true,
-    seed: 20261006
+    cellSize: 46,
+    palette: 'turbo',
+    spread: 0.35,
+    showMembers: true
   },
-  camera: { lon: 108, lat: 32, height: 5200000, pitch: -90 },
+  camera: { lon: 20, lat: 20, height: 24_000_000, pitch: -90 },
   controls: [
-    { kind: 'range', key: 'clusterDist', label: '聚类距离(°)', min: 0.5, max: 5, step: 0.1 },
-    { kind: 'range', key: 'spiderRadius', label: '展开半径(m)', min: 20000, max: 300000, step: 10000, format: (v) => v.toLocaleString() },
-    { kind: 'range', key: 'pointCount', label: '点数', min: 1000, max: 20000, step: 1000, format: (v) => v.toLocaleString() },
-    { kind: 'checkbox', key: 'showLabels', label: '显示数量标签' },
-    { kind: 'range', key: 'seed', label: '随机种子', min: 1, max: 9999999, step: 1 }
+    { kind: 'range', key: 'cellSize', label: '聚合像素', min: 16, max: 120, step: 2 },
+    { kind: 'range', key: 'spread', label: '展开半径(度)', min: 0.05, max: 1.5, step: 0.05 },
+    { kind: 'select', key: 'palette', label: '色带', options: PALETTE_OPTIONS },
+    { kind: 'checkbox', key: 'showMembers', label: '显示展开成员' }
   ],
   setup(ctx) {
     const settings = ctx.settings
-    const clusterDist = Number(settings.clusterDist)
-    const spiderRadius = Number(settings.spiderRadius)
-    const total = Number(settings.pointCount)
-    const showLabels = Boolean(settings.showLabels)
+    const palette = String(settings.palette)
+    let disposed = false
+    let buffer: GeoPointBuffer | undefined
+    let clusters: Cluster[] = []
+    const collection: PointPrimitiveCollection = ctx.pointCollection()
+    const memberCollection: PointPrimitiveCollection = ctx.pointCollection()
+    let lastCameraHeight = -1
+    let lastCameraLon = 999
+    let lastCameraLat = 999
 
-    const seeds = CHINA_CITIES.slice(0, 8)
-    const points = clusteredPoints(
-      seeds.map((city) => ({
-        lon: city.lon,
-        lat: city.lat,
-        count: Math.floor(total / seeds.length),
-        spread: 3
-      })),
-      Number(settings.seed)
-    )
-
-    const clusters = clusterPoints(points, clusterDist)
-    const maxCount = Math.max(1, ...clusters.map((cluster) => cluster.members.length))
-    const clusterIndex = new Map<unknown, number>()
-    let expanded = -1
-    let expansion: Entity[] = []
-
-    const collapse = () => {
-      for (const entity of expansion) ctx.dataSource.entities.remove(entity)
-      expansion = []
-      expanded = -1
-    }
-
-    clusters.forEach((cluster, index) => {
-      const count = cluster.members.length
-      const ratio = count / maxCount
-      const radiusMeters = 30000 + Math.sqrt(count) * 12000
-      const entity = addPolygon(ctx.dataSource, circlePolygon(cluster.center[0], cluster.center[1], radiusMeters, 40), {
-        color: ramp('plasma', ratio),
-        alpha: 0.45,
-        outline: true,
-        outlineColor: '#f472b6',
-        outlineWidth: 2
-      })
-      clusterIndex.set(entity, index)
-      if (showLabels) {
-        addLabel(ctx.dataSource, cluster.center[0], cluster.center[1], String(count), {
-          font: 'bold 12px sans-serif',
-          color: '#f8fafc',
-          scaleByDistance: [800000, 0.5, 8000000, 1.4],
-          disableDepthTest: true
-        })
-      }
-      if (count === 1) {
-        addPoint(ctx.dataSource, cluster.center[0], cluster.center[1], { pixelSize: 6, color: '#f8fafc' })
-      }
+    const handler = new ScreenSpaceEventHandler(ctx.viewer.scene.canvas)
+    ctx.onCleanup(() => {
+      disposed = true
+      handler.destroy()
     })
 
-    const expand = (index: number) => {
-      collapse()
-      const cluster = clusters[index]
-      const count = cluster.members.length
-      cluster.members.forEach((member, k) => {
-        const angle = (k / Math.max(1, count)) * Math.PI * 2
-        const cosLat = Math.cos((cluster.center[1] * Math.PI) / 180) || 0.01
-        const lon = cluster.center[0] + (Math.cos(angle) * spiderRadius) / (111320 * cosLat)
-        const lat = cluster.center[1] + (Math.sin(angle) * spiderRadius) / 110540
-        expansion.push(addPolyline(ctx.dataSource, [cluster.center, [lon, lat]], { width: 1, color: '#94a3b8', alpha: 0.7 }))
-        expansion.push(addPoint(ctx.dataSource, lon, lat, { pixelSize: 7, color: '#f8fafc', outlineColor: '#0f172a', disableDepthTest: true }))
-      })
-      expanded = index
-      ctx.status(`已展开第 ${index} 簇 · ${count} 个子点沿扇形分布`)
+    const project = (lon: number, lat: number): Cartesian2 | undefined =>
+      ctx.viewer.scene.cartesianToCanvasCoordinates(Cartesian3.fromDegrees(lon, lat, 0))
+
+    const drawClusters = (): void => {
+      collection.removeAll()
+      memberCollection.removeAll()
+      const maxCluster = clusters.reduce((acc, cluster) => Math.max(acc, cluster.members.length), 1)
+      for (const cluster of clusters) {
+        const t = normalize(cluster.members.length, 1, maxCluster)
+        const size = 6 + Math.sqrt(cluster.members.length) * 3.4
+        collection.add({
+          position: Cartesian3.fromDegrees(cluster.lon, cluster.lat, 0),
+          color: cssColor(ramp(palette, Math.pow(t, 0.5)), 0.92),
+          pixelSize: Math.min(30, size),
+          outlineColor: cssColor('#0f172a', 1),
+          outlineWidth: 1,
+          id: { __d3cluster: cluster.index }
+        })
+      }
     }
 
-    ctx.legend([
-      { label: 'plasma（聚类规模）', color: ramp('plasma', 1) },
-      { label: '点击圆面展开子点', color: '#f472b6' }
-    ])
-    ctx.status(`聚类 ${clusters.length} 簇 · 共 ${points.length.toLocaleString()} 点 · 点击气泡簇展开`)
+    const spiderfy = (cluster: Cluster): void => {
+      memberCollection.removeAll()
+      ctx.dataSource.entities.removeAll()
+      const local = new Map<number, number>()
+      if (Boolean(settings.showMembers) && cluster.members.length > 1) {
+        const spread = Number(settings.spread)
+        cluster.members.forEach((memberIndex, k) => {
+          const angle = (Math.PI * 2 * k) / cluster.members.length
+          const lon = cluster.lon + Math.cos(angle) * spread
+          const lat = cluster.lat + Math.sin(angle) * spread * 0.7
+          const category = (buffer as GeoPointBuffer).categories[memberIndex]
+          local.set(category, (local.get(category) ?? 0) + 1)
+          memberCollection.add({
+            position: Cartesian3.fromDegrees(lon, lat, 0),
+            color: cssColor(categorical(category), 1),
+            pixelSize: 6,
+            id: { __d3member: memberIndex }
+          })
+          ctx.dataSource.entities.add({
+            polyline: {
+              positions: [Cartesian3.fromDegrees(cluster.lon, cluster.lat, 0), Cartesian3.fromDegrees(lon, lat, 0)],
+              width: 1,
+              material: cssColor('#94a3b8', 0.6)
+            }
+          })
+        })
+      }
+      const localText = [...local.entries()].map(([cat, n]) => `C${cat}×${n}`).join(' ') || '单点'
+      ctx.status(
+        `聚合 ${cluster.members.length} 点 · 均值 ${cluster.mean.toFixed(2)} · 范围 ${cluster.min.toFixed(1)}–${cluster.max.toFixed(1)} · ${localText}`
+      )
+    }
 
-    const handler = ctx.viewer.screenSpaceEventHandler
-    if (handler) {
-      handler.setInputAction((movement: { position: Cartesian2 }) => {
-        const picked = ctx.viewer.scene.pick(movement.position)
-        const entity = picked ? picked.id : undefined
-        if (!entity) return
-        const index = clusterIndex.get(entity)
-        if (index === undefined) return
-        if (expanded === index) {
-          collapse()
-          ctx.status('已收起展开的聚合簇')
-        } else {
-          expand(index)
+    const computeClusters = (): void => {
+      if (!buffer) return
+      const xs = new Float32Array(buffer.length)
+      const ys = new Float32Array(buffer.length)
+      const valid: number[] = []
+      for (let i = 0; i < buffer.length; i += 1) {
+        const screen = project(buffer.positions[i * 2], buffer.positions[i * 2 + 1])
+        if (!screen) continue
+        xs[i] = screen.x
+        ys[i] = screen.y
+        valid.push(i)
+      }
+      const { assignments } = screenGridCluster(xs, ys, Number(settings.cellSize))
+      const buckets = new Map<number, number[]>()
+      for (const i of valid) {
+        const id = assignments[i]
+        if (id < 0) continue
+        const list = buckets.get(id)
+        if (list) list.push(i)
+        else buckets.set(id, [i])
+      }
+      clusters = []
+      let ci = 0
+      for (const members of buckets.values()) {
+        let lon = 0
+        let lat = 0
+        let min = Number.POSITIVE_INFINITY
+        let max = Number.NEGATIVE_INFINITY
+        let sum = 0
+        for (const i of members) {
+          lon += buffer.positions[i * 2]
+          lat += buffer.positions[i * 2 + 1]
+          const value = buffer.values[i]
+          sum += value
+          if (value < min) min = value
+          if (value > max) max = value
         }
-      }, ScreenSpaceEventType.LEFT_CLICK)
-      ctx.onCleanup(() => {
-        handler.removeInputAction(ScreenSpaceEventType.LEFT_CLICK)
-        collapse()
-      })
+        clusters.push({ index: ci, lon: lon / members.length, lat: lat / members.length, members, mean: sum / members.length, min, max })
+        ci += 1
+      }
+      drawClusters()
     }
+
+    handler.setInputAction((movement: { position: Cartesian2 }) => {
+      if (!buffer) return
+      const picked = ctx.viewer.scene.pick(movement.position) as { id?: { __d3cluster?: number } } | undefined
+      const clusterId = picked?.id?.__d3cluster
+      if (clusterId === undefined) return
+      const cluster = clusters[clusterId]
+      if (cluster) spiderfy(cluster)
+    }, ScreenSpaceEventType.LEFT_CLICK)
+
+    const refreshIfCameraMoved = (): void => {
+      if (!buffer) return
+      const carto = ctx.viewer.camera.positionCartographic
+      const height = carto.height
+      const lon = (carto.longitude * 180) / Math.PI
+      const lat = (carto.latitude * 180) / Math.PI
+      if (
+        Math.abs(height - lastCameraHeight) > Math.max(1, height * 0.04) ||
+        Math.abs(lon - lastCameraLon) > 0.4 ||
+        Math.abs(lat - lastCameraLat) > 0.4
+      ) {
+        lastCameraHeight = height
+        lastCameraLon = lon
+        lastCameraLat = lat
+        computeClusters()
+      }
+    }
+
+    ctx.status('加载真实地震事件…')
+    loadQuakes()
+      .then((loaded) => {
+        if (disposed) return
+        buffer = loaded
+        const start = ctx.profiler.time('Cluster')
+        computeClusters()
+        ctx.profiler.set('Cluster', `${start().toFixed(0)} ms`)
+        ctx.profiler.set('Input', formatCount(buffer.length))
+        ctx.profiler.set('Clusters', formatCount(clusters.length))
+        ctx.profiler.set('Compression', `${((1 - clusters.length / buffer.length) * 100).toFixed(1)}%`)
+        ctx.status(`${formatCount(buffer.length)} 个真实事件 → ${formatCount(clusters.length)} 个聚合点，点击聚合点展开`)
+        ctx.legend([rampLegend(palette, '聚合数量 少→多')])
+        ctx.onFrame(refreshIfCameraMoved)
+      })
+      .catch((error: unknown) => {
+        if (!disposed) ctx.status(`数据加载失败：${error instanceof Error ? error.message : String(error)}`)
+      })
   }
+}
+
+function cssColor(css: string, alpha: number): Color {
+  const color = Color.fromCssColorString(css)
+  color.alpha = alpha
+  return color
 }
 
 export default spec

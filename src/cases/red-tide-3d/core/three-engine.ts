@@ -28,6 +28,7 @@ export interface ThreeFieldRenderOptions {
   clipDepth: number
   sectionX: number
   sectionAxis: 'x' | 'y'
+  verticalExaggeration: number
 }
 
 export type ParticleStyle = 'star' | 'arrow' | 'diamond' | 'ring'
@@ -116,7 +117,10 @@ export class ThreeOverlayEngine {
   get depthOcclusionSupported(): boolean { return this.cesium.depthOcclusionSupported }
 
   get pipelineLabel(): string {
-    return this.depthOcclusionSupported ? 'Cesium + Three Direct + Cesium Depth' : 'Cesium + Three Direct（无深度遮挡）'
+    // Direct 路径下 Volume / Flow 直接叠加到 Cesium framebuffer，不再使用 Cesium 深度做遮挡；
+    // 只有 legacy composite 路径才走 MRT + Cesium Depth 复合。
+    if (this.renderPath === 'direct') return 'Cesium + Three Direct（无深度遮挡）'
+    return this.depthOcclusionSupported ? 'Cesium + Three MRT Composite + Cesium Depth' : 'Cesium + Three Direct（无深度遮挡）'
   }
 
   get renderPathLabel(): string {
@@ -186,6 +190,7 @@ export class ThreeOverlayEngine {
     this.surface.setThreshold(options.thresholdLow, options.thresholdHigh)
     this.section.setThreshold(options.thresholdLow, options.thresholdHigh)
     this.volume.setDensity(options.density)
+    this.volume.setVerticalScale(options.verticalExaggeration)
     this.surface.setOpacity(options.surfaceOpacity)
     this.flow.setOpacity(options.flowOpacity)
     this.flow.setStyle(options.particleStyle)
@@ -225,7 +230,10 @@ export class ThreeOverlayEngine {
     // 共享 WebGL2 Context 的第一原则：不要清除 Cesium 已经绘制好的颜色/深度。
     // 直接路径将 Three 场景作为前景层绘制在 Cesium 默认 framebuffer 上。
     if (this.renderPath === 'direct') {
-      this.volume.bindCesiumOcclusionDepth(this.depthOcclusionSupported ? this.cesium.depthTexture : null)
+      // 直接路径下体渲染材质 depthTest=false，与海流粒子一样直接叠加在 Cesium framebuffer 上。
+      // Cesium 后处理深度纹理在共享上下文中解码不稳定，会把整个赤潮体误判为被海面遮挡而整帧丢弃
+      // （表现为“三维赤潮体开关无任何视觉变化”），因此直接路径不再用它做体遮挡。
+      this.volume.bindCesiumOcclusionDepth(null)
 
       // 先画体渲染，再画表层场 / 剖面 / 粒子，使粒子成为最上层动态信息。
       if (this.options.showVolume) {

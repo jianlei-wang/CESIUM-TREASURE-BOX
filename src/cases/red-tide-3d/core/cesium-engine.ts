@@ -181,17 +181,24 @@ export class CesiumEngine {
       this.offsetDegrees(center.longitude, center.latitude, -halfX, halfY),
     ]
     const hierarchy = new Cesium.PolygonHierarchy(
-      corners.map(([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat, 0)),
+      corners.map(([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat)),
     )
+    const boundary = corners.map(([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat))
+    boundary.push(boundary[0].clone())
+    // 研究区边界贴地显示：填充面（CLAMP_TO_GROUND）与描边折线（clampToGround）均贴附地球表面，
+    // 避免绝对高度 0 与地表共面导致的 z-fighting、悬浮或下陷。
     this.eventRectangle = this.viewer.entities.add({
       name: '赤潮模拟研究区',
       polygon: {
         hierarchy,
-        material: Cesium.Color.CYAN.withAlpha(0.035),
-        outline: true,
-        outlineColor: Cesium.Color.CYAN.withAlpha(0.45),
-        height: 0,
-        extrudedHeight: 0,
+        material: Cesium.Color.CYAN.withAlpha(0.05),
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      },
+      polyline: {
+        positions: boundary,
+        clampToGround: true,
+        width: 2,
+        material: Cesium.Color.CYAN.withAlpha(0.6),
       },
     })
     this.addSyntheticCoastlineAndIslands()
@@ -395,11 +402,13 @@ export class CesiumEngine {
 
   private flyToStudyArea(): void {
     const { longitude, latitude } = this.studyArea.center
+    // 相对研究区中心向南 0.45°（约 50km）、100km 高、俯仰 -52° 的斜视相机：
+    // 保证 120km×95km 的研究区与赤潮体完整落入视口，同时保留海岸线背景。
     this.viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(longitude, latitude - 0.18, 130_000),
+      destination: Cesium.Cartesian3.fromDegrees(longitude, latitude - 0.45, 100_000),
       orientation: {
         heading: Cesium.Math.toRadians(0),
-        pitch: Cesium.Math.toRadians(-42),
+        pitch: Cesium.Math.toRadians(-52),
         roll: 0,
       },
       duration: 0,

@@ -1008,6 +1008,17 @@ Entries discovered by the Agent during task execution should follow this format:
   - headless 复现拾取：坐标必须相对 Cesium canvas（`.vol-cesium` rect）而非页面；PM2.5 羽流在画面左侧窄带，命中点约在 canvas 左 30%~45%、上 30% 一带，扫描网格先覆盖该区。
   - 构建门禁再次确认：`memory_percent=50` + `NODE_OPTIONS=--max-old-space-size=4096 npx vue-tsc -b` 与 `npx vite build` 均通过（typecheck 0 error，build `✓ built in 1m44s`）。
 
+[Project Knowledge Summary]
+- Date: 2026-10-05
+- Context: Discovered by Agent while fixing 赤潮监测三维模拟仿真系统（src/cases/red-tide-3d）“三维赤潮体开关无视觉变化”
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - Cesium(framebuffer) 与 Three 共享同一 WebGL2 上下文的案例中，排查“某个 Three 科学图层开关无任何视觉变化”时，先用 canvas 级 `page.screenshot()` 做状态哈希对比，不要用 `gl.readPixels` 读默认 framebuffer 判断：在 Cesium postRender 回调外读取会拿到陈旧/不确定内容，容易得出错误结论（本次 `readPixels` 曾误判 volume 可见）。
+  - 体渲染不可见的一个系统性陷阱：direct 路径下 `VolumeRenderer` 采样 Cesium `PostProcessStage` 输出的打包深度纹理做遮挡（`uUseOcclusionDepth=1`），当该纹理未被正确解码为“无遮挡”(1.0) 时，着色器 `if (blocker < scale*0.99999 && eyeDepth >= blocker-0.8) break;` 会在首个采样点直接中断整条射线，`accumAlpha<0.004` 触发 `discard`，表现为整个体渲染消失且开关无效。项目既有先例是 GPU 海流粒子已关闭深度测试规避 Cesium 海面深度遮挡；direct 路径下体渲染也应 `bindCesiumOcclusionDepth(null)`（保留 composite 路径的深度复合）。判断方法：运行时把 `volume.bindCesiumOcclusionDepth` 覆写为置 `uUseOcclusionDepth=0`，若体立即出现即命中此坑。
+  - 默认相机必须保证研究区进入视口，否则科学图层即使渲染正常也“看不到、切换无变化”。可用 `scene.cartesianToCanvasCoordinates(localToCartesian(研究区角点))` 批量投影出研究区在 canvas 上的包围盒，选择使包围盒落入 `[0,W]×[0,H]` 的 `destination/orientation`，比反复截图试角度高效。
+  - 本案例 headless 验证固定用法：dev server 端口 5173；`chromium.launch({ headless:true, executablePath:'/root/.cache/ms-playwright/chromium-1148/chrome-linux/chrome', args:['--no-sandbox','--enable-unsafe-swiftshader','--use-gl=angle','--use-angle=swiftshader','--ignore-gpu-blocklist'] })`，脚本可直接 `import { chromium } from 'file:///tmp/opencode/node_modules/playwright-core/index.mjs'`。进入案例必须走真实 UI：点 `.category-item`（系统DEMO）→ 点 `.demo-card`（赤潮）→ 等 `.rt-shell .cesium-host canvas` → 约 14s。层开关的 DOM 定位是 `input[aria-label="三维赤潮体"]` / `input[aria-label="表层浓度场"]` 等（LayerPanel 的 checkbox 不在 `<label>` 内）。
+  - 类型检查门禁：本案例改动后用后台终端跑 `npx vue-tsc -b --pretty false` 即可（0 输出 + exit 0 视为通过），无需完整 `vite build`。
+
 
 
 

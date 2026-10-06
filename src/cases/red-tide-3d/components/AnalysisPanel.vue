@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRedTideStore } from '@rt/stores/red-tide'
+import { SIMULATION_MAX_HOURS, useRedTideStore } from '@rt/stores/red-tide'
 
 const store = useRedTideStore()
 const totalVolumeKm3 = computed(() => (store.grid.sizeX * store.grid.sizeY * (store.grid.depth + store.grid.surfaceHeight)) / 1e9)
@@ -31,10 +31,10 @@ const latestDelta = computed(() => {
 </script>
 
 <template>
-  <section class="science-panel glass-panel">
+  <section class="analysis-panel panel-card">
     <div class="panel-header">
-      <span>科研诊断</span>
-      <span class="panel-code">LAB / GPU</span>
+      <span>科研分析</span>
+      <span class="panel-code">ANALYSIS / 04</span>
     </div>
 
     <div class="science-model-line">
@@ -52,7 +52,7 @@ const latestDelta = computed(() => {
         <polyline :points="maxSparkline" fill="none" stroke="rgba(255,104,44,.95)" stroke-width="2" />
         <line x1="0" x2="240" y1="39" y2="39" stroke="rgba(160,220,235,.10)" />
       </svg>
-      <div class="science-chart-foot"><span>0 h</span><span>48 h</span><em :class="{ down: latestDelta < 0 }">{{ latestDelta >= 0 ? '+' : '' }}{{ latestDelta.toFixed(1) }}%</em></div>
+      <div class="science-chart-foot"><span>0 h</span><span>{{ SIMULATION_MAX_HOURS }} h</span><em :class="{ down: latestDelta < 0 }">{{ latestDelta >= 0 ? '+' : '' }}{{ latestDelta.toFixed(1) }}%</em></div>
     </div>
 
     <div class="science-chart-card">

@@ -2,6 +2,7 @@ import type { Component } from 'vue'
 import {
   Box,
   Compass,
+  DataAnalysis,
   DataBoard,
   DataLine,
   Drizzling,
@@ -33,6 +34,7 @@ export const categories: CaseCategory[] = [
   { id: 'measure', label: '空间测量', icon: ScaleToOriginal },
   { id: 'analysis', label: '空间分析', icon: DataLine },
   { id: 'data', label: '数据可视化', icon: Grid },
+  { id: 'd3', label: 'D3地理大数据', icon: DataAnalysis },
   { id: 'tiles', label: '三维数据加载', icon: Box },
   { id: 'scene', label: '场景示例', icon: Compass },
   { id: 'geo', label: '大气环境', icon: PartlyCloudy },

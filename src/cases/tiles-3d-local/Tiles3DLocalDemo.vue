@@ -142,7 +142,7 @@ function installInterceptors(): void {
     }
   }
 
-  XMLHttpRequest.prototype.send = function send(this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null): void {
+  XMLHttpRequest.prototype.send = function send(this: XMLHttpRequest, body?: XMLHttpRequestBodyInit | null): void {
     const localUrl = localXhrUrls.get(this)
     if (!localUrl) {
       return originalXhrSend!.call(this, body)

@@ -1,5 +1,5 @@
 import type { D3LegendItem } from '../types'
-import { categorical } from '../palettes'
+import { categorical, ramp } from '../palettes'
 import type { Bounds } from '../data/loaders'
 
 /** 拼接 public 资源地址（兼容 base './'）。 */
@@ -20,9 +20,9 @@ export const DATA = {
 
 export const CHINA_BOUNDS: Bounds = { west: 73, south: 18, east: 135, north: 54 }
 
-/** 连续色带图例（label 必须等于色带名，外壳会渲染渐变条）。 */
+/** 连续色带图例（ramp 字段交给外壳渲染渐变条）。 */
 export function rampLegend(name: string, label?: string): D3LegendItem {
-  return { label: label ?? name, color: name }
+  return { label: label ?? name, color: ramp(name, 0.5), ramp: name }
 }
 
 /** 分类图例。 */

@@ -8,7 +8,7 @@ import { movingAverage } from '../analysis/statistics'
 import { renderPointBuffer } from '../render/points'
 import { formatCount } from '../core/geo'
 import { loadQuakes } from './_data'
-import { PALETTE_OPTIONS, dockBottom, rampLegend } from './_kit'
+import { PALETTE_OPTIONS, dockTimeline, rampLegend } from './_kit'
 
 type RegionKey = 'global' | 'japan' | 'indonesia' | 'china' | 'americas'
 
@@ -103,6 +103,7 @@ const spec: D3CaseSpec = {
       '对真实地震时间序列做 D3 时间分箱、移动平均、分位数与异常检测，二维统计图与三维地球点云通过时间窗口联动，展示时间-空间-数值三者的联合分析。',
     tag: 'Temporal · d3.bin · 异常检测',
     accent: '#f59e0b',
+    bottomDock: 214,
     tips: [
       '时间、位置、震级均为真实数据',
       'd3.bin / d3.quantile / d3.max 承担统计职责，移动平均与 Z 分数识别异常',
@@ -184,9 +185,17 @@ const spec: D3CaseSpec = {
         })
         ctx.profiler.set('Render', `${renderEnd().toFixed(0)} ms`)
 
-        ctx.overlay(dockBottom(chartOverlay(bins, smooth, anomaly, domain, window), 170))
-
         const anomalies = anomaly.filter(Boolean).length
+        ctx.overlay(
+          dockTimeline({
+            height: 214,
+            title: '时间窗口',
+            status: `${formatCount(buffer.length)} 个真实事件（区域）· 窗口命中 ${formatCount(inWindow.length)} · 异常分箱 ${anomalies}`,
+            legend: [rampLegend(palette, '震级 低→高')],
+            chart: chartOverlay(bins, smooth, anomaly, domain, window)
+          })
+        )
+
         ctx.profiler.set('Events', formatCount(all.length))
         ctx.profiler.set('Region', formatCount(buffer.length))
         ctx.profiler.set('In Window', formatCount(inWindow.length))

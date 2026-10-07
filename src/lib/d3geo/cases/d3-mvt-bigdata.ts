@@ -102,6 +102,7 @@ const spec: D3CaseSpec = {
       let renderedGeometries = 0
       let activeTiles = 0
       const counts: number[] = []
+      const seen = new Set<string>()
       for (const coord of tiles) {
         if (disposed) return
         const geometries = tileFeatures(features, coord, extent)
@@ -112,9 +113,8 @@ const spec: D3CaseSpec = {
         totalMs += response.elapsed
         counts.push(response.decoded.length)
         totalFeatures += response.decoded.length
-        const drawn = renderTileGeometry(ctx.dataSource, response.decoded, coord, extent, palette)
-        renderedGeometries += drawn
-        if (drawn > 0) activeTiles += 1
+        activeTiles += 1
+        renderedGeometries += renderTileGeometry(ctx.dataSource, response.decoded, coord, extent, palette, seen)
         if (Boolean(settings.showBoundaries)) {
           const b = tileBounds(coord)
           addPolyline(

@@ -8,7 +8,7 @@ import { haversine } from '../core/geo'
 import { formatCount } from '../core/geo'
 import { temporalBins } from '../analysis/temporal'
 import { loadQuakes } from './_data'
-import { PALETTE_OPTIONS, dockBottom, rampLegend } from './_kit'
+import { PALETTE_OPTIONS, dockTimeline, rampLegend } from './_kit'
 
 function stamp(timestamp: number): string {
   const date = new Date(timestamp)
@@ -51,7 +51,7 @@ function quakesToTrajectories(buffer: GeoPointBuffer, cellDeg: number, maxTracks
 
 function timeAxisOverlay(domain: [number, number], window: [number, number]): HTMLElement {
   const width = 720
-  const height = 54
+  const height = 90
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('width', '100%')
   svg.setAttribute('height', `${height}`)
@@ -63,16 +63,17 @@ function timeAxisOverlay(domain: [number, number], window: [number, number]): HT
   const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
   rect.setAttribute('x', String(scale(w0)))
   rect.setAttribute('width', String(Math.max(2, scale(w1) - scale(w0))))
-  rect.setAttribute('y', '8')
-  rect.setAttribute('height', '18')
+  rect.setAttribute('y', '12')
+  rect.setAttribute('height', '30')
+  rect.setAttribute('rx', '3')
   rect.setAttribute('fill', 'rgba(251,146,60,0.35)')
   rect.setAttribute('stroke', '#fb923c')
   svg.appendChild(rect)
   const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
   line.setAttribute('x1', String(pad))
   line.setAttribute('x2', String(width - pad))
-  line.setAttribute('y1', '34')
-  line.setAttribute('y2', '34')
+  line.setAttribute('y1', '56')
+  line.setAttribute('y2', '56')
   line.setAttribute('stroke', '#64748b')
   svg.appendChild(line)
   const format = timeFormat('%m-%d %H:%M')
@@ -81,13 +82,13 @@ function timeAxisOverlay(domain: [number, number], window: [number, number]): HT
     const mark = document.createElementNS('http://www.w3.org/2000/svg', 'line')
     mark.setAttribute('x1', String(x))
     mark.setAttribute('x2', String(x))
-    mark.setAttribute('y1', '30')
-    mark.setAttribute('y2', '38')
+    mark.setAttribute('y1', '52')
+    mark.setAttribute('y2', '62')
     mark.setAttribute('stroke', '#94a3b8')
     svg.appendChild(mark)
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text')
     text.setAttribute('x', String(x))
-    text.setAttribute('y', '50')
+    text.setAttribute('y', '80')
     text.setAttribute('fill', '#cbd5e1')
     text.setAttribute('font-size', '10')
     text.setAttribute('text-anchor', 'middle')
@@ -106,6 +107,7 @@ const spec: D3CaseSpec = {
       '将 USGS 真实地震事件按区域与时间排序，连接为时空迁移轨迹，计算方向与速度；d3.scaleTime 绘制时间轴，拖动时间窗口时三维场景同步过滤。',
     tag: 'Trajectory · d3.scaleTime · 时空',
     accent: '#fbbf24',
+    bottomDock: 158,
     tips: [
       '轨迹由真实事件的时间顺序与地理位置导出，时间戳真实',
       '速度由球面距离 / 时间差计算，用于异常事件识别',
@@ -161,9 +163,17 @@ const spec: D3CaseSpec = {
         })
         const renderMs = renderEnd()
 
-        ctx.overlay(dockBottom(timeAxisOverlay(domain, window), 72))
         const bins = temporalBins(buffer, 48, domain)
         const active = bins.filter((bin) => bin.t1 >= window[0] && bin.t0 <= window[1]).reduce((acc, bin) => acc + bin.count, 0)
+        ctx.overlay(
+          dockTimeline({
+            height: 158,
+            title: '时间窗口',
+            status: `${formatCount(buffer.length)} 个真实事件 → ${trajectories.count} 条轨迹 · 窗口 ${stamp(window[0])}–${stamp(window[1])} 命中 ${formatCount(active)}`,
+            legend: [rampLegend(String(settings.palette), '轨迹 时间→晚')],
+            chart: timeAxisOverlay(domain, window)
+          })
+        )
 
         ctx.profiler.set('Events', formatCount(buffer.length))
         ctx.profiler.set('Tracks', formatCount(trajectories.count))

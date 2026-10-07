@@ -161,7 +161,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="d3-shell" :class="{ 'has-legend': legend.length > 0 }">
+  <div
+    class="d3-shell"
+    :class="{ 'has-legend': legend.length > 0 && !spec.meta.bottomDock, 'has-bottom-dock': !!spec.meta.bottomDock }"
+    :style="spec.meta.bottomDock ? { '--d3-dock-h': `${spec.meta.bottomDock}px` } : undefined"
+  >
     <div ref="mapEl" class="d3-map"></div>
 
     <div class="d3-perf">
@@ -266,7 +270,7 @@ onBeforeUnmount(() => {
       </div>
     </aside>
 
-    <div v-if="legend.length" class="d3-legend" :class="{ 'd3-legend-multi': legend.length > 5 }">
+    <div v-if="legend.length && !spec.meta.bottomDock" class="d3-legend" :class="{ 'd3-legend-multi': legend.length > 5 }">
       <div class="section-title">图例</div>
       <div class="legend-list" :class="{ 'legend-list-multi': legend.length > 5 }">
         <div v-for="item in legend" :key="item.label" class="legend-item">
@@ -277,7 +281,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="d3-status">
+    <div v-if="!spec.meta.bottomDock" class="d3-status">
       <span class="status-title">{{ spec.meta.tag }}</span>
       <span v-if="status">{{ status }}</span>
       <span v-if="cursor">光标 {{ cursor.lat.toFixed(3) }}, {{ cursor.lon.toFixed(3) }}</span>
@@ -405,6 +409,15 @@ onBeforeUnmount(() => {
 
 .has-legend .d3-panel {
   max-height: calc(100% - 208px);
+}
+
+.has-bottom-dock .d3-panel {
+  max-height: calc(100% - var(--d3-dock-h, 0px) - 24px);
+}
+
+.has-bottom-dock .d3-perf {
+  max-height: calc(100% - var(--d3-dock-h, 0px) - 32px);
+  overflow: hidden;
 }
 
 .panel-title {

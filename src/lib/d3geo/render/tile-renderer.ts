@@ -66,33 +66,23 @@ function intersects(a: Bounds, b: Bounds): boolean {
   return !(a.east < b.west || a.west > b.east || a.north < b.south || a.south > b.north)
 }
 
-/**
- * 要素归属瓦片：用几何包围盒中心决定该要素由哪一块瓦片负责，保证一个真实要素
- * 只被编码与渲染一次，避免同一国家在相邻瓦片里重复叠加导致「面状要素糊在一起」。
- */
-function ownerTile(geometry: GeoFeature['geometry'], zoom: number): { x: number; y: number } {
-  const box = geometryBounds(geometry)
-  const center = lonLatToTile((box.west + box.east) / 2, (box.south + box.north) / 2, zoom)
-  return { x: Math.floor(center.x), y: Math.floor(center.y) }
-}
-
 /** 把真实面要素按 z/x/y 编码为 MVT 几何（真实 PBF 生命周期）。 */
 export function tileFeatures(features: GeoFeature[], coord: TileCoord, extent = 4096): MvtGeometryInput[] {
   const bounds = tileBounds(coord)
   const output: MvtGeometryInput[] = []
-  for (const item of features) {
+  features.forEach((item, featureIndex) => {
     const geometry = item.geometry
-    if (!intersects(geometryBounds(geometry), bounds)) continue
-    const owner = ownerTile(geometry, coord.z)
-    if (owner.x !== coord.x || owner.y !== coord.y) continue
+    if (!intersects(geometryBounds(geometry), bounds)) return
     const name = String(item.properties.name ?? '')
+    let ringIndex = 0
     if (geometry.type === 'Polygon') {
       for (const ring of geometry.coordinates) {
         output.push({
           type: 'Polygon',
           coordinates: ring.map(([lon, lat]) => lonLatToTilePixel(lon, lat, coord, extent).map(Math.round)),
-          properties: { name }
+          properties: { name, uid: `${featureIndex}:${ringIndex}` }
         })
+        ringIndex += 1
       }
     } else if (geometry.type === 'MultiPolygon') {
       for (const polygon of geometry.coordinates) {
@@ -100,18 +90,19 @@ export function tileFeatures(features: GeoFeature[], coord: TileCoord, extent = 
           output.push({
             type: 'Polygon',
             coordinates: ring.map(([lon, lat]) => lonLatToTilePixel(lon, lat, coord, extent).map(Math.round)),
-            properties: { name }
+            properties: { name, uid: `${featureIndex}:${ringIndex}` }
           })
+          ringIndex += 1
         }
       }
     } else if (geometry.type === 'Point') {
       output.push({
         type: 'Point',
         coordinates: [lonLatToTilePixel(geometry.coordinates[0], geometry.coordinates[1], coord, extent).map(Math.round)],
-        properties: { name }
+        properties: { name, uid: `${featureIndex}:0` }
       })
     }
-  }
+  })
   return output
 }
 
@@ -135,7 +126,8 @@ export function renderTileGeometry(
   geometries: MvtGeometryInput[],
   coord: TileCoord,
   extent: number,
-  palette = 'viridis'
+  palette = 'viridis',
+  seen?: Set<string>
 ): number {
   const n = 2 ** coord.z
   const toLon = (px: number): number => ((coord.x * extent + px) / (n * extent)) * 360 - 180
@@ -144,10 +136,18 @@ export function renderTileGeometry(
     return (Math.atan(Math.sinh(Math.PI * (1 - 2 * worldY))) * 180) / Math.PI
   }
   let count = 0
-  for (const geometry of geometries) {
+  geometries.forEach((geometry, index) => {
+    const name = String(geometry.properties?.name ?? '')
+    if (geometry.type === 'Polygon') {
+      const uid = String(geometry.properties?.uid ?? '')
+      const key = uid || name || `@${coord.x},${coord.y}#${index}`
+      if (seen) {
+        if (seen.has(key)) return
+        seen.add(key)
+      }
+    }
     const points = geometry.coordinates.map(([px, py]) => [toLon(px), toLat(py)] as [number, number])
     if (geometry.type === 'Polygon' && points.length >= 3) {
-      const name = String(geometry.properties?.name ?? '')
       const fill = Color.fromCssColorString(ramp(palette, 0.2 + 0.6 * hashUnit(name))).withAlpha(0.5)
       dataSource.entities.add({
         polygon: {
@@ -163,6 +163,6 @@ export function renderTileGeometry(
       addPolyline(dataSource, points, { color: ramp(palette, 0.5), width: 2, alpha: 0.8, height: 500 })
       count += 1
     }
-  }
+  })
   return count
 }

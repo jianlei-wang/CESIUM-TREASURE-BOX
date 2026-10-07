@@ -1,5 +1,5 @@
 import type { D3LegendItem } from '../types'
-import { categorical, ramp } from '../palettes'
+import { categorical, ramp, rampCss } from '../palettes'
 import type { Bounds } from '../data/loaders'
 
 /** 拼接 public 资源地址（兼容 base './'）。 */
@@ -26,34 +26,79 @@ export function rampLegend(name: string, label?: string): D3LegendItem {
 }
 
 /**
- * 把覆盖层（时间轴等）停靠为底部玻璃面板，避开右上参数面板与右下图例，
- * 避免裸 SVG 被 overlay 拉伸到整屏 inset:0 后与面板叠在一起。
+ * 底部时间窗：把时间轴、状态提示与图例融合进同一条整宽玻璃面板，停靠在页面底部。
+ * 左侧不再单独浮出状态条、右侧不再单独浮出图例，避免与时间轴相互遮挡。
  */
-export function dockBottom(
-  el: HTMLElement,
-  height: number,
-  options: { left?: number; right?: number; bottom?: number } = {}
-): HTMLElement {
-  const box = document.createElement('div')
-  box.style.cssText = [
+export function dockTimeline(options: {
+  height: number
+  chart: HTMLElement
+  title?: string
+  status?: string
+  legend?: D3LegendItem[]
+}): HTMLElement {
+  const bar = document.createElement('div')
+  bar.style.cssText = [
     'position:absolute',
-    `left:${options.left ?? 12}px`,
-    `right:${options.right ?? 300}px`,
-    `bottom:${options.bottom ?? 56}px`,
-    `height:${height}px`,
-    'padding:8px 12px',
+    'left:12px',
+    'right:12px',
+    'bottom:12px',
+    `height:${options.height}px`,
+    'display:flex',
+    'flex-direction:column',
+    'gap:7px',
+    'padding:10px 14px',
     'box-sizing:border-box',
     'border:1px solid rgba(157,188,224,0.28)',
     'border-radius:9px',
-    'background:rgba(10,26,52,0.86)',
+    'background:rgba(10,26,52,0.88)',
     'backdrop-filter:blur(6px)',
+    'color:#dce8f5',
+    'font:11px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif',
     'pointer-events:none'
   ].join(';')
-  el.style.width = '100%'
-  el.style.height = '100%'
-  el.style.display = 'block'
-  box.appendChild(el)
-  return box
+
+  const head = document.createElement('div')
+  head.style.cssText = 'display:flex;align-items:center;gap:12px;flex:0 0 auto;min-width:0'
+  const title = document.createElement('span')
+  title.style.cssText = 'flex:0 0 auto;color:#7cb3ff;font-weight:600;letter-spacing:.08em'
+  title.textContent = options.title ?? '时间窗口'
+  head.appendChild(title)
+  const status = document.createElement('span')
+  status.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9fb8d4'
+  status.textContent = options.status ?? ''
+  head.appendChild(status)
+  if (options.legend?.length) {
+    const legend = document.createElement('div')
+    legend.style.cssText = 'display:flex;align-items:center;gap:14px;flex:0 0 auto'
+    for (const item of options.legend) {
+      const wrap = document.createElement('div')
+      wrap.style.cssText = 'display:flex;align-items:center;gap:6px'
+      const swatch = document.createElement('span')
+      if (item.ramp) {
+        swatch.style.cssText = 'width:88px;height:9px;border-radius:3px;border:1px solid rgba(255,255,255,0.2)'
+        swatch.style.background = rampCss(item.ramp)
+      } else {
+        swatch.style.cssText = 'width:12px;height:12px;border-radius:3px;border:1px solid rgba(255,255,255,0.3)'
+        swatch.style.background = item.color
+      }
+      const label = document.createElement('span')
+      label.style.cssText = 'color:#c3d5e8'
+      label.textContent = item.label
+      wrap.append(swatch, label)
+      legend.appendChild(wrap)
+    }
+    head.appendChild(legend)
+  }
+  bar.appendChild(head)
+
+  const chartBox = document.createElement('div')
+  chartBox.style.cssText = 'flex:1;min-height:0;position:relative'
+  options.chart.style.width = '100%'
+  options.chart.style.height = '100%'
+  options.chart.style.display = 'block'
+  chartBox.appendChild(options.chart)
+  bar.appendChild(chartBox)
+  return bar
 }
 
 /** 分类图例。 */

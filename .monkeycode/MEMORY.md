@@ -1034,3 +1034,12 @@ Entries discovered by the Agent during task execution should follow this format:
 
 
 
+
+[Project Knowledge Summary]
+- Date: 2026-10-07
+- Context: Discovered by Agent while reworking the d3-trajectories case and trajectory rendering
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - Cesium `PolylineCollection` 只接受已解析材质对象：使用 `Material.fromType('PolylineGlow', {...})` / `Material.fromType('Color', {...})`。直接传入 `PolylineGlowMaterialProperty`（或任何 *MaterialProperty*）会抛 `PolylineBucket.updateShader ... Cannot read properties of undefined (reading 'search')`。
+  - `dockTimeline`（`src/lib/d3geo/cases/_kit.ts`）返回的 bar 元素可暴露 `setStatus(text)` 更新面板内状态文本；该 bar 追加到 `ctx.overlay`，是被 bottomDock 隐藏标准状态条后回显选中/播放信息的推荐位置。TS 中需用 `as unknown as` 双重断言，直接断言会触发 TS2352。
+  - 轨迹渲染旧实现用三维直线导致「冲出地表」放射状伪影；正解为按速度归一化弧高 + 沿大圆 `geodesicPoints` 密化贴球面 + 快速迁移段高亮。

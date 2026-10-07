@@ -28,6 +28,7 @@ export function rampLegend(name: string, label?: string): D3LegendItem {
 /**
  * 底部时间窗：把时间轴、状态提示与图例融合进同一条整宽玻璃面板，停靠在页面底部。
  * 左侧不再单独浮出状态条、右侧不再单独浮出图例，避免与时间轴相互遮挡。
+ * 返回元素带 `setStatus`，案例可在交互（如点选）时更新面板内的状态文本。
  */
 export function dockTimeline(options: {
   height: number
@@ -35,7 +36,7 @@ export function dockTimeline(options: {
   title?: string
   status?: string
   legend?: D3LegendItem[]
-}): HTMLElement {
+}): HTMLElement & { setStatus: (text: string) => void } {
   const bar = document.createElement('div')
   bar.style.cssText = [
     'position:absolute',
@@ -98,7 +99,11 @@ export function dockTimeline(options: {
   options.chart.style.display = 'block'
   chartBox.appendChild(options.chart)
   bar.appendChild(chartBox)
-  return bar
+  const api = bar as unknown as HTMLElement & { setStatus: (text: string) => void }
+  api.setStatus = (text: string) => {
+    status.textContent = text
+  }
+  return api
 }
 
 /** 分类图例。 */

@@ -161,7 +161,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="d3-shell">
+  <div class="d3-shell" :class="{ 'has-legend': legend.length > 0 }">
     <div ref="mapEl" class="d3-map"></div>
 
     <div class="d3-perf">
@@ -266,9 +266,9 @@ onBeforeUnmount(() => {
       </div>
     </aside>
 
-    <div v-if="legend.length" class="d3-legend">
+    <div v-if="legend.length" class="d3-legend" :class="{ 'd3-legend-multi': legend.length > 5 }">
       <div class="section-title">图例</div>
-      <div class="legend-list">
+      <div class="legend-list" :class="{ 'legend-list-multi': legend.length > 5 }">
         <div v-for="item in legend" :key="item.label" class="legend-item">
           <span v-if="item.ramp" class="legend-ramp" :style="{ background: rampCss(item.ramp) }"></span>
           <span v-else class="legend-swatch" :style="{ background: item.color }"></span>
@@ -403,6 +403,10 @@ onBeforeUnmount(() => {
   color: #dce8f5;
 }
 
+.has-legend .d3-panel {
+  max-height: calc(100% - 208px);
+}
+
 .panel-title {
   font-size: 12px;
   font-weight: 700;
@@ -535,6 +539,35 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.d3-legend-multi {
+  width: 250px;
+}
+
+.legend-list-multi {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(5, auto);
+  grid-auto-flow: column;
+  column-gap: 10px;
+  row-gap: 5px;
+}
+
+.legend-list-multi .legend-item {
+  gap: 6px;
+  min-width: 0;
+}
+
+.legend-list-multi .legend-swatch {
+  width: 12px;
+  height: 12px;
+}
+
+.legend-list-multi .legend-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .legend-item {

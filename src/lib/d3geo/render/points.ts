@@ -1,7 +1,6 @@
 import { Cartesian3, Color, PointPrimitiveCollection } from 'cesium'
 import type { GeoPointBuffer } from '../core/buffer'
 import { categorical, ramp } from '../palettes'
-import { normalize } from '../core/geo'
 
 export type PointColorMode = 'value' | 'category' | 'single'
 
@@ -27,6 +26,9 @@ export type RenderPointsResult = {
 
 const colorCache = new Map<string, Color>()
 
+/** 色带采样档数：预生成调色表，避免逐点做 ramp + 颜色解析。 */
+const LUT_SIZE = 256
+
 function cssColor(css: string, alpha: number): Color {
   const key = `${css}|${alpha}`
   let color = colorCache.get(key)
@@ -36,6 +38,19 @@ function cssColor(css: string, alpha: number): Color {
     colorCache.set(key, color)
   }
   return color
+}
+
+function buildRampLut(palette: string, alpha: number): Color[] {
+  const lut = new Array<Color>(LUT_SIZE)
+  for (let i = 0; i < LUT_SIZE; i += 1) lut[i] = cssColor(ramp(palette, i / (LUT_SIZE - 1)), alpha)
+  return lut
+}
+
+function buildCategoryLut(categoryCount: number, alpha: number): Color[] {
+  const count = Math.max(1, categoryCount)
+  const lut = new Array<Color>(count)
+  for (let i = 0; i < count; i += 1) lut[i] = cssColor(categorical(i), alpha)
+  return lut
 }
 
 /**
@@ -56,14 +71,25 @@ export function renderPointBuffer(
   const domain = options.valueDomain
   const palette = options.palette ?? 'viridis'
   const single = cssColor(options.color ?? '#38bdf8', alpha)
+  const rampLut = mode === 'value' && domain ? buildRampLut(palette, alpha) : undefined
+  let categoryLut: Color[] | undefined
+  if (mode === 'category') {
+    let maxCategory = 0
+    for (let i = 0; i < buffer.length; i += 1) if (buffer.categories[i] > maxCategory) maxCategory = buffer.categories[i]
+    categoryLut = buildCategoryLut(maxCategory + 1, alpha)
+  }
+  const span = domain ? domain[1] - domain[0] : 0
   let rendered = 0
 
   for (let i = 0; i < buffer.length; i += stride) {
     let color = single
-    if (mode === 'value' && domain) {
-      color = cssColor(ramp(palette, normalize(buffer.values[i], domain[0], domain[1])), alpha)
-    } else if (mode === 'category') {
-      color = cssColor(categorical(buffer.categories[i]), alpha)
+    if (rampLut && domain) {
+      const t = span > 0 ? (buffer.values[i] - domain[0]) / span : 0.5
+      const idx = t <= 0 ? 0 : t >= 1 ? LUT_SIZE - 1 : (t * (LUT_SIZE - 1) + 0.5) | 0
+      color = rampLut[idx]
+    } else if (categoryLut) {
+      const category = buffer.categories[i]
+      color = categoryLut[category < categoryLut.length ? category : categoryLut.length - 1]
     }
     collection.add({
       position: Cartesian3.fromDegrees(buffer.positions[i * 2], buffer.positions[i * 2 + 1], height),

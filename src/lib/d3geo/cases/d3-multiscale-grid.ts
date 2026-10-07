@@ -3,7 +3,7 @@ import type { D3CaseSpec } from '../types'
 import type { AggregateCell } from '../spatial/hexbin'
 import { hexRing } from '../spatial/hexbin'
 import { h3binBuffer } from '../spatial/h3'
-import { createGeoLOD, H3_LOD_LEVELS, type GeoLODLevel } from '../core/lod'
+import { createGeoLOD, createLODScheduler, H3_LOD_LEVELS, type GeoLODLevel } from '../core/lod'
 import { formatCount } from '../core/geo'
 import { breaksFor, classifyValue, type ClassificationMethod } from '../analysis/statistics'
 import { generateSyntheticPoints, SYNTHETIC_PATTERNS, type SyntheticPattern } from '../data/synthetic'
@@ -90,9 +90,10 @@ const spec: D3CaseSpec = {
     })
 
     const lod = createGeoLOD(H3_LOD_LEVELS)
-    let currentLevel = lod.resolve(ctx.viewer.camera.positionCartographic.height)
     let primitive: Primitive | undefined
-    let generating = false
+    const buffer = generateSyntheticPoints(count, { pattern, seed, categoryCount: 6 })
+    let running = false
+    let queued: GeoLODLevel | undefined
 
     const renderCells = (cells: AggregateCell[], level: GeoLODLevel): void => {
       const end = ctx.profiler.time('Render')
@@ -128,15 +129,28 @@ const spec: D3CaseSpec = {
     }
 
     const aggregate = (level: GeoLODLevel): void => {
-      if (generating) return
-      generating = true
-      const buffer = generateSyntheticPoints(count, { pattern, seed, categoryCount: 6 })
+      if (disposed) return
+      if (running) {
+        queued = level
+        return
+      }
+      running = true
       const levelIndex = lod.levels.indexOf(level)
+      const finish = (): void => {
+        running = false
+        if (queued && queued.resolution !== level.resolution) {
+          const next = queued
+          queued = undefined
+          aggregate(next)
+        } else {
+          queued = undefined
+        }
+      }
 
       if (algorithm === 'h3') {
         const cells = h3binBuffer(buffer, level.resolution)
-        generating = false
         if (!disposed) renderCells(cells, level)
+        finish()
         return
       }
 
@@ -150,12 +164,14 @@ const spec: D3CaseSpec = {
           param,
           lat0: 34
         },
-        [buffer.positions.buffer, buffer.values.buffer]
+        []
       )
         .then((response) => {
           const workerMs = end()
-          generating = false
-          if (disposed) return
+          if (disposed) {
+            running = false
+            return
+          }
           ctx.profiler.set('Worker', `${workerMs.toFixed(1)} ms`)
           const isHex = algorithm === 'hexbin'
           const cells: AggregateCell[] = []
@@ -176,24 +192,19 @@ const spec: D3CaseSpec = {
             })
           }
           renderCells(cells, level)
+          finish()
         })
         .catch(() => {
-          generating = false
+          finish()
         })
     }
 
-    let currentAlgorithm = algorithm
-    const refresh = (): void => {
-      const level = lod.resolve(ctx.viewer.camera.positionCartographic.height)
-      if (level.resolution !== currentLevel.resolution || algorithm !== currentAlgorithm) {
-        currentLevel = level
-        currentAlgorithm = algorithm
-        aggregate(level)
-      }
-    }
-
-    aggregate(currentLevel)
-    ctx.onFrame(refresh)
+    const scheduler = createLODScheduler(lod, aggregate)
+    const initial = lod.resolve(ctx.viewer.camera.positionCartographic.height)
+    scheduler.markRendered(initial)
+    aggregate(initial)
+    ctx.onFrame(() => scheduler.frame(ctx.viewer.camera.positionCartographic.height))
+    ctx.onCleanup(() => scheduler.dispose())
     ctx.status(`聚合 ${formatCount(count)} 个合成点`)
   }
 }

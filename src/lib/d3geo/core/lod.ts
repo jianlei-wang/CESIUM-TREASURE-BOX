@@ -67,3 +67,72 @@ export const SCREEN_LOD_LEVELS: GeoLODLevel[] = [
 ]
 
 export const screenLOD = createGeoLOD(SCREEN_LOD_LEVELS)
+
+export type LODScheduler = {
+  /** 每帧调用：相机高度变化跨越层级时，等相机静止后再触发一次重算。 */
+  frame: (height: number) => void
+  /** 标记某层级已经渲染完成，作为防抖基准。 */
+  markRendered: (level: GeoLODLevel) => void
+  /** 取消挂起的重算。 */
+  dispose: () => void
+}
+
+/**
+ * LOD 变化防抖调度器。
+ *
+ * 地图连续缩放时相机高度会快速跨越多个 LOD 层级。若每跨一层就立即触发一次
+ * 全量重算（百万级点 / 聚合），主线程会被反复阻塞，表现为缩放「假死」。
+ * 本调度器把重算推迟到相机静止 `settleMs` 之后，且期间只保留最后一个层级，
+ * 从而把连续缩放期间的多次重算合并为缩放结束后的单次重算。
+ */
+export function createLODScheduler(
+  lod: GeoLOD,
+  render: (level: GeoLODLevel) => void,
+  options: { settleMs?: number } = {}
+): LODScheduler {
+  const settleMs = options.settleMs ?? 220
+  let renderedResolution = Number.NaN
+  let pending: GeoLODLevel | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const cancel = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      timer = undefined
+    }
+  }
+
+  const flush = (): void => {
+    timer = undefined
+    const level = pending
+    pending = undefined
+    if (!level || level.resolution === renderedResolution) return
+    renderedResolution = level.resolution
+    render(level)
+  }
+
+  return {
+    markRendered: (level) => {
+      renderedResolution = level.resolution
+      pending = undefined
+      cancel()
+    },
+    frame: (height) => {
+      const level = lod.resolve(height)
+      if (level.resolution === renderedResolution) {
+        pending = undefined
+        cancel()
+        return
+      }
+      if (pending && pending.resolution === level.resolution) return
+      pending = level
+      cancel()
+      timer = setTimeout(flush, settleMs)
+    },
+    dispose: () => {
+      cancel()
+      pending = undefined
+    }
+  }
+}
+

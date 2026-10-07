@@ -5,7 +5,7 @@ import { hexRing } from '../spatial/hexbin'
 import { h3binBuffer } from '../spatial/h3'
 import { generateSyntheticPoints, SYNTHETIC_PATTERNS, SYNTHETIC_SIZES, type SyntheticPattern } from '../data/synthetic'
 import { bufferByteLength } from '../core/buffer'
-import { createGeoLOD, type GeoLODLevel } from '../core/lod'
+import { createGeoLOD, createLODScheduler, type GeoLODLevel } from '../core/lod'
 import { renderPointBuffer } from '../render/points'
 import { renderCellPolygons } from '../render/polygons'
 import { aggregateInWorker } from '../workers/client'
@@ -16,11 +16,11 @@ import { PALETTE_OPTIONS, rampLegend } from './_kit'
 type Mode = 'points' | 'h3' | 'hexbin' | 'grid'
 
 const POINT_LOD = createGeoLOD([
-  { maxHeight: 500_000, resolution: 1_000_000, label: 'LOD 6' },
-  { maxHeight: 1_500_000, resolution: 640_000, label: 'LOD 5' },
-  { maxHeight: 4_000_000, resolution: 320_000, label: 'LOD 4' },
-  { maxHeight: 10_000_000, resolution: 160_000, label: 'LOD 3' },
-  { maxHeight: 20_000_000, resolution: 80_000, label: 'LOD 2' },
+  { maxHeight: 500_000, resolution: 250_000, label: 'LOD 6' },
+  { maxHeight: 1_500_000, resolution: 200_000, label: 'LOD 5' },
+  { maxHeight: 4_000_000, resolution: 150_000, label: 'LOD 4' },
+  { maxHeight: 10_000_000, resolution: 110_000, label: 'LOD 3' },
+  { maxHeight: 20_000_000, resolution: 70_000, label: 'LOD 2' },
   { maxHeight: Number.POSITIVE_INFINITY, resolution: 40_000, label: 'LOD 1' }
 ])
 
@@ -101,7 +101,6 @@ const spec: D3CaseSpec = {
 
     if (mode === 'points') {
       const collection = ctx.pointCollection()
-      let current: GeoLODLevel | undefined
       const render = (level: GeoLODLevel): void => {
         const t = ctx.profiler.time('Render')
         collection.removeAll()
@@ -118,15 +117,12 @@ const spec: D3CaseSpec = {
         ctx.profiler.set('Render', `${t().toFixed(1)} ms`)
         ctx.status(`${formatCount(buffer.length)} 合成点 · 抽稀 1/${result.stride} · 渲染 ${formatCount(result.rendered)}（合成数据，仅压测）`)
       }
-      current = POINT_LOD.resolve(ctx.viewer.camera.positionCartographic.height)
-      render(current)
-      ctx.onFrame(() => {
-        const level = POINT_LOD.resolve(ctx.viewer.camera.positionCartographic.height)
-        if (!current || level.resolution !== current.resolution) {
-          current = level
-          render(level)
-        }
-      })
+      const scheduler = createLODScheduler(POINT_LOD, render)
+      const initial = POINT_LOD.resolve(ctx.viewer.camera.positionCartographic.height)
+      scheduler.markRendered(initial)
+      render(initial)
+      ctx.onFrame(() => scheduler.frame(ctx.viewer.camera.positionCartographic.height))
+      ctx.onCleanup(() => scheduler.dispose())
     } else if (mode === 'h3') {
       const t = ctx.profiler.time('Aggregate')
       renderCells(h3binBuffer(buffer, 3))

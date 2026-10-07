@@ -44,9 +44,12 @@ import icon_curve_edit from './curve-edit/icon.webp'
 import icon_curve_line_arrow from './curve-line-arrow/icon.webp'
 import icon_curve_line_arrow_edit from './curve-line-arrow-edit/icon.webp'
 import icon_cut_fill_analysis from './cut-fill-analysis/icon.webp'
+import icon_d3_cluster_spiderfy from './d3-cluster-spiderfy/icon.webp'
 import icon_d3_contour_terrain from './d3-contour-terrain/icon.webp'
 import icon_d3_delaunay_voronoi from './d3-delaunay-voronoi/icon.webp'
 import icon_d3_density_field from './d3-density-field/icon.webp'
+import icon_d3_geospatial_dashboard from './d3-geospatial-dashboard/icon.webp'
+import icon_d3_massive_points from './d3-massive-points/icon.webp'
 import icon_datav_demo0 from './datav-demo0/icon.webp'
 import icon_datav_demo1 from './datav-demo1/icon.webp'
 import icon_datav_demo2 from './datav-demo2/icon.webp'
@@ -660,12 +663,12 @@ export const demos: CaseMeta[] = [
   { id: "curve-line-arrow", title: "曲线箭头-贝塞尔曲箭头", category: "draw", description: "左键逐点确定曲线路径、右键结束，生成沿曲线前进的箭头；线宽与颜色可调。", tag: "箭头", icon: icon_curve_line_arrow, updatedAt: "2026-09-06", available: true },
   { id: "curve-line-arrow-edit", title: "曲线箭头-编辑版", category: "draw", description: "绘制曲线箭头后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_curve_line_arrow_edit, updatedAt: "2026-09-06", available: true },
   { id: "cut-fill-analysis", title: "空间分析-填挖方分析", category: "analysis", description: "绘制多边形区域，按精度采样生成三角网格，计算填方/挖方的面积与体积", tag: "空间分析", icon: icon_cut_fill_analysis, available: true },
-  { id: "d3-cluster-spiderfy", title: "D3大数据-聚类气泡簇与爆炸展开", category: "d3", description: "真实事件在屏幕网格中聚类为气泡簇，点击圆圈自动缩放并按发震时刻展开成员，进入震群序列分析：颜色映射时序、大小映射震级、主震高亮，配合震级—时间曲线面板。", tag: "Cluster, Spiderfy, 屏幕空间", updatedAt: "2026-10-06", available: true },
+  { id: "d3-cluster-spiderfy", title: "D3大数据-聚类气泡簇与爆炸展开", category: "d3", description: "真实事件在屏幕网格中聚类为气泡簇，点击圆圈自动缩放并按发震时刻展开成员，进入震群序列分析：颜色映射时序、大小映射震级、主震高亮，配合震级—时间曲线面板。", tag: "Cluster, Spiderfy, 屏幕空间", icon: icon_d3_cluster_spiderfy, updatedAt: "2026-10-06", available: true },
   { id: "d3-contour-terrain", title: "D3大数据-等值线地形场三维抬升", category: "d3", description: "真实震级采样经 IDW 插值成场，d3.contours 提取等值面并拉伸为三维地形，演示地理分析与 Cesium 三维表达的结合。", tag: "IDW, d3.contours, 三维地形", icon: icon_d3_contour_terrain, updatedAt: "2026-10-06", available: true },
   { id: "d3-delaunay-voronoi", title: "D3大数据-Delaunay与Voronoi邻域分析", category: "d3", description: "真实城市点构建 Delaunay 三角网与 Voronoi 影响范围，结合最近邻查询，展示空间邻域分析的地理可视化。", tag: "Delaunay, Voronoi, 最近邻", icon: icon_d3_delaunay_voronoi, updatedAt: "2026-10-06", available: true },
   { id: "d3-density-field", title: "D3大数据-动态热力场KDE连续密度", category: "d3", description: "真实地震点经核密度估计生成连续场，叠加贴地面场、等值线与峰值标注，展示从离散点到连续密度的 d3 分析链路。", tag: "KDE, 连续场, d3.contours", icon: icon_d3_density_field, updatedAt: "2026-10-06", available: true },
-  { id: "d3-geospatial-dashboard", title: "D3大数据-地理大数据综合指挥舱", category: "d3", description: "点云、H3 聚合、OD 流量与时间窗口多图层联动，配合指标面板，综合展示 D3 地理大数据分析能力。", tag: "Dashboard, 综合, 多图层", updatedAt: "2026-10-06", available: true },
-  { id: "d3-massive-points", title: "D3大数据-百万级地理散点GPU可视化", category: "d3", description: "Typography 列式 Float32Array 承载百万级地理点，按相机高度 LOD 抽稀，PointPrimitiveCollection 单批 GPU 绘制，实时回显渲染对象数与帧率。", tag: "百万点, GPU, LOD", updatedAt: "2026-10-06", available: true },
+  { id: "d3-geospatial-dashboard", title: "D3大数据-地理大数据综合指挥舱", category: "d3", description: "点云、H3 聚合、OD 流量与时间窗口多图层联动，配合指标面板，综合展示 D3 地理大数据分析能力。", tag: "Dashboard, 综合, 多图层", icon: icon_d3_geospatial_dashboard, updatedAt: "2026-10-06", available: true },
+  { id: "d3-massive-points", title: "D3大数据-百万级地理散点GPU可视化", category: "d3", description: "Typography 列式 Float32Array 承载百万级地理点，按相机高度 LOD 抽稀，PointPrimitiveCollection 单批 GPU 绘制，实时回显渲染对象数与帧率。", tag: "百万点, GPU, LOD", icon: icon_d3_massive_points, updatedAt: "2026-10-06", available: true },
   { id: "d3-multiscale-grid", title: "D3大数据-多尺度H3与Hexbin聚合", category: "d3", description: "相机高度映射 H3 / Hexbin 分辨率，聚合计算下沉 Worker，结果以聚合单元 Primitive 渲染，兼顾宏观密度与细节。", tag: "H3, Hexbin, LOD, Worker", updatedAt: "2026-10-06", available: true },
   { id: "d3-mvt-bigdata", title: "D3大数据-MVT矢量瓦片大数据", category: "d3", description: "真实边界要素按 z/x/y 切片，自实现 MVT PBF 编解码并回传几何，配合 LOD 在 Cesium 中以 Primitive 渲染矢量瓦片。", tag: "MVT, PBF, Vector Tile, LOD", updatedAt: "2026-10-06", available: true },
   { id: "d3-od-flow", title: "D3大数据-全球OD流量网络真实航线", category: "d3", description: "以 OpenFlights routes.dat 真实航线构建 OD 矩阵，经 d3 统计聚合后生成抬升弧线，直观呈现全球航空流量网络。", tag: "OD, Flow Arc, 网络分析", updatedAt: "2026-10-06", available: true },

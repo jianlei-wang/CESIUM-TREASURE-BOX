@@ -4,8 +4,7 @@ import { parseTopoJsonFeatures } from '../data/loaders'
 import { lonLatToTile, tileBounds, tileFeatures, renderTileGeometry, type TileCoord } from '../render/tile-renderer'
 import { tileInWorker } from '../workers/client'
 import { addPolyline } from '../render'
-import { ramp } from '../palettes'
-import { formatCount, normalize } from '../core/geo'
+import { formatCount } from '../core/geo'
 import { loadWorldTopo } from './_data'
 import { PALETTE_OPTIONS, rampLegend } from './_kit'
 
@@ -100,7 +99,8 @@ const spec: D3CaseSpec = {
       let totalBytes = 0
       let totalFeatures = 0
       let totalMs = 0
-      let renderedTiles = 0
+      let renderedGeometries = 0
+      let activeTiles = 0
       const counts: number[] = []
       for (const coord of tiles) {
         if (disposed) return
@@ -112,7 +112,9 @@ const spec: D3CaseSpec = {
         totalMs += response.elapsed
         counts.push(response.decoded.length)
         totalFeatures += response.decoded.length
-        renderedTiles += renderTileGeometry(ctx.dataSource, response.decoded, coord, extent, ramp(palette, 0.4))
+        const drawn = renderTileGeometry(ctx.dataSource, response.decoded, coord, extent, palette)
+        renderedGeometries += drawn
+        if (drawn > 0) activeTiles += 1
         if (Boolean(settings.showBoundaries)) {
           const b = tileBounds(coord)
           addPolyline(
@@ -130,12 +132,13 @@ const spec: D3CaseSpec = {
       }
       const maxCount = counts.reduce((acc, value) => Math.max(acc, value), 1)
       ctx.profiler.set('Input Features', formatCount(features.length))
-      ctx.profiler.set('Tiles', `${renderedTiles}/${tiles.length}`)
+      ctx.profiler.set('Tiles', `${activeTiles}/${tiles.length}`)
+      ctx.profiler.set('Rendered', formatCount(renderedGeometries))
       ctx.profiler.set('Decoded', formatCount(totalFeatures))
       ctx.profiler.set('PBF', `${(totalBytes / 1024).toFixed(1)} KB`)
       ctx.profiler.set('Worker', `${totalMs.toFixed(0)} ms`)
       ctx.profiler.set('LOD', `z${z} · ${maxCount} feat/tile`)
-      ctx.status(`${renderedTiles} 个真实瓦片 · PBF ${(totalBytes / 1024).toFixed(1)} KB · 解码 ${formatCount(totalFeatures)} 个几何`)
+      ctx.status(`${activeTiles}/${tiles.length} 个真实瓦片 · 渲染 ${formatCount(renderedGeometries)} 个几何 · PBF ${(totalBytes / 1024).toFixed(1)} KB`)
       ctx.legend([rampLegend(palette, '瓦片要素密度')])
     }
   }

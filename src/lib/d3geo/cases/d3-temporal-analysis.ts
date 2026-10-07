@@ -8,7 +8,7 @@ import { movingAverage } from '../analysis/statistics'
 import { renderPointBuffer } from '../render/points'
 import { formatCount } from '../core/geo'
 import { loadQuakes } from './_data'
-import { PALETTE_OPTIONS, rampLegend } from './_kit'
+import { PALETTE_OPTIONS, dockBottom, rampLegend } from './_kit'
 
 type RegionKey = 'global' | 'japan' | 'indonesia' | 'china' | 'americas'
 
@@ -184,7 +184,7 @@ const spec: D3CaseSpec = {
         })
         ctx.profiler.set('Render', `${renderEnd().toFixed(0)} ms`)
 
-        ctx.overlay(chartOverlay(bins, smooth, anomaly, domain, window))
+        ctx.overlay(dockBottom(chartOverlay(bins, smooth, anomaly, domain, window), 170))
 
         const anomalies = anomaly.filter(Boolean).length
         ctx.profiler.set('Events', formatCount(all.length))

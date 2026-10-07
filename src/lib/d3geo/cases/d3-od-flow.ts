@@ -1,5 +1,5 @@
 import type { D3CaseSpec } from '../types'
-import { aggregateFlows, flowHubs } from '../analysis/flow'
+import { aggregateFlows, flowHubsFromArcs } from '../analysis/flow'
 import { renderFlowArcs } from '../render/lines'
 import { addLabel, addPoint } from '../render'
 import { formatCount } from '../core/geo'
@@ -85,9 +85,9 @@ const spec: D3CaseSpec = {
         })
         const renderMs = renderEnd()
 
-        const hubs = flowHubs(data.flow, 12)
+        const hubs = flowHubsFromArcs(arcs, 12)
         hubs.forEach((hub, index) => {
-          addPoint(ctx.dataSource, hub.lon, hub.lat, { pixelSize: 8, color: '#fef08a', outlineColor: '#9a3412', outlineWidth: 2, disableDepthTest: true })
+          addPoint(ctx.dataSource, hub.lon, hub.lat, { pixelSize: 8, color: '#fef08a', outlineColor: '#9a3412', outlineWidth: 2 })
           if (index < 8) addLabel(ctx.dataSource, hub.lon, hub.lat, formatCount(hub.value), { color: '#fde68a', pixelOffsetY: -18 })
         })
 

@@ -8,7 +8,7 @@ import { haversine } from '../core/geo'
 import { formatCount } from '../core/geo'
 import { temporalBins } from '../analysis/temporal'
 import { loadQuakes } from './_data'
-import { PALETTE_OPTIONS, rampLegend } from './_kit'
+import { PALETTE_OPTIONS, dockBottom, rampLegend } from './_kit'
 
 function stamp(timestamp: number): string {
   const date = new Date(timestamp)
@@ -161,7 +161,7 @@ const spec: D3CaseSpec = {
         })
         const renderMs = renderEnd()
 
-        ctx.overlay(timeAxisOverlay(domain, window))
+        ctx.overlay(dockBottom(timeAxisOverlay(domain, window), 72))
         const bins = temporalBins(buffer, 48, domain)
         const active = bins.filter((bin) => bin.t1 >= window[0] && bin.t0 <= window[1]).reduce((acc, bin) => acc + bin.count, 0)
 

@@ -25,6 +25,37 @@ export function rampLegend(name: string, label?: string): D3LegendItem {
   return { label: label ?? name, color: ramp(name, 0.5), ramp: name }
 }
 
+/**
+ * 把覆盖层（时间轴等）停靠为底部玻璃面板，避开右上参数面板与右下图例，
+ * 避免裸 SVG 被 overlay 拉伸到整屏 inset:0 后与面板叠在一起。
+ */
+export function dockBottom(
+  el: HTMLElement,
+  height: number,
+  options: { left?: number; right?: number; bottom?: number } = {}
+): HTMLElement {
+  const box = document.createElement('div')
+  box.style.cssText = [
+    'position:absolute',
+    `left:${options.left ?? 12}px`,
+    `right:${options.right ?? 300}px`,
+    `bottom:${options.bottom ?? 56}px`,
+    `height:${height}px`,
+    'padding:8px 12px',
+    'box-sizing:border-box',
+    'border:1px solid rgba(157,188,224,0.28)',
+    'border-radius:9px',
+    'background:rgba(10,26,52,0.86)',
+    'backdrop-filter:blur(6px)',
+    'pointer-events:none'
+  ].join(';')
+  el.style.width = '100%'
+  el.style.height = '100%'
+  el.style.display = 'block'
+  box.appendChild(el)
+  return box
+}
+
 /** 分类图例。 */
 export function categoryLegend(labels: string[]): D3LegendItem[] {
   return labels.map((label, index) => ({ label, color: categorical(index) }))

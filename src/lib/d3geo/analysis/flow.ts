@@ -61,3 +61,21 @@ export function flowHubs(flow: FlowBuffer, top = 10): Array<{ lon: number; lat: 
   }
   return [...map.values()].sort((a, b) => b.value - a.value).slice(0, top)
 }
+
+/**
+ * 从聚合后的弧线提取起点枢纽：坐标为弧线实际端点，保证点位标记与弧线完全重合，
+ * 避免「点吸附到 0.5° 网格、弧线吸附到 cellSize 网格」导致的位置偏差。
+ */
+export function flowHubsFromArcs(arcs: FlowArc[], top = 10): Array<{ lon: number; lat: number; value: number }> {
+  const map = new Map<string, { lon: number; lat: number; value: number }>()
+  for (const arc of arcs) {
+    const key = `${arc.originLon},${arc.originLat}`
+    let hub = map.get(key)
+    if (!hub) {
+      hub = { lon: arc.originLon, lat: arc.originLat, value: 0 }
+      map.set(key, hub)
+    }
+    hub.value += arc.value
+  }
+  return [...map.values()].sort((a, b) => b.value - a.value).slice(0, top)
+}

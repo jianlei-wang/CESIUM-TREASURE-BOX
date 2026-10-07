@@ -22,7 +22,7 @@ export type D3Control =
   | { kind: 'color'; key: string; label: string }
   | { kind: 'button'; label: string; onClick: (ctx: D3CaseContext) => void }
 
-export type D3LegendItem = { label: string; color: string }
+export type D3LegendItem = { label: string; color: string; ramp?: string }
 
 export type D3Camera = {
   lon: number

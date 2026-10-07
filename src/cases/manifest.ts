@@ -52,6 +52,7 @@ import icon_d3_geospatial_dashboard from './d3-geospatial-dashboard/icon.webp'
 import icon_d3_massive_points from './d3-massive-points/icon.webp'
 import icon_d3_multiscale_grid from './d3-multiscale-grid/icon.webp'
 import icon_d3_od_flow from './d3-od-flow/icon.webp'
+import icon_d3_screen_grid from './d3-screen-grid/icon.webp'
 import icon_d3_synthetic_lab from './d3-synthetic-lab/icon.webp'
 import icon_datav_demo0 from './datav-demo0/icon.webp'
 import icon_datav_demo1 from './datav-demo1/icon.webp'
@@ -675,7 +676,7 @@ export const demos: CaseMeta[] = [
   { id: "d3-multiscale-grid", title: "D3大数据-多尺度H3与Hexbin聚合", category: "d3", description: "相机高度映射 H3 / Hexbin 分辨率，聚合计算下沉 Worker，结果以聚合单元 Primitive 渲染，兼顾宏观密度与细节。", tag: "H3, Hexbin, LOD, Worker", icon: icon_d3_multiscale_grid, updatedAt: "2026-10-06", available: true },
   { id: "d3-mvt-bigdata", title: "D3大数据-MVT矢量瓦片大数据", category: "d3", description: "真实边界要素按 z/x/y 切片，自实现 MVT PBF 编解码并回传几何，配合 LOD 在 Cesium 中以 Primitive 渲染矢量瓦片。", tag: "MVT, PBF, Vector Tile, LOD", updatedAt: "2026-10-06", available: true },
   { id: "d3-od-flow", title: "D3大数据-全球OD流量网络真实航线", category: "d3", description: "以 OpenFlights routes.dat 真实航线构建 OD 矩阵，经 d3 统计聚合后生成抬升弧线，直观呈现全球航空流量网络。", tag: "OD, Flow Arc, 网络分析", icon: icon_d3_od_flow, updatedAt: "2026-10-06", available: true },
-  { id: "d3-screen-grid", title: "D3大数据-动态屏幕网格像素尺度聚合", category: "d3", description: "真实事件投影到屏幕空间后做像素级网格聚合，并用 Quadtree 支持最近邻高亮，实现随视口变化的动态聚合。", tag: "Screen Grid, Quadtree, 像素尺度", updatedAt: "2026-10-06", available: true },
+  { id: "d3-screen-grid", title: "D3大数据-动态屏幕网格像素尺度聚合", category: "d3", description: "真实事件投影到屏幕空间后做像素级网格聚合，并用 Quadtree 支持最近邻高亮，实现随视口变化的动态聚合。", tag: "Screen Grid, Quadtree, 像素尺度", icon: icon_d3_screen_grid, updatedAt: "2026-10-06", available: true },
   { id: "d3-synthetic-lab", title: "D3大数据-合成数据实验室性能压测", category: "d3", description: "唯一使用随机数据的压测入口：生成 1 万 – 1000 万合成点，测试点渲染、H3 / Hexbin / Grid 聚合与 Worker 的极限表现，界面明确标注为合成数据。", tag: "Synthetic, 压测, TypedArray", icon: icon_d3_synthetic_lab, updatedAt: "2026-10-06", available: true },
   { id: "d3-temporal-analysis", title: "D3大数据-时空统计分析时间轴与异常", category: "d3", description: "真实地震序列按时间分箱，叠加移动平均、分位数带与异常点检测，地图与时间轴双向联动。", tag: "Temporal, d3.bin, 异常检测", updatedAt: "2026-10-06", available: true },
   { id: "d3-trajectories", title: "D3大数据-时空轨迹大数据时间轴联动", category: "d3", description: "真实事件序列按时间窗口聚合成区域迁移轨迹，时间轴与地图联动播放，展示 d3 时间尺度与时空轨迹分析。", tag: "Trajectory, d3.scaleTime, 时空", updatedAt: "2026-10-06", available: true },

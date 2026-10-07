@@ -3,11 +3,58 @@ import type { D3CaseSpec } from '../types'
 import type { GeoPointBuffer } from '../core/buffer'
 import { screenLOD } from '../core/lod'
 import { buildScreenQuadtree, quadtreeNearest, type ScreenDatum } from '../spatial/quadtree'
-import { renderPointBuffer } from '../render/points'
 import { ramp } from '../palettes'
 import { formatCount, normalize } from '../core/geo'
 import { loadQuakes } from './_data'
 import { PALETTE_OPTIONS, rampLegend } from './_kit'
+
+/** 左下角场景说明面板：把屏幕空间聚合放到真实大屏监控语境里。 */
+function scenarioPanel(): { root: HTMLElement; update: (rows: Array<[string, string]>, nearest: string) => void } {
+  const root = document.createElement('div')
+  root.style.cssText = [
+    'position:absolute',
+    'left:12px',
+    'bottom:64px',
+    'width:308px',
+    'padding:10px 12px',
+    'box-sizing:border-box',
+    'border:1px solid rgba(157,188,224,0.28)',
+    'border-radius:9px',
+    'background:rgba(10,26,52,0.86)',
+    'backdrop-filter:blur(6px)',
+    'color:#dce8f5',
+    'font:11px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif',
+    'pointer-events:none'
+  ].join(';')
+  const head = document.createElement('div')
+  head.style.cssText = 'color:#8ea5c2;letter-spacing:.14em;font-size:10px;margin-bottom:5px;padding-bottom:4px;border-bottom:1px solid rgba(157,188,224,0.16)'
+  head.textContent = '应用场景 · 大屏事件密度监控'
+  const desc = document.createElement('div')
+  desc.style.cssText = 'color:#9fb8d4;margin-bottom:6px'
+  desc.textContent = '事件按屏幕像素聚合，缩放时密度单元保持稳定，避免海量点逐帧重绘。'
+  const stats = document.createElement('div')
+  stats.style.cssText = 'display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-variant-numeric:tabular-nums'
+  const query = document.createElement('div')
+  query.style.cssText = 'margin-top:6px;padding-top:6px;border-top:1px solid rgba(157,188,224,0.16);color:#fbbf24'
+  query.textContent = '点击地图任意位置查询最近单元'
+  root.append(head, desc, stats, query)
+
+  const update = (rows: Array<[string, string]>, nearest: string): void => {
+    stats.replaceChildren(
+      ...rows.flatMap(([key, value]) => {
+        const k = document.createElement('span')
+        k.style.cssText = 'color:#8ea5c2'
+        k.textContent = key
+        const v = document.createElement('span')
+        v.style.cssText = 'color:#9fc3ff'
+        v.textContent = value
+        return [k, v]
+      })
+    )
+    query.textContent = nearest
+  }
+  return { root, update }
+}
 
 const spec: D3CaseSpec = {
   id: 'd3-screen-grid',
@@ -44,15 +91,17 @@ const spec: D3CaseSpec = {
     let buffer: GeoPointBuffer | undefined
     let tree: ReturnType<typeof buildScreenQuadtree> | undefined
     let cellCenters: ScreenDatum[] = []
+    let selected: { x: number; y: number; count: number } | undefined
     let lastUpdate = 0
-    let lastLODLabel = ''
 
     const canvas = document.createElement('canvas')
     canvas.style.width = '100%'
     canvas.style.height = '100%'
     ctx.overlay(canvas)
 
-    const pointCollection = ctx.pointCollection()
+    const panel = scenarioPanel()
+    ctx.overlay(panel.root)
+
     const handler = new ScreenSpaceEventHandler(ctx.viewer.scene.canvas)
     ctx.onCleanup(() => {
       disposed = true
@@ -62,8 +111,9 @@ const spec: D3CaseSpec = {
     handler.setInputAction((movement: { position: Cartesian2 }) => {
       if (!tree) return
       const nearest = quadtreeNearest(tree, movement.position.x, movement.position.y)
-      if (!nearest || !buffer) return
-      ctx.status(`最近聚合单元：屏幕 (${nearest.x.toFixed(0)}, ${nearest.y.toFixed(0)}) · 含 ${nearest.index} 点`)
+      if (!nearest) return
+      selected = { x: nearest.x, y: nearest.y, count: nearest.index }
+      draw()
     }, ScreenSpaceEventType.LEFT_CLICK)
 
     const draw = (): void => {
@@ -83,6 +133,7 @@ const spec: D3CaseSpec = {
       const cellSize = Math.max(4, lod.resolution * Number(settings.cellScale))
       const buckets = new Map<string, { x: number; y: number; count: number }>()
       let projected = 0
+
       for (let i = 0; i < buffer.length; i += 1) {
         const screen = ctx.viewer.scene.cartesianToCanvasCoordinates(Cartesian3.fromDegrees(buffer.positions[i * 2], buffer.positions[i * 2 + 1], 0))
         if (!screen) continue
@@ -99,27 +150,60 @@ const spec: D3CaseSpec = {
       for (const bucket of buckets.values()) maxCount = Math.max(maxCount, bucket.count)
       ctx2d.globalAlpha = Number(settings.opacity)
       cellCenters = []
-      buckets.forEach((bucket, key) => {
+      buckets.forEach((bucket) => {
         const t = Math.pow(normalize(bucket.count, 1, maxCount), 0.5)
+        const x = bucket.x - cellSize / 2
+        const y = bucket.y - cellSize / 2
         ctx2d.fillStyle = ramp(palette, t)
-        ctx2d.fillRect(bucket.x - cellSize / 2, bucket.y - cellSize / 2, cellSize - 1, cellSize - 1)
+        ctx2d.fillRect(x, y, cellSize - 1, cellSize - 1)
         cellCenters.push({ index: bucket.count, x: bucket.x, y: bucket.y })
-        void key
       })
       ctx2d.globalAlpha = 1
+      ctx2d.strokeStyle = 'rgba(8,15,30,0.5)'
+      ctx2d.lineWidth = 1
+      buckets.forEach((bucket) => {
+        ctx2d.strokeRect(bucket.x - cellSize / 2, bucket.y - cellSize / 2, cellSize - 1, cellSize - 1)
+      })
       tree = buildScreenQuadtree(cellCenters)
 
-      if (lastLODLabel !== lod.label) {
-        lastLODLabel = lod.label
+      if (selected) {
+        ctx2d.strokeStyle = '#fbbf24'
+        ctx2d.lineWidth = 2
+        ctx2d.strokeRect(selected.x - cellSize / 2 - 1, selected.y - cellSize / 2 - 1, cellSize + 1, cellSize + 1)
       }
+
+      if (Boolean(settings.showPoints)) {
+        ctx2d.globalAlpha = 1
+        ctx2d.fillStyle = 'rgba(226,240,255,0.95)'
+        for (let i = 0; i < buffer.length; i += 1) {
+          const screen = ctx.viewer.scene.cartesianToCanvasCoordinates(Cartesian3.fromDegrees(buffer.positions[i * 2], buffer.positions[i * 2 + 1], 0))
+          if (!screen) continue
+          ctx2d.fillRect(screen.x - 1, screen.y - 1, 2, 2)
+        }
+      }
+
+      const compression = `${((1 - buckets.size / Math.max(1, projected)) * 100).toFixed(1)}%`
       ctx.profiler.set('Input', formatCount(buffer.length))
       ctx.profiler.set('Visible', formatCount(projected))
       ctx.profiler.set('Cells', formatCount(buckets.size))
-      ctx.profiler.set('Compression', `${((1 - buckets.size / Math.max(1, projected)) * 100).toFixed(1)}%`)
+      ctx.profiler.set('Compression', compression)
       ctx.profiler.set('LOD', lod.label)
       ctx.profiler.set('Cell', `${cellSize.toFixed(0)} px`)
       ctx.profiler.set('Max/Cell', formatCount(maxCount))
       ctx.profiler.set('QuadTree', formatCount(cellCenters.length))
+      panel.update(
+        [
+          ['LOD', lod.label],
+          ['单元', `${cellSize.toFixed(0)} px`],
+          ['可见点', formatCount(projected)],
+          ['聚合单元', formatCount(buckets.size)],
+          ['压缩率', compression],
+          ['最大单元', formatCount(maxCount)]
+        ],
+        selected
+          ? `最近单元 (${selected.x.toFixed(0)}, ${selected.y.toFixed(0)}) · 含 ${selected.count} 点`
+          : '点击地图任意位置查询最近单元'
+      )
     }
 
     const loop = (time: number): void => {
@@ -135,9 +219,6 @@ const spec: D3CaseSpec = {
       .then((loaded) => {
         if (disposed) return
         buffer = loaded
-        if (Boolean(settings.showPoints)) {
-          renderPointBuffer(pointCollection, buffer, { mode: 'single', color: '#38bdf8', pixelSize: 2, maxPoints: 20_000, alpha: 0.25 })
-        }
         draw()
         ctx.onFrame(loop)
         ctx.status(`${formatCount(buffer.length)} 个真实事件 · 屏幕网格聚合 · 点击查询最近单元`)

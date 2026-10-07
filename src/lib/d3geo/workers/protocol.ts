@@ -70,7 +70,7 @@ export type TileResponse = {
   id: number
   layers: Array<{ name: string; extent: number; featureCount: number; encodedBytes?: number }>
   /** 解码后的真实 MVT 几何（相对瓦片原点的整数坐标）。 */
-  decoded: Array<{ type: 'Point' | 'LineString' | 'Polygon'; coordinates: number[][]; name: string }>
+  decoded: Array<{ type: 'Point' | 'LineString' | 'Polygon'; coordinates: number[][]; properties: Record<string, string | number | boolean> }>
   encodedBytes: number
   elapsed: number
 }

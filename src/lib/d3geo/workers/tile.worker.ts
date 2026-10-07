@@ -17,10 +17,10 @@ self.onmessage = (event: MessageEvent<TileRequest>) => {
     buffer = new ArrayBuffer(0)
   }
   const tile = decodeMvt(buffer)
-  const decoded: Array<{ type: 'Point' | 'LineString' | 'Polygon'; coordinates: number[][]; name: string }> = []
+  const decoded: Array<{ type: 'Point' | 'LineString' | 'Polygon'; coordinates: number[][]; properties: Record<string, string | number | boolean> }> = []
   for (const layer of tile.layers) {
     for (const feature of layer.features) {
-      decoded.push({ type: feature.type, coordinates: feature.coordinates, name: String(feature.properties.name ?? layer.name) })
+      decoded.push({ type: feature.type, coordinates: feature.coordinates, properties: feature.properties })
     }
   }
   const response: TileResponse = {

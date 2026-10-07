@@ -140,6 +140,7 @@ function decodeLayer(reader: ProtoReader): MvtLayer {
   const layer: MvtLayer = { name: '', version: 1, extent: 4096, features: [] }
   const keys: string[] = []
   const values: Array<string | number | boolean> = []
+  const pending: Array<{ id: number; declared: MvtGeometryType; geometry: number[]; tags: number[] }> = []
   while (!reader.eof) {
     const [field, wire] = reader.tag()
     if (field === 1 && wire === 2) layer.name = reader.string()
@@ -167,19 +168,23 @@ function decodeLayer(reader: ProtoReader): MvtLayer {
           while (!packed.eof) tags.push(packed.varint())
         } else sub.skip(w)
       }
-      const properties: Record<string, string | number | boolean> = {}
-      for (let i = 0; i + 1 < tags.length; i += 2) {
-        const key = keys[tags[i]]
-        if (key !== undefined) properties[key] = values[tags[i + 1]] ?? 0
-      }
-      const decoded = decodeGeometry(geometry)
-      layer.features.push({
-        id,
-        type: declared === 'Point' ? decoded.type === 'Polygon' ? 'Polygon' : 'Point' : declared,
-        coordinates: decoded.coordinates,
-        properties
-      })
+      pending.push({ id, declared, geometry, tags })
     } else reader.skip(wire)
+  }
+  // keys/values 在 layer 末尾才出现，必须在整层解析完后再回填 feature 属性。
+  for (const item of pending) {
+    const properties: Record<string, string | number | boolean> = {}
+    for (let i = 0; i + 1 < item.tags.length; i += 2) {
+      const key = keys[item.tags[i]]
+      if (key !== undefined) properties[key] = values[item.tags[i + 1]] ?? 0
+    }
+    const decoded = decodeGeometry(item.geometry)
+    layer.features.push({
+      id: item.id,
+      type: item.declared === 'Point' ? (decoded.type === 'Polygon' ? 'Polygon' : 'Point') : item.declared,
+      coordinates: decoded.coordinates,
+      properties
+    })
   }
   return layer
 }

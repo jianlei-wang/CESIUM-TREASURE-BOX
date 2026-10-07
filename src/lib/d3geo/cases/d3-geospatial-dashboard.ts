@@ -150,7 +150,7 @@ function statsPanel(
 ): HTMLElement {
   const el = document.createElement('div')
   el.style.cssText =
-    'position:absolute;right:332px;bottom:16px;padding:12px 14px;border-radius:12px;background:rgba(8,15,30,0.82);border:1px solid rgba(129,140,248,0.4);color:#e2e8f0;font-size:12px;line-height:1.7;min-width:210px;backdrop-filter:blur(10px)'
+    'position:absolute;right:304px;bottom:16px;padding:10px 12px;box-sizing:border-box;border-radius:9px;background:rgba(10,26,52,0.86);border:1px solid rgba(157,188,224,0.28);color:#dce8f5;font:11px/1.7 system-ui,-apple-system,"Segoe UI",sans-serif;min-width:210px;backdrop-filter:blur(6px)'
   const rows: Array<[string, string]> = [
     ['D3 GEOSPATIAL BIG DATA', ''],
     ['Events', formatCount(events)],
@@ -163,8 +163,8 @@ function statsPanel(
   el.innerHTML = rows
     .map(([key, value], index) =>
       index === 0
-        ? `<div style="color:#818cf8;letter-spacing:.16em;font-size:10px;margin-bottom:4px">${key}</div>`
-        : `<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#94a3b8">${key}</span><span style="color:#a5b4fc">${value}</span></div>`
+        ? `<div style="color:#8ea5c2;letter-spacing:.16em;font-size:10px;margin-bottom:4px;padding-bottom:2px;border-bottom:1px solid rgba(157,188,224,0.16)">${key}</div>`
+        : `<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#8ea5c2">${key}</span><span style="color:#9fc3ff;font-variant-numeric:tabular-nums">${value}</span></div>`
     )
     .join('')
   return el

@@ -64,8 +64,11 @@ export function createD3Context(options: {
       cleanupFns.push(fn)
     },
     overlay: (el, interactive = false) => {
-      el.style.position = 'absolute'
-      el.style.inset = '0'
+      const declared = el.style.position
+      if (declared !== 'absolute' && declared !== 'fixed' && declared !== 'relative' && declared !== 'sticky') {
+        el.style.position = 'absolute'
+        el.style.inset = '0'
+      }
       el.style.pointerEvents = interactive ? 'auto' : 'none'
       viewer.container.appendChild(el)
       overlays.push(el)

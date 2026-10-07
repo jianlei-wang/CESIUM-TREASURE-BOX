@@ -2,7 +2,7 @@ import { Cartesian3, type PointPrimitiveCollection } from 'cesium'
 import type { D3CaseSpec } from '../types'
 import type { GeoPointBuffer } from '../core/buffer'
 import { bufferByteLength, bufferValueExtent } from '../core/buffer'
-import { createGeoLOD, type GeoLODLevel } from '../core/lod'
+import { createGeoLOD, createLODScheduler, type GeoLODLevel } from '../core/lod'
 import { formatCount } from '../core/geo'
 import { generateSyntheticPoints, SYNTHETIC_PATTERNS, SYNTHETIC_SIZES, type SyntheticPattern } from '../data/synthetic'
 import { ramp } from '../palettes'
@@ -10,11 +10,11 @@ import { renderPointBuffer } from '../render/points'
 import { PALETTE_OPTIONS, rampLegend } from './_kit'
 
 const POINT_LOD = createGeoLOD([
-  { maxHeight: 500_000, resolution: 1_000_000, label: 'LOD 6' },
-  { maxHeight: 1_500_000, resolution: 640_000, label: 'LOD 5' },
-  { maxHeight: 4_000_000, resolution: 320_000, label: 'LOD 4' },
-  { maxHeight: 10_000_000, resolution: 160_000, label: 'LOD 3' },
-  { maxHeight: 20_000_000, resolution: 80_000, label: 'LOD 2' },
+  { maxHeight: 500_000, resolution: 250_000, label: 'LOD 6' },
+  { maxHeight: 1_500_000, resolution: 200_000, label: 'LOD 5' },
+  { maxHeight: 4_000_000, resolution: 150_000, label: 'LOD 4' },
+  { maxHeight: 10_000_000, resolution: 110_000, label: 'LOD 3' },
+  { maxHeight: 20_000_000, resolution: 70_000, label: 'LOD 2' },
   { maxHeight: Number.POSITIVE_INFINITY, resolution: 40_000, label: 'LOD 1' }
 ])
 
@@ -74,7 +74,6 @@ const spec: D3CaseSpec = {
     ctx.status(`${formatCount(buffer.length)} 个合成点 · ${(bufferByteLength(buffer) / 1048576).toFixed(1)} MB`)
 
     const collection: PointPrimitiveCollection = ctx.pointCollection()
-    let currentLOD: GeoLODLevel | undefined
 
     const render = (level: GeoLODLevel): void => {
       const end = ctx.profiler.time('Render')
@@ -98,20 +97,18 @@ const spec: D3CaseSpec = {
       }
     }
 
-    currentLOD = POINT_LOD.resolve(ctx.viewer.camera.positionCartographic.height)
-    render(currentLOD)
+    const scheduler = createLODScheduler(POINT_LOD, render)
+    const initial = POINT_LOD.resolve(ctx.viewer.camera.positionCartographic.height)
+    scheduler.markRendered(initial)
+    render(initial)
 
-    ctx.onFrame(() => {
-      const height = ctx.viewer.camera.positionCartographic.height
-      const level = POINT_LOD.resolve(height)
-      if (!currentLOD || level.resolution !== currentLOD.resolution) {
-        currentLOD = level
-        render(level)
-      }
-    })
+    ctx.onFrame(() => scheduler.frame(ctx.viewer.camera.positionCartographic.height))
 
     ctx.legend([rampLegend(String(settings.palette), '值 = 低→高'), { label: 'PointPrimitive', color: '#0f172a' }])
-    ctx.onCleanup(() => collection.removeAll())
+    ctx.onCleanup(() => {
+      scheduler.dispose()
+      collection.removeAll()
+    })
   }
 }
 

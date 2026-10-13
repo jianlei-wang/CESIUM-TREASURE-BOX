@@ -6,6 +6,7 @@
   "scripts": {
     "sync": "node scripts/sync-cases.mjs",
     "case-list": "node scripts/gen-case-list.mjs",
+    "sync-articles": "node scripts/sync-articles.mjs",
     "predev": "npm run sync",
     "dev": "vite --host 0.0.0.0",
     "prebuild": "npm run sync",

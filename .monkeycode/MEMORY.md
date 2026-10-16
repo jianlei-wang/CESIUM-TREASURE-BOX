@@ -31,6 +31,14 @@ Entries discovered by the Agent during task execution should follow this format:
 
 ## Entries
 
+[User Instruction Summary]
+- Date: 2026-10-13
+- Context: 用户反馈推送后 GitHub 显示 “jianlei-wang and MonkeyCode-AI committed”，期望提交只显示 jianlei-wang
+- Instructions:
+  - 本仓库提交只保留 jianlei-wang 作为作者，禁止提交信息出现 MonkeyCode-AI（monkeycode-ai）的 `Co-authored-by`。
+  - 根因：`.git/hooks/prepare-commit-msg` 会读取 git config `coauthor.N.name/.email` 并自动向提交信息追加 `Co-authored-by`；已用 `git config --unset-all coauthor.0.name` / `--unset-all coauthor.0.email` 清除。
+  - 若后续提交仍被追加 co-author：先 `git config --get-regexp '^coauthor\.'` 检查并清除配置，再 `git commit --amend` 修改该提交，最后 `git push --force-with-lease`。
+
 [Project Knowledge Summary]
 - Date: 2026-10-05
 - Context: Discovered by Agent while porting the external red-tide-3d-sim project into a new `system` case (src/cases/red-tide-3d)

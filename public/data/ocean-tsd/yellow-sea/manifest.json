@@ -1,0 +1,141 @@
+{
+  "id": "yellow-sea",
+  "title": "黄海中部陆架（月气候态样本）",
+  "source": "程序化生成的海水水文样本（演示数据）",
+  "productId": "sample/yellow-sea",
+  "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_MULTIYEAR_PHY_001_030/services",
+  "sourceVersion": "sample-2026.10",
+  "citation": "本样本为演示数据，非真实观测或官方再分析产品；接入真实数据的方法见 scripts/ocean-tsd/preprocess_ocean.py",
+  "license": "CC-BY-4.0 (sample only)",
+  "generatedAt": "2026-10-13",
+  "timeKind": "demo",
+  "timeNote": "示例数据：程序化生成的水文样本，用于演示真实数据管线、体渲染与分析流程，绝不代表真实海况。",
+  "timeLabels": [
+    "1月",
+    "2月",
+    "3月",
+    "4月",
+    "5月",
+    "6月",
+    "7月",
+    "8月",
+    "9月",
+    "10月",
+    "11月",
+    "12月"
+  ],
+  "regionName": "黄海中部陆架",
+  "extent": {
+    "west": 120,
+    "south": 33,
+    "east": 124.6,
+    "north": 37
+  },
+  "nativeResolution": {
+    "lonLat": "13.8 km × 12.0 km",
+    "verticalLevels": 18,
+    "depthsM": [
+      0,
+      3,
+      6,
+      9,
+      12,
+      16,
+      20,
+      25,
+      30,
+      40,
+      45,
+      51,
+      57,
+      63,
+      71,
+      80,
+      89,
+      92
+    ]
+  },
+  "grid": {
+    "nx": 38,
+    "ny": 38,
+    "nz": 18,
+    "encoding": "uint16"
+  },
+  "verticalPositive": "down",
+  "depthRangeM": [
+    0,
+    92
+  ],
+  "bathymetryRangeM": [
+    34,
+    103
+  ],
+  "densityMethod": "位密度异常 σt：EOS-80 (UNESCO 1983) 标准大气压密度减去 1000，参考压力 0 dbar，由数据块 T/S 实时计算",
+  "variables": {
+    "temperature": {
+      "sourceVariable": "thetao (simulated)",
+      "label": "温度",
+      "unit": "°C",
+      "scale": 0.005,
+      "offset": 4.795,
+      "validMin": 4.794703960418701,
+      "validMax": 27.168743133544922,
+      "missingValue": 65535
+    },
+    "salinity": {
+      "sourceVariable": "so (simulated)",
+      "label": "盐度",
+      "unit": "PSU",
+      "scale": 0.001,
+      "offset": 29.567,
+      "validMin": 29.567415237426758,
+      "validMax": 33.2587890625,
+      "missingValue": 65535
+    },
+    "u": {
+      "sourceVariable": "uo (simulated)",
+      "label": "东西向流速 u",
+      "unit": "m/s",
+      "scale": 0.0005,
+      "offset": -0.0605,
+      "validMin": -0.06059732288122177,
+      "validMax": 0.4008714258670807,
+      "missingValue": 65535
+    },
+    "v": {
+      "sourceVariable": "vo (simulated)",
+      "label": "南北向流速 v",
+      "unit": "m/s",
+      "scale": 0.0005,
+      "offset": -0.0485,
+      "validMin": -0.048647619783878326,
+      "validMax": 0.33296066522598267,
+      "missingValue": 65535
+    }
+  },
+  "varOrder": [
+    "temperature",
+    "salinity",
+    "u",
+    "v"
+  ],
+  "files": {
+    "coords": "coords.bin",
+    "bathymetry": "bathymetry.bin",
+    "mask": "mask.bin",
+    "frames": [
+      "frames/01.bin",
+      "frames/02.bin",
+      "frames/03.bin",
+      "frames/04.bin",
+      "frames/05.bin",
+      "frames/06.bin",
+      "frames/07.bin",
+      "frames/08.bin",
+      "frames/09.bin",
+      "frames/10.bin",
+      "frames/11.bin",
+      "frames/12.bin"
+    ]
+  }
+}

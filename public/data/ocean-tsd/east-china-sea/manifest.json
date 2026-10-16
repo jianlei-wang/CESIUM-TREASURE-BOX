@@ -1,0 +1,153 @@
+{
+  "id": "east-china-sea",
+  "title": "东海陆架坡折—黑潮邻区（月气候态样本）",
+  "source": "程序化生成的海水水文样本（演示数据）",
+  "productId": "sample/east-china-sea",
+  "sourceUrl": "https://data.marine.copernicus.eu/product/GLOBAL_MULTIYEAR_PHY_001_030/services",
+  "sourceVersion": "sample-2026.10",
+  "citation": "本样本为演示数据，非真实观测或官方再分析产品；接入真实数据的方法见 scripts/ocean-tsd/preprocess_ocean.py",
+  "license": "CC-BY-4.0 (sample only)",
+  "generatedAt": "2026-10-13",
+  "timeKind": "demo",
+  "timeNote": "示例数据：程序化生成的水文样本，用于演示真实数据管线、体渲染与分析流程，绝不代表真实海况。",
+  "timeLabels": [
+    "1月",
+    "2月",
+    "3月",
+    "4月",
+    "5月",
+    "6月",
+    "7月",
+    "8月",
+    "9月",
+    "10月",
+    "11月",
+    "12月"
+  ],
+  "regionName": "东海陆架坡折带",
+  "extent": {
+    "west": 121.5,
+    "south": 25,
+    "east": 128,
+    "north": 31
+  },
+  "nativeResolution": {
+    "lonLat": "16.8 km × 15.5 km",
+    "verticalLevels": 30,
+    "depthsM": [
+      0,
+      3,
+      6,
+      12,
+      16,
+      20,
+      25,
+      30,
+      42,
+      48,
+      56,
+      65,
+      76,
+      102,
+      118,
+      137,
+      159,
+      214,
+      248,
+      288,
+      334,
+      387,
+      521,
+      604,
+      701,
+      813,
+      943,
+      1269,
+      1471,
+      1560
+    ]
+  },
+  "grid": {
+    "nx": 44,
+    "ny": 44,
+    "nz": 30,
+    "encoding": "uint16"
+  },
+  "verticalPositive": "down",
+  "depthRangeM": [
+    0,
+    1560
+  ],
+  "bathymetryRangeM": [
+    11,
+    1680
+  ],
+  "densityMethod": "位密度异常 σt：EOS-80 (UNESCO 1983) 标准大气压密度减去 1000，参考压力 0 dbar，由数据块 T/S 实时计算",
+  "variables": {
+    "temperature": {
+      "sourceVariable": "thetao (simulated)",
+      "label": "温度",
+      "unit": "°C",
+      "scale": 0.005,
+      "offset": 1.1500000000000001,
+      "validMin": 1.1487300395965576,
+      "validMax": 30.305978775024414,
+      "missingValue": 65535
+    },
+    "salinity": {
+      "sourceVariable": "so (simulated)",
+      "label": "盐度",
+      "unit": "PSU",
+      "scale": 0.001,
+      "offset": 30.379,
+      "validMin": 30.37868309020996,
+      "validMax": 34.89122009277344,
+      "missingValue": 65535
+    },
+    "u": {
+      "sourceVariable": "uo (simulated)",
+      "label": "东西向流速 u",
+      "unit": "m/s",
+      "scale": 0.0005,
+      "offset": -0.1795,
+      "validMin": -0.17951229214668274,
+      "validMax": 0.8141358494758606,
+      "missingValue": 65535
+    },
+    "v": {
+      "sourceVariable": "vo (simulated)",
+      "label": "南北向流速 v",
+      "unit": "m/s",
+      "scale": 0.0005,
+      "offset": -0.048,
+      "validMin": -0.0479724146425724,
+      "validMax": 0.9279330968856812,
+      "missingValue": 65535
+    }
+  },
+  "varOrder": [
+    "temperature",
+    "salinity",
+    "u",
+    "v"
+  ],
+  "files": {
+    "coords": "coords.bin",
+    "bathymetry": "bathymetry.bin",
+    "mask": "mask.bin",
+    "frames": [
+      "frames/01.bin",
+      "frames/02.bin",
+      "frames/03.bin",
+      "frames/04.bin",
+      "frames/05.bin",
+      "frames/06.bin",
+      "frames/07.bin",
+      "frames/08.bin",
+      "frames/09.bin",
+      "frames/10.bin",
+      "frames/11.bin",
+      "frames/12.bin"
+    ]
+  }
+}

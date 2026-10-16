@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-10-13",
+  "generator": "scripts/ocean-tsd/generate-sample-data.mjs",
+  "note": "示例数据索引；每个预设目录内各自包含 manifest.json 与二进制数据块。",
+  "presets": [
+    {
+      "id": "east-china-sea",
+      "title": "东海陆架坡折—黑潮邻区（月气候态样本）",
+      "manifest": "east-china-sea/manifest.json"
+    },
+    {
+      "id": "yellow-sea",
+      "title": "黄海中部陆架（月气候态样本）",
+      "manifest": "yellow-sea/manifest.json"
+    }
+  ]
+}

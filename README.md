@@ -4,7 +4,7 @@
 [![forks](https://img.shields.io/github/forks/jianlei-wang/CESIUM-TREASURE-BOX?style=social)](https://github.com/jianlei-wang/CESIUM-TREASURE-BOX/network/members)
 [![watchers](https://img.shields.io/github/watchers/jianlei-wang/CESIUM-TREASURE-BOX?style=social)](https://github.com/jianlei-wang/CESIUM-TREASURE-BOX/watchers)
 
-> Cesium 三维地球示例案例库：汇集三维特效、天气、粒子、水面、标绘、测量、空间分析、数据可视化、三维数据加载、大气环境、光照、大屏等多种 Cesium / Three.js 实战案例，持续更新中。
+> Cesium 三维地球示例案例库：汇集三维特效、天气、粒子、水面、标绘、测量、空间分析、数据可视化、三维数据加载、大气环境、光照、大屏、D3 地理大数据与海洋温盐深体渲染等多种 Cesium / Three.js 实战案例，持续更新中。
 
 仓库地址：<https://github.com/jianlei-wang/CESIUM-TREASURE-BOX>
 
@@ -12,15 +12,18 @@
 
 ## ✨ 特性
 
-- **344+ 案例**：覆盖 17 个分类（三维特效、天气特效、粒子特效、水面效果、标记标绘、空间测量、空间分析、数据可视化、D3地理大数据、三维数据加载、场景示例、大气环境、光照效果、界面控件、可视化大屏、ThreeJS 样例等）
+- **312 个案例**：覆盖 17 个分类（系统 DEMO、三维特效、天气特效、粒子特效、水面效果、标记标绘、空间测量、空间分析、数据可视化、D3 地理大数据、三维数据加载、场景示例、大气环境、光照效果、界面控件、可视化大屏、ThreeJS 样例）
 - **全局搜索 / 排序**：按名称、描述关键词检索，支持最新收录排序
 - **性能监测**：内置 FPS 监视、Cesium 渲染统计与卡顿排查清单
 - **按需加载**：案例组件懒加载，Cesium 大体积脚本延迟注入，首屏轻量
 - **多源底图**：内置天地图、高德、百度、腾讯、Google、Bing、GeoVis 等多种影像/注记提供器
+- **完整案例清单**：[`CASE_LIST.md`](./CASE_LIST.md) 由脚本自动生成，并记录每篇公众号文章的产出与在线地址；已输出文章 56 篇
 
 ## 🆕 最近更新
 
-- **2026-10-06 · D3 地理大数据专题上线**：新增「D3地理大数据」功能分类，一次性收录 45 个 D3 × Cesium 案例，覆盖数据接入与坐标映射、统计图形地球化、网络关系、时空动态、空间分析、屏幕空间增强、叙事与数字孪生、格网聚合与蜂窝表达八大类；新增 `src/lib/d3geo` 通用渲染外壳与工具库（渲染助手、数据生成、色带、hexbin/网格聚合），每个案例以声明式 `D3CaseSpec` 驱动。
+- **2026-10-13 · 海洋分析-温盐深三维体上线**：新增「海洋分析-温盐深三维体」案例，以东海陆架坡折、黄海中部陆架为研究区，支持温度 / 盐度 / 密度 / 流速实时切换，月份演变、水平切片、A–B 断面、T–S 散点、等值面、流场箭头、垂向层结与全域统计；配套 `scripts/ocean-tsd` 数据管线（样本生成、NetCDF 预处理、数据校验），浏览器端只读取预处理后的轻量二进制数据。
+- **2026-10-06 · 公众号文章回填**：新增 `npm run sync-articles` 同步脚本，按案例名称回填 `CASE_LIST.md` 的文章产出状态与在线地址，当前已回填 56 篇。
+- **2026-10-06 · D3 地理大数据专题上线**：新增「D3地理大数据」功能分类，收录 13 个 D3 × Cesium 案例，覆盖数据接入与坐标映射、统计图形地球化、网络关系、时空动态、空间分析、屏幕空间增强、叙事与数字孪生、格网聚合与蜂窝表达等方向；新增 `src/lib/d3geo` 通用渲染外壳与工具库（渲染助手、数据生成、色带、hexbin/网格聚合），每个案例以声明式 `D3CaseSpec` 驱动。
 - **2026-09-29 · 工程仿真 CFD 多物理场体升级**：`volume-cfd` 案例由单场体渲染升级为三维多物理场工程工作台，新增程序化街区建筑白模工程几何层、KPI 指标卡、四组相机预设、正负压双等值面、流线 / 粒子 / 剖面箭头三种向量表达与场景背景三模式；修复参数切换后体块错位、返回列表白屏崩溃与等值面渲染异常等问题。
 - **2026-09-29 · 数据可视化扩容**：新增海量动态点 / 线 / 多边形案例，并补齐案例卡片图标。
 - **2026-09-29 · 体渲染场景化 UI**：体渲染 5 案例完成场景化 UI 重构，并修复剖切面板显隐。
@@ -31,10 +34,12 @@
 | --- | --- |
 | 框架 | Vue 3 + TypeScript |
 | 构建 | Vite 6 |
-| 三维引擎 | Cesium 1.144、Three.js |
+| 三维引擎 | Cesium 1.144、Three.js、three.quarks |
 | UI | Element Plus |
 | 空间计算 | turf、jsts、proj4、geotiff、shpjs |
-| 图表导出 | echarts、html2canvas、jspdf |
+| D3 可视化 | d3、d3-geo（`src/lib/d3geo` 声明式渲染外壳） |
+| 格网编码 | h3-js、s2js、a5-js、ngeohash、open-location-code |
+| 图表导出 | echarts、html2canvas、jspdf、xlsx、docx |
 
 ## 🚀 快速开始
 
@@ -62,29 +67,35 @@ npm run preview
 | --- | --- |
 | `npm run sync` | 扫描 `src/cases`，生成案例清单 `manifest.ts` |
 | `npm run case-list` | 生成 `CASE_LIST.md` 案例列表文档 |
+| `npm run sync-articles` | 拉取公众号专栏文章，按案例名称回填 `CASE_LIST.md` 的文章产出与在线地址 |
 | `npm run dev` | 启动开发服务器（0.0.0.0） |
 | `npm run build` | 类型检查（vue-tsc）+ Vite 打包 |
 | `npm run preview` | 预览 `dist` 产物 |
+
+海洋温盐深案例的数据管线位于 `scripts/ocean-tsd`：`generate-sample-data.mjs` 生成演示样本，`preprocess_ocean.py` 从 NetCDF 再分析数据裁剪研究区，`validate_ocean_dataset.py` 校验二进制数据。浏览器端只读取 `public/data/ocean-tsd` 下的预处理产物。
 
 ## 📁 目录结构
 
 ```
 .
-├── public/            # 静态资源（模型、影像、视频、LUT 等）
-│   ├── data/          # 三维模型与业务数据
+├── public/            # 静态资源（模型、影像、视频、LUT、海洋数据等）
+│   ├── data/          # 三维模型与业务数据（含 ocean-tsd 温盐深数据）
 │   ├── dayanta/       # 雁荡山三维切片
 │   ├── draco/         # Draco 解码器
 │   ├── geo/           # 大气/云 LUT 等着色器资源
 │   ├── images/        # 贴图素材
+│   ├── models/        # 三维模型素材
 │   └── videos/        # 视频素材
-├── scripts/           # 案例同步与列表生成脚本
+├── scripts/           # 案例同步、文章回填与数据管线脚本
+│   └── ocean-tsd/     # 海洋温盐深数据生成、预处理与校验
 ├── src/
 │   ├── cases/         # 案例集合（每个案例一个目录 + index.ts）
 │   ├── components/    # 公共组件
 │   ├── datav/         # 可视化大屏示例
-│   ├── lib/           # 工具库（Cesium 场景、底图提供器、空间计算等）
+│   ├── lib/           # 工具库（Cesium 场景、底图提供器、d3geo、空间计算等）
 │   ├── App.vue        # 案例库主界面
 │   └── main.ts        # 入口
+├── CASE_LIST.md       # 全部案例清单与文章产出状态
 ├── index.html
 └── vite.config.ts     # Vite 配置（Cesium 集成、路径与优化）
 ```

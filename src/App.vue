@@ -452,8 +452,8 @@ onUnmounted(() => {
                   <span class="demo-tag">{{ demo.tag }}</span>
                 </div>
                 <div class="thumbnail-face thumbnail-back">
-                  <h4>{{ demo.title }}</h4>
-                  <p>{{ demo.description }}</p>
+                  <h4 :title="demo.title">{{ demo.title }}</h4>
+                  <p :title="demo.description">{{ demo.description }}</p>
                   <span class="thumbnail-cue">点击查看演示<el-icon><VideoPlay /></el-icon></span>
                 </div>
               </div>

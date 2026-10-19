@@ -113,10 +113,11 @@ button { border: 0; cursor: pointer; }
 .thumbnail-flip { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform .6s cubic-bezier(.4,.2,.2,1); }
 .thumbnail:hover .thumbnail-flip { transform: rotateY(180deg); }
 .thumbnail-face { position: absolute; inset: 0; overflow: hidden; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
-.thumbnail-back { transform: rotateY(180deg); display: flex; flex-direction: column; gap: 5px; padding: 11px 12px; color: #e6eefb; background: linear-gradient(150deg, #1c3253, #0e1e37); }
-.thumbnail-back h4 { margin: 0; color: #fff; font-size: 12px; font-weight: 700; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.thumbnail-back p { flex: 1 1 auto; margin: 0; color: #a9bdd8; font-size: 10px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-.thumbnail-cue { display: inline-flex; align-items: center; gap: 4px; margin-top: auto; color: #6db0f5; font-size: 10px; }
+.thumbnail-back { transform: rotateY(180deg); display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; overflow: hidden; color: #e6eefb; background: linear-gradient(150deg, #1c3253, #0e1e37); }
+.thumbnail-back h4 { flex: 0 0 auto; min-height: 0; margin: 0; color: #fff; font-size: 12px; font-weight: 700; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; word-break: break-word; text-overflow: ellipsis; }
+.thumbnail-back p { flex: 1 1 auto; min-height: 0; margin: 0; color: #a9bdd8; font-size: 10px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; word-break: break-word; text-overflow: ellipsis; }
+.thumbnail-cue { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; margin-top: auto; color: #6db0f5; font-size: 10px; white-space: nowrap; }
+@media (max-width: 1500px) { .thumbnail-back { gap: 4px; padding: 9px 11px; } .thumbnail-back h4 { -webkit-line-clamp: 1; } .thumbnail-back p { -webkit-line-clamp: 2; } }
 .thumbnail-cue .el-icon { font-size: 12px; }
 .thumbnail img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .no-image { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 7px; color: #7c90ac; background: linear-gradient(145deg, #1b3152, #101f39); font-size: 11px; }

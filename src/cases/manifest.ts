@@ -196,6 +196,7 @@ import icon_polygon_terrain_flatten from './polygon-terrain-flatten/icon.webp'
 import icon_polyline from './polyline/icon.webp'
 import icon_polyline_create from './polyline-create/icon.webp'
 import icon_polyline_edit from './polyline-edit/icon.webp'
+import icon_presentation_editor from './presentation-editor/icon.svg'
 import icon_profile_analysis from './profile-analysis/icon.webp'
 import icon_proportional_area from './proportional-area/icon.webp'
 import icon_radar from './radar/icon.webp'
@@ -510,6 +511,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'polyline': () => import('./polyline/index.ts'),
   'polyline-create': () => import('./polyline-create/index.ts'),
   'polyline-edit': () => import('./polyline-edit/index.ts'),
+  'presentation-editor': () => import('./presentation-editor/index.ts'),
   'profile-analysis': () => import('./profile-analysis/index.ts'),
   'proportional-area': () => import('./proportional-area/index.ts'),
   'radar': () => import('./radar/index.ts'),
@@ -824,6 +826,7 @@ export const demos: CaseMeta[] = [
   { id: "polyline", title: "折线-连续节点直线", category: "draw", description: "左键逐点落线、右键闭合，绘制由直线段组成的折线；支持颜色、线宽与不透明度实时调整。", tag: "线绘制", icon: icon_polyline, updatedAt: "2026-09-06", available: true },
   { id: "polyline-create", title: "线面绘制-动态折线", category: "draw", description: "鼠标点击地图动态创建折线，支持线宽、颜色、线型、贴地等参数", tag: "线绘制", icon: icon_polyline_create, updatedAt: "2026-08-26", available: true },
   { id: "polyline-edit", title: "折线-编辑版", category: "draw", description: "绘制折线后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_polyline_edit, updatedAt: "2026-09-06", available: true },
+  { id: "presentation-editor", title: "三维场景演示漫游制作系统", category: "system", description: "对标 Skyline Presentation 的 Cesium 演示编排系统：以 Step + Action 结构化编辑演示脚本，支持定点飞行、航线录制、图层显隐、建设时序、字幕弹窗与场景效果，内置播放/单步调试/进度跳转/倍速回放、工程保存导入导出，以及 1080P/2K/4K 视频导出。", tag: "演示漫游", icon: icon_presentation_editor, updatedAt: "2026-10-21", available: true },
   { id: "profile-analysis", title: "空间分析-剖面分析", category: "analysis", description: "沿折线路径插值采样真实地形高程，绘制高程剖面图", tag: "空间分析", icon: icon_profile_analysis, available: true },
   { id: "proportional-area", title: "空间分析-比例符号面", category: "analysis", description: "比例符号面：以面符号的面积或半径表示数值属性（面积正比/半径正比），支持比例系数、范围钳制、样式与标签等参数设定", tag: "缓冲区", icon: icon_proportional_area, updatedAt: "2026-08-30", available: true },
   { id: "radar", title: "三维特效-雷达波效果", category: "effects", description: "雷达锥体扫描波纹效果，支持方向角、锥体长度、底部半径、波纹厚度与数量、扫描周期、颜色等参数实时调节，可点击地图定位", tag: "雷达波", icon: icon_radar, updatedAt: "2026-08-27", available: true },

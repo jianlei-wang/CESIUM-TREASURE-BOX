@@ -1,0 +1,171 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="0.55" stop-color="#0b2036"/>
+      <stop offset="1" stop-color="#082a3a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.68" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#122a45"/>
+      <stop offset="1" stop-color="#0a1a2c"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <rect width="1600" height="900" fill="url(#glow)"/>
+  <g opacity="0.22" stroke="#3f7fae" stroke-width="1">
+    <path d="M0 700 L420 520 L900 600 L1200 430 L1600 500"/>
+    <path d="M0 760 L400 600 L880 670 L1180 520 L1600 570"/>
+    <path d="M0 820 L430 680 L920 730 L1240 600 L1600 650"/>
+  </g>
+  <g opacity="0.14" stroke="#5eead4" stroke-width="2" fill="none">
+    <ellipse cx="950" cy="520" rx="300" ry="96"/>
+    <ellipse cx="950" cy="520" rx="196" ry="62"/>
+    <ellipse cx="950" cy="520" rx="100" ry="30"/>
+  </g>
+  <g fill="#1f4d6b" opacity="0.9">
+    <rect x="830" y="430" width="46" height="120" rx="4"/>
+    <rect x="890" y="392" width="54" height="158" rx="4"/>
+    <rect x="958" y="452" width="42" height="98" rx="4"/>
+    <rect x="1014" y="416" width="58" height="134" rx="4"/>
+    <rect x="1086" y="470" width="44" height="80" rx="4"/>
+  </g>
+  <g fill="#2e6d86">
+    <rect x="890" y="392" width="54" height="10" fill="#5eead4" opacity="0.8"/>
+    <rect x="1014" y="416" width="58" height="8" fill="#38bdf8" opacity="0.8"/>
+  </g>
+
+  <g transform="translate(96 118)">
+    <rect x="0" y="0" width="620" height="664" rx="24" fill="url(#panel)" stroke="#2a5a80" stroke-width="2"/>
+    <rect x="26" y="26" width="568" height="52" rx="10" fill="#0a1a2c" stroke="#244a6c"/>
+    <circle cx="50" cy="52" r="8" fill="#5eead4"/>
+    <rect x="70" y="42" width="150" height="9" rx="4" fill="#3f7397"/>
+    <rect x="70" y="58" width="90" height="6" rx="3" fill="#28506e"/>
+    <rect x="440" y="40" width="66" height="24" rx="6" fill="#1b4a68"/>
+    <rect x="516" y="40" width="52" height="24" rx="6" fill="url(#accent)"/>
+
+    <rect x="26" y="94" width="176" height="544" rx="12" fill="#091a2c" stroke="#1d4161"/>
+    <text x="46" y="126" fill="#6f93b3" font-family="monospace" font-size="15">STEPS</text>
+    <g>
+      <rect x="40" y="142" width="148" height="62" rx="8" fill="#12304b" stroke="#2f7096"/>
+      <rect x="40" y="146" width="4" height="54" rx="2" fill="#5eead4"/>
+      <circle cx="62" cy="164" r="9" fill="#1b4a66" stroke="#5eead4"/>
+      <text x="58" y="168" fill="#5eead4" font-family="monospace" font-size="10">1</text>
+      <rect x="78" y="158" width="76" height="8" rx="4" fill="#8db8d8"/>
+      <rect x="78" y="174" width="52" height="6" rx="3" fill="#3d6585"/>
+      <rect x="52" y="188" width="122" height="2" rx="1" fill="#2b5a7b"/>
+      <rect x="52" y="212" width="52" height="16" rx="4" fill="#0f2a41" stroke="#2a5a80"/>
+      <rect x="52" y="212" width="3" height="16" rx="1" fill="#38bdf8"/>
+      <rect x="60" y="217" width="36" height="6" rx="3" fill="#4c7898"/>
+    </g>
+    <g>
+      <rect x="40" y="240" width="148" height="52" rx="8" fill="#0c2033" stroke="#1f4564"/>
+      <circle cx="62" cy="262" r="9" fill="#0f2d44" stroke="#3f7397"/>
+      <text x="58" y="266" fill="#6f93b3" font-family="monospace" font-size="10">2</text>
+      <rect x="78" y="256" width="66" height="8" rx="4" fill="#4f7697"/>
+      <rect x="78" y="272" width="46" height="6" rx="3" fill="#2c4f6d"/>
+    </g>
+    <g>
+      <rect x="40" y="302" width="148" height="52" rx="8" fill="#0c2033" stroke="#1f4564"/>
+      <circle cx="62" cy="324" r="9" fill="#0f2d44" stroke="#3f7397"/>
+      <text x="58" y="328" fill="#6f93b3" font-family="monospace" font-size="10">3</text>
+      <rect x="78" y="318" width="58" height="8" rx="4" fill="#4f7697"/>
+      <rect x="78" y="334" width="40" height="6" rx="3" fill="#2c4f6d"/>
+    </g>
+    <g>
+      <rect x="40" y="364" width="148" height="52" rx="8" fill="#0c2033" stroke="#1f4564"/>
+      <circle cx="62" cy="386" r="9" fill="#0f2d44" stroke="#3f7397"/>
+      <text x="58" y="390" fill="#6f93b3" font-family="monospace" font-size="10">4</text>
+      <rect x="78" y="380" width="72" height="8" rx="4" fill="#4f7697"/>
+      <rect x="78" y="396" width="50" height="6" rx="3" fill="#2c4f6d"/>
+    </g>
+
+    <rect x="218" y="94" width="376" height="544" rx="12" fill="#0a1e31" stroke="#1d4161"/>
+    <rect x="234" y="110" width="344" height="266" rx="8" fill="#0d2a40"/>
+    <g opacity="0.8">
+      <path d="M244 340 L330 250 L410 300 L500 214 L568 268 L568 368 L244 368 Z" fill="#12405a"/>
+      <path d="M244 340 L330 250 L410 300 L500 214 L568 268" fill="none" stroke="#38bdf8" stroke-width="2" opacity="0.7"/>
+    </g>
+    <g fill="#2a6a80">
+      <rect x="330" y="292" width="24" height="55"/>
+      <rect x="362" y="272" width="30" height="75"/>
+      <rect x="400" y="304" width="22" height="43"/>
+      <rect x="430" y="284" width="30" height="63"/>
+    </g>
+    <g fill="none" stroke="#5eead4" stroke-width="2" opacity="0.6">
+      <ellipse cx="400" cy="346" rx="112" ry="34"/>
+      <ellipse cx="400" cy="346" rx="70" ry="21"/>
+    </g>
+    <circle cx="400" cy="346" r="5" fill="#5eead4"/>
+    <rect x="252" y="126" width="86" height="22" rx="6" fill="rgba(5,18,31,0.72)" stroke="#2a5a80"/>
+    <circle cx="264" cy="137" r="3" fill="#5eead4"/>
+    <rect x="274" y="133" width="52" height="8" rx="4" fill="#4b7a9a"/>
+    <rect x="238" y="392" width="336" height="46" rx="8" fill="#08192a" stroke="#245070"/>
+    <circle cx="260" cy="415" r="11" fill="#5eead4"/>
+    <path d="M256 409 L266 415 L256 421 Z" fill="#07202a"/>
+    <rect x="282" y="411" width="58" height="8" rx="4" fill="#2e5c7d"/>
+    <rect x="352" y="413" width="170" height="4" rx="2" fill="#1c435f"/>
+    <rect x="352" y="413" width="92" height="4" rx="2" fill="#5eead4"/>
+    <rect x="532" y="405" width="34" height="20" rx="5" fill="#123b55" stroke="#2e6a8c"/>
+    <text x="541" y="419" fill="#79b8d8" font-family="monospace" font-size="9">1x</text>
+    <rect x="238" y="448" width="336" height="1" fill="#1d4161"/>
+    <g>
+      <rect x="238" y="464" width="160" height="72" rx="8" fill="#0d2438" stroke="#1e4867"/>
+      <text x="252" y="486" fill="#5f84a4" font-family="monospace" font-size="11">ACTION</text>
+      <rect x="252" y="498" width="98" height="8" rx="4" fill="#4d7898"/>
+      <rect x="252" y="514" width="64" height="6" rx="3" fill="#2c506e"/>
+    </g>
+    <g>
+      <rect x="410" y="464" width="164" height="72" rx="8" fill="#0d2438" stroke="#1e4867"/>
+      <text x="424" y="486" fill="#5f84a4" font-family="monospace" font-size="11">CAMERA</text>
+      <rect x="424" y="498" width="112" height="8" rx="4" fill="#4d7898"/>
+      <rect x="424" y="514" width="82" height="6" rx="3" fill="#2c506e"/>
+    </g>
+    <rect x="238" y="552" width="336" height="62" rx="8" fill="#0d2438" stroke="#1e4867"/>
+    <rect x="252" y="566" width="110" height="8" rx="4" fill="#5a86a6"/>
+    <rect x="252" y="582" width="74" height="6" rx="3" fill="#2c506e"/>
+    <rect x="480" y="566" width="80" height="32" rx="6" fill="url(#accent)"/>
+    <text x="497" y="587" fill="#062029" font-family="sans-serif" font-weight="700" font-size="12">EXPORT</text>
+  </g>
+
+  <g transform="translate(790 150)">
+    <rect x="0" y="0" width="660" height="150" rx="16" fill="#0b1f33" stroke="#245070"/>
+    <text x="28" y="44" fill="#5eead4" font-family="monospace" font-size="18" letter-spacing="3">PRESENTATION</text>
+    <text x="28" y="82" fill="#dcecff" font-family="sans-serif" font-size="30" font-weight="700">Cesium 演示漫游制作</text>
+    <text x="28" y="114" fill="#6f93b3" font-family="sans-serif" font-size="17">STEP + ACTION · 零代码编排 · 视频导出</text>
+  </g>
+  <g transform="translate(790 348)" font-family="monospace" font-size="15">
+    <rect x="0" y="0" width="192" height="54" rx="8" fill="#0d2a40" stroke="#2b6385"/>
+    <text x="18" y="33" fill="#8db8d8">FLY TO</text>
+    <rect x="208" y="0" width="212" height="54" rx="8" fill="#0d2a40" stroke="#2b6385"/>
+    <text x="226" y="33" fill="#8db8d8">RECORD ROUTE</text>
+    <rect x="436" y="0" width="224" height="54" rx="8" fill="#0d2a40" stroke="#2b6385"/>
+    <text x="454" y="33" fill="#8db8d8">LAYER TOGGLE</text>
+    <rect x="0" y="70" width="192" height="54" rx="8" fill="#0d2a40" stroke="#2b6385"/>
+    <text x="18" y="103" fill="#8db8d8">TIME ANIM</text>
+    <rect x="208" y="70" width="212" height="54" rx="8" fill="#0d2a40" stroke="#2b6385"/>
+    <text x="226" y="103" fill="#8db8d8">SUBTITLE</text>
+    <rect x="436" y="70" width="224" height="54" rx="8" fill="#0d2a40" stroke="#2b6385"/>
+    <text x="454" y="103" fill="#8db8d8">SCENE EFFECT</text>
+  </g>
+  <g transform="translate(790 540)">
+    <rect x="0" y="0" width="660" height="120" rx="14" fill="#09243a" stroke="#2b6385"/>
+    <text x="24" y="34" fill="#6f93b3" font-family="monospace" font-size="14">EXPORT RESOLUTION</text>
+    <g font-family="sans-serif" font-weight="700" font-size="22">
+      <text x="24" y="78" fill="#5eead4">1080P</text>
+      <text x="156" y="78" fill="#e7f6ff">2K</text>
+      <text x="238" y="78" fill="#e7f6ff">4K</text>
+      <text x="336" y="78" fill="#6f93b3" font-size="16" font-weight="400">30 / 60 FPS</text>
+    </g>
+    <rect x="470" y="24" width="166" height="72" rx="10" fill="url(#accent)"/>
+    <text x="500" y="69" fill="#04202b" font-family="sans-serif" font-weight="700" font-size="20">MAKE MOVIE</text>
+  </g>
+</svg>

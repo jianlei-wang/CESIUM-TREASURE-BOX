@@ -165,3 +165,30 @@ button { border: 0; cursor: pointer; }
 .topbar-icon, .avatar { cursor: pointer; transition: color .2s ease, transform .2s ease; }
 .topbar-icon:hover { color: #dfe9f8; transform: translateY(-1px); }
 .avatar:hover { transform: translateY(-1px); }
+
+/* Case topbar compaction */
+.case-topbar .brand-area { flex: 0 0 auto; }
+.case-topbar .brand-name { white-space: nowrap; }
+.case-topbar .case-metrics { flex: 1 1 auto; min-width: 0; max-width: none; justify-content: flex-end; }
+
+@media (max-width: 1180px) {
+  .case-topbar { padding: 0 20px; }
+  .case-topbar .case-metrics .metric:nth-child(n+7) { display: none; }
+}
+
+@media (max-width: 1000px) {
+  .case-topbar .case-metrics .metric:nth-child(n+5) { display: none; }
+}
+
+@media (max-width: 860px) {
+  .case-topbar .case-metrics .metric:nth-child(n+4) { display: none; }
+}
+
+@media (max-width: 680px) {
+  .case-topbar .case-metrics .metric:nth-child(n+3) { display: none; }
+  .case-topbar-exit { margin-left: 8px; }
+}
+
+@media (max-width: 520px) {
+  .case-topbar .case-metrics .metric:nth-child(n+2) { display: none; }
+}

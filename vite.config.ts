@@ -58,7 +58,7 @@ const CESIUM_SYMBOLS = [
   'MetadataType', 'MetadataComponentType',
   'WebMapServiceImageryProvider', 'WebMapTileServiceImageryProvider', 'WebMercatorProjection', 'WebMercatorTilingScheme',
   'ArcGisMapServerImageryProvider', 'ArcType', 'BlendingState', 'ClassificationType',
-  'createWorldTerrainAsync', 'createOsmBuildingsAsync', 'CesiumTerrainProvider', 'ArcGISTiledElevationTerrainProvider', 'ParticleSystem', 'CircleEmitter', 'BoxEmitter', 'CylinderEmitter',
+  'buildModuleUrl', 'createWorldTerrainAsync', 'createOsmBuildingsAsync', 'CesiumTerrainProvider', 'ArcGISTiledElevationTerrainProvider', 'ParticleSystem', 'CircleEmitter', 'BoxEmitter', 'CylinderEmitter',
   'defined', 'destroyObject', 'sampleTerrainMostDetailed'
 ]
 

@@ -2,7 +2,7 @@ import { defineAsyncComponent } from 'vue'
 import icon from './icon.svg'
 import type { DemoCard } from '../types'
 
-const PresentationEditorDemo = defineAsyncComponent(() => import('./PresentationEditorDemo.vue'))
+const PresentationEditorDemo = defineAsyncComponent(() => import('../presentation-studio-lib/PresentationStudio.vue'))
 
 const caseItem: DemoCard = {
   id: 'presentation-editor',

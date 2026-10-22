@@ -1051,3 +1051,12 @@ Entries discovered by the Agent during task execution should follow this format:
   - Cesium `PolylineCollection` 只接受已解析材质对象：使用 `Material.fromType('PolylineGlow', {...})` / `Material.fromType('Color', {...})`。直接传入 `PolylineGlowMaterialProperty`（或任何 *MaterialProperty*）会抛 `PolylineBucket.updateShader ... Cannot read properties of undefined (reading 'search')`。
   - `dockTimeline`（`src/lib/d3geo/cases/_kit.ts`）返回的 bar 元素可暴露 `setStatus(text)` 更新面板内状态文本；该 bar 追加到 `ctx.overlay`，是被 bottomDock 隐藏标准状态条后回显选中/播放信息的推荐位置。TS 中需用 `as unknown as` 双重断言，直接断言会触发 TS2352。
   - 轨迹渲染旧实现用三维直线导致「冲出地表」放射状伪影；正解为按速度归一化弧高 + 沿大圆 `geodesicPoints` 密化贴球面 + 快速迁移段高亮。
+
+[Project Knowledge Summary]
+- Date: 2026-10-21
+- Context: Discovered by Agent while delivering 三维场景演示漫游制作系统 (system 分类, src/cases/presentation-studio-lib)
+- Category: Testing Methods
+- Instructions:
+  - 冒烟入口固定为两步：先点 `.category-item` 中文本含「系统」，再点 `.demo-card` 中含「三维场景演示漫游制作系统」；`window.__psViewer` 出现即表示 Cesium Viewer 就绪。
+  - 无头验证命令：`/root/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell --use-gl=angle --use-angle=swiftshader --remote-debugging-port=9222`；本环境三维场景约 1 FPS，1080P 视频导出的编码帧数受软件渲染限制，只断言文件可解码、时长与分辨率正确，帧率以真实 GPU 浏览器验收。
+  - 响应式字幕避让断言：读取 `.ps-subtitle` 与 `.ps-rail` 的 `getBoundingClientRect`，确认字幕不越过 `--ps-safe-left/--ps-safe-right` 边界；`.ps-root` 在 ≤760px 时左右轨默认收起，通过 `.ps-stage-btn--compact` 打开、`.ps-rail-backdrop` 关闭。

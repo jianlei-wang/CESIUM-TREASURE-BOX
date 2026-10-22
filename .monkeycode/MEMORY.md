@@ -1060,3 +1060,10 @@ Entries discovered by the Agent during task execution should follow this format:
   - 冒烟入口固定为两步：先点 `.category-item` 中文本含「系统」，再点 `.demo-card` 中含「三维场景演示漫游制作系统」；`window.__psViewer` 出现即表示 Cesium Viewer 就绪。
   - 无头验证命令：`/root/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell --use-gl=angle --use-angle=swiftshader --remote-debugging-port=9222`；本环境三维场景约 1 FPS，1080P 视频导出的编码帧数受软件渲染限制，只断言文件可解码、时长与分辨率正确，帧率以真实 GPU 浏览器验收。
   - 响应式字幕避让断言：读取 `.ps-subtitle` 与 `.ps-rail` 的 `getBoundingClientRect`，确认字幕不越过 `--ps-safe-left/--ps-safe-right` 边界；`.ps-root` 在 ≤760px 时左右轨默认收起，通过 `.ps-stage-btn--compact` 打开、`.ps-rail-backdrop` 关闭。
+
+[User Instruction Summary]
+- Date: 2026-10-22
+- Context: 用户多次强调仓库分支约束，此前误建了临时功能分支
+- Instructions:
+  - 本仓库只允许 `master` 和 `jianlei_wang` 两个分支，禁止创建任何临时/功能分支。
+  - 提交与推送一律直接使用现有分支（通常为 `jianlei_wang`），不要执行 `git checkout -b`。

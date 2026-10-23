@@ -7,6 +7,7 @@ import {
   DataLine,
   Drizzling,
   Grid,
+  Guide,
   Location,
   MagicStick,
   Monitor,
@@ -41,7 +42,8 @@ export const categories: CaseCategory[] = [
   { id: 'lighting', label: '光照效果', icon: Sunny },
   { id: 'widgets', label: '界面控件', icon: Setting },
   { id: 'datav', label: '可视化大屏', icon: DataBoard },
-  { id: 'three', label: 'ThreeJS样例', icon: MagicStick }
+  { id: 'three', label: 'ThreeJS样例', icon: MagicStick },
+  { id: 'cesium-three', label: 'Cesium+ThreeJS', icon: Guide }
 ]
 
 export const totalCases = demos.length

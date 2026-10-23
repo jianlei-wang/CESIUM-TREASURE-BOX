@@ -5,6 +5,7 @@
 import type { DemoCard } from './types'
 
 import icon_affect_area from './affect-area/icon.webp'
+import icon_air_dispersion_three from './air-dispersion-three/icon.webp'
 import icon_area_measure from './area-measure/icon.webp'
 import icon_attack_arrow from './attack-arrow/icon.webp'
 import icon_attack_arrow_edit from './attack-arrow-edit/icon.webp'
@@ -14,6 +15,7 @@ import icon_barrier_lake_cesium from './barrier-lake-cesium/icon.webp'
 import icon_bearing_measure from './bearing-measure/icon.webp'
 import icon_bow from './bow/icon.webp'
 import icon_bow_edit from './bow-edit/icon.webp'
+import icon_bridge_vibration_three from './bridge-vibration-three/icon.webp'
 import icon_builtin_water from './builtin-water/icon.webp'
 import icon_camera_info from './camera-info/icon.webp'
 import icon_cesium_init from './cesium-init/icon.webp'
@@ -32,6 +34,7 @@ import icon_city_point_light from './city-point-light/icon.webp'
 import icon_city_shader from './city-shader/icon.webp'
 import icon_city_style_shader from './city-style-shader/icon.webp'
 import icon_city_white_model from './city-white-model/icon.webp'
+import icon_collapse_fracture_three from './collapse-fracture-three/icon.webp'
 import icon_collapse_three from './collapse-three/icon.webp'
 import icon_cosmic_blackhole from './cosmic-blackhole/icon.webp'
 import icon_cosmic_pointcloud from './cosmic-pointcloud/icon.webp'
@@ -320,6 +323,7 @@ export type CaseMeta = Omit<DemoCard, 'component'> & { available: boolean }
 
 export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> = {
   'affect-area': () => import('./affect-area/index.ts'),
+  'air-dispersion-three': () => import('./air-dispersion-three/index.ts'),
   'area-measure': () => import('./area-measure/index.ts'),
   'attack-arrow': () => import('./attack-arrow/index.ts'),
   'attack-arrow-edit': () => import('./attack-arrow-edit/index.ts'),
@@ -329,6 +333,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'bearing-measure': () => import('./bearing-measure/index.ts'),
   'bow': () => import('./bow/index.ts'),
   'bow-edit': () => import('./bow-edit/index.ts'),
+  'bridge-vibration-three': () => import('./bridge-vibration-three/index.ts'),
   'builtin-water': () => import('./builtin-water/index.ts'),
   'camera-info': () => import('./camera-info/index.ts'),
   'cesium-init': () => import('./cesium-init/index.ts'),
@@ -347,6 +352,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'city-shader': () => import('./city-shader/index.ts'),
   'city-style-shader': () => import('./city-style-shader/index.ts'),
   'city-white-model': () => import('./city-white-model/index.ts'),
+  'collapse-fracture-three': () => import('./collapse-fracture-three/index.ts'),
   'collapse-three': () => import('./collapse-three/index.ts'),
   'cosmic-blackhole': () => import('./cosmic-blackhole/index.ts'),
   'cosmic-pointcloud': () => import('./cosmic-pointcloud/index.ts'),
@@ -354,6 +360,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'cosmic-solar-wind': () => import('./cosmic-solar-wind/index.ts'),
   'cosmic-sonar': () => import('./cosmic-sonar/index.ts'),
   'cosmic-startrails': () => import('./cosmic-startrails/index.ts'),
+  'crowd-evacuation-three': () => import('./crowd-evacuation-three/index.ts'),
   'curve': () => import('./curve/index.ts'),
   'curve-edit': () => import('./curve-edit/index.ts'),
   'curve-line-arrow': () => import('./curve-line-arrow/index.ts'),
@@ -399,10 +406,13 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'earthwork-analysis': () => import('./earthwork-analysis/index.ts'),
   'echarts-map': () => import('./echarts-map/index.ts'),
   'elec-sphere': () => import('./elec-sphere/index.ts'),
+  'emergency-dispatch-three': () => import('./emergency-dispatch-three/index.ts'),
+  'excavator-cycle-three': () => import('./excavator-cycle-three/index.ts'),
   'explosion-boom': () => import('./explosion-boom/index.ts'),
   'explosion-particles': () => import('./explosion-particles/index.ts'),
   'fire-particles': () => import('./fire-particles/index.ts'),
   'fire-spread': () => import('./fire-spread/index.ts'),
+  'fire-spread-three': () => import('./fire-spread-three/index.ts'),
   'fireworks-three': () => import('./fireworks-three/index.ts'),
   'flag-curve': () => import('./flag-curve/index.ts'),
   'flag-curve-edit': () => import('./flag-curve-edit/index.ts'),
@@ -421,6 +431,8 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'flood-yield-forecast': () => import('./flood-yield-forecast/index.ts'),
   'fluid-sph': () => import('./fluid-sph/index.ts'),
   'fountain-three': () => import('./fountain-three/index.ts'),
+  'fps-roam-three': () => import('./fps-roam-three/index.ts'),
+  'free-fall-three': () => import('./free-fall-three/index.ts'),
   'free-line': () => import('./free-line/index.ts'),
   'free-line-edit': () => import('./free-line-edit/index.ts'),
   'free-polygon': () => import('./free-polygon/index.ts'),
@@ -447,6 +459,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'integral-height-fog': () => import('./integral-height-fog/index.ts'),
   'land-use-suitability': () => import('./land-use-suitability/index.ts'),
   'landslide-cesium': () => import('./landslide-cesium/index.ts'),
+  'landslide-rocks-three': () => import('./landslide-rocks-three/index.ts'),
   'landslide-sim': () => import('./landslide-sim/index.ts'),
   'landslide-three': () => import('./landslide-three/index.ts'),
   'layer-tree': () => import('./layer-tree/index.ts'),
@@ -511,6 +524,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'polyline': () => import('./polyline/index.ts'),
   'polyline-create': () => import('./polyline-create/index.ts'),
   'polyline-edit': () => import('./polyline-edit/index.ts'),
+  'precipitation-three': () => import('./precipitation-three/index.ts'),
   'presentation-editor': () => import('./presentation-editor/index.ts'),
   'profile-analysis': () => import('./profile-analysis/index.ts'),
   'proportional-area': () => import('./proportional-area/index.ts'),
@@ -529,6 +543,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'right-angle-arrow-edit': () => import('./right-angle-arrow-edit/index.ts'),
   'river-channel': () => import('./river-channel/index.ts'),
   'river-flowfield': () => import('./river-flowfield/index.ts'),
+  'robot-patrol-three': () => import('./robot-patrol-three/index.ts'),
   'rocket-launching': () => import('./rocket-launching/index.ts'),
   'rocket-three': () => import('./rocket-three/index.ts'),
   'rotation': () => import('./rotation/index.ts'),
@@ -537,8 +552,10 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'sandstorm-three': () => import('./sandstorm-three/index.ts'),
   'sector': () => import('./sector/index.ts'),
   'sector-edit': () => import('./sector-edit/index.ts'),
+  'seismic-response-three': () => import('./seismic-response-three/index.ts'),
   'shadow-analysis': () => import('./shadow-analysis/index.ts'),
   'shield-three': () => import('./shield-three/index.ts'),
+  'ship-buoyancy-three': () => import('./ship-buoyancy-three/index.ts'),
   'shuttle-line': () => import('./shuttle-line/index.ts'),
   'situation-plotting': () => import('./situation-plotting/index.ts'),
   'skyline-analysis': () => import('./skyline-analysis/index.ts'),
@@ -572,14 +589,19 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'tiles-3d-flatten': () => import('./tiles-3d-flatten/index.ts'),
   'tiles-3d-load': () => import('./tiles-3d-load/index.ts'),
   'tiles-3d-local': () => import('./tiles-3d-local/index.ts'),
+  'tower-crane-three': () => import('./tower-crane-three/index.ts'),
   'triangle-measure': () => import('./triangle-measure/index.ts'),
   'tsunami-three': () => import('./tsunami-three/index.ts'),
+  'tunnel-boring-three': () => import('./tunnel-boring-three/index.ts'),
+  'uav-avoidance-three': () => import('./uav-avoidance-three/index.ts'),
   'uav-test-field': () => import('./uav-test-field/index.ts'),
   'underground-mode': () => import('./underground-mode/index.ts'),
   'urban-fire-three': () => import('./urban-fire-three/index.ts'),
   'urban-flood-risk': () => import('./urban-flood-risk/index.ts'),
+  'urban-flood-three': () => import('./urban-flood-three/index.ts'),
   'vector-converter': () => import('./vector-converter/index.ts'),
   'vector-loader': () => import('./vector-loader/index.ts'),
+  'vehicle-follow-three': () => import('./vehicle-follow-three/index.ts'),
   'video-feather': () => import('./video-feather/index.ts'),
   'video-fusion': () => import('./video-fusion/index.ts'),
   'video-plane': () => import('./video-plane/index.ts'),
@@ -627,6 +649,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'widget-tour-recorder': () => import('./widget-tour-recorder/index.ts'),
   'widget-video-recorder': () => import('./widget-video-recorder/index.ts'),
   'widget-zoom-controller': () => import('./widget-zoom-controller/index.ts'),
+  'wind-cloth-three': () => import('./wind-cloth-three/index.ts'),
   'wind-field-three': () => import('./wind-field-three/index.ts'),
   'wind-layer-3d': () => import('./wind-layer-3d/index.ts'),
   'xyz-axis': () => import('./xyz-axis/index.ts'),
@@ -635,6 +658,7 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
 
 export const demos: CaseMeta[] = [
   { id: "affect-area", title: "影响区域-多层扩散光圈", category: "effects", description: "多圈带流向箭头的覆盖光圈 + 内圈扩散脉冲，标注影响范围", tag: "影响区域", icon: icon_affect_area, updatedAt: "2026-09-06", available: true },
+  { id: "air-dispersion-three", title: "工业园区大气污染扩散", category: "cesium-three", description: "多座烟囱连续排放污染物粒子，风场负责水平输运，大气稳定度决定垂直混合和扩散强度；粒子颜色随龄期从高温橙色过渡到冷色，可直观看稳定层结下的长烟羽与不稳定层结下的快速抬升。", tag: "Cesium + Three.js · 环境扩散", icon: icon_air_dispersion_three, updatedAt: "2026-10-23", available: true },
   { id: "area-measure", title: "空间测量-面积量测", category: "measure", description: "空间/地表/投影面积量测，含地形与三维模型，实时显示填充面与重心结果", tag: "测量", icon: icon_area_measure, updatedAt: "2026-08-24", available: true },
   { id: "attack-arrow", title: "进攻箭头-指挥进攻方向", category: "draw", description: "多个左键控制点描绘进攻轴线与包夹形态，右键结束生成进攻(战术)箭头；颜色可调。", tag: "箭头", icon: icon_attack_arrow, updatedAt: "2026-09-06", available: true },
   { id: "attack-arrow-edit", title: "进攻箭头-编辑版", category: "draw", description: "绘制进攻箭头后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_attack_arrow_edit, updatedAt: "2026-09-06", available: true },
@@ -644,6 +668,7 @@ export const demos: CaseMeta[] = [
   { id: "bearing-measure", title: "空间测量-方位角量测", category: "measure", description: "两点方位角与方向象限量测，带箭头指北/垂直参考线，含地形与三维模型", tag: "测量", icon: icon_bearing_measure, updatedAt: "2026-08-24", available: true },
   { id: "bow", title: "弓形-弓形弧面区域", category: "draw", description: "左键确定起始点后拖拽成形、右键结束，生成弓形(弧形)区域；颜色可调。", tag: "形状", icon: icon_bow, updatedAt: "2026-09-06", available: true },
   { id: "bow-edit", title: "弓形-编辑版", category: "draw", description: "绘制弓形后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_bow_edit, updatedAt: "2026-09-06", available: true },
+  { id: "bridge-vibration-three", title: "桥梁车辆荷载与结构振动", category: "cesium-three", description: "多辆车辆按设定速度通过桥面，按影响线与一阶模态近似计算各跨段挠度，桥面随荷载起伏并绘制动态变形曲线；可调车重、车速、桥面刚度、阻尼与视觉放大倍数。", tag: "Cesium + Three.js · 移动荷载", icon: icon_bridge_vibration_three, updatedAt: "2026-10-23", available: true },
   { id: "builtin-water", title: "水面效果-Cesium内置材质", category: "water", description: "使用 Cesium 内置 Water 材质生成动态水面", tag: "材质效果", icon: icon_builtin_water, updatedAt: "2026-08-23", available: true },
   { id: "camera-info", title: "相机参数-位置与四至", category: "scene", description: "实时展示相机位置、朝向与视口四至坐标，一键复制相机参数", tag: "场景工具", icon: icon_camera_info, updatedAt: "2026-08-23", available: true },
   { id: "cesium-init", title: "Cesium 初始化地球", category: "scene", description: "创建第一个真实 Cesium Viewer 场景", tag: "Cesium 基础", icon: icon_cesium_init, available: true },
@@ -662,6 +687,7 @@ export const demos: CaseMeta[] = [
   { id: "city-shader", title: "三维数据加载-城市建筑白模自定义着色器", category: "effects", description: "通过 CustomShader 片元着色器实现建筑高度渐变与动态扫描光带效果，参数实时可调", tag: "自定义着色器", icon: icon_city_shader, updatedAt: "2026-09-01", available: true },
   { id: "city-style-shader", title: "三维数据加载-城市建筑白模样式+着色器", category: "effects", description: "Cesium3DTileStyle 按建筑体量分级设色，叠加 CustomShader 边缘光与高度渐变亮度", tag: "样式着色", icon: icon_city_style_shader, updatedAt: "2026-09-01", available: true },
   { id: "city-white-model", title: "三维数据加载-城市建筑白模", category: "effects", description: "加载荷兰全境建筑白模 3D Tiles 数据，支持 LOD 精度切换与渲染、性能参数实时调节", tag: "城市白模", icon: icon_city_white_model, updatedAt: "2026-09-01", available: true },
+  { id: "collapse-fracture-three", title: "建筑预破碎与局部坍塌", category: "cesium-three", description: "以参数化楼体块阵表示预破碎构件，触发后按距离衰减的冲量把楼层块体转为动态刚体，展示倾覆、抛射、落地与堆存；可调层数、柱网、冲量、延迟、阻尼和重建模式。", tag: "Cesium + Three.js · 多刚体断裂", icon: icon_collapse_fracture_three, updatedAt: "2026-10-23", available: true },
   { id: "collapse-three", title: "VFX 建筑碎裂坍塌", category: "particles", description: "建筑自底部失稳后整体倾斜下沉，触地瞬间由完整楼体切换为碎块群：碎块按抛物线飞散、翻滚并落地堆存，地面冲击尘环向外扩张，尘云持续抬升扩散并随风漂移。楼层数、碎块数、坍塌时长与保持时长、起爆力、尘环半径/速度、尘云量/尺寸/寿命/风向风速与尘云颜色、不透明度均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 灾害", icon: icon_collapse_three, updatedAt: "2026-09-20", available: true },
   { id: "cosmic-blackhole", title: "VFX 黑洞吸积盘与相对论喷流", category: "particles", description: "以真实地球为基底的宏大天体场景：巨大黑洞悬停在地球上空约 1.4 Re 处，真实地球作为前景/基底出现在画面下方；开普勒剪切粒子盘自动生成旋臂与缠绕结构，盘面按有效温度做黑体着色，approaching 侧多普勒增亮偏蓝、receding 侧偏暗偏红；中心为黑洞剪影、边缘细亮光子环，上方叠加被引力弯折的次级成像弧；两极相对论性喷流带螺旋磁场结构与周期性激波亮结。尺度以地球半径 Re 为基准（盘面约 1 Re、喷流约 1 Re），盘内外半径、自转速度、亮度、多普勒强度、喷流功率/长度/亮结数、整体倾角与冷热颜色均可调整", tag: "Three.js, three.quarks, 天体物理, 相对论", icon: icon_cosmic_blackhole, updatedAt: "2026-09-21", available: true },
   { id: "cosmic-pointcloud", title: "VFX 点云地球转场", category: "particles", description: "同一批点在三种语义状态间连续形变：从城市楼宇立面点云浮升汇聚成地球态（噪声陆海掩膜使大陆清晰可辨、海洋点下沉留空），再解体为对数螺旋臂的星云态，循环往复。着色器按逐点随机延迟做缓动插值，过渡中段向外球面外推并放大尺寸，形成解体—重组感。点数、地球半径、城市范围/高度、螺旋臂数与张角、星云半径、点尺寸、循环周期、亮度与配色均可调整", tag: "Three.js, GPU 点云, 形变转场", icon: icon_cosmic_pointcloud, updatedAt: "2026-09-21", available: true },
@@ -669,6 +695,7 @@ export const demos: CaseMeta[] = [
   { id: "cosmic-solar-wind", title: "VFX 行星级太阳风与磁层", category: "particles", description: "以真实地球为基底的行星尺度效果：外层弓激波、内层磁层顶构成双层半透明泪滴状空腔包裹地球，随太阳风动压与南向 Bz 收缩，太阳风粒子自日侧涌入、沿腔体外滑入磁尾；太阳风暴来袭时 CME 高密度壳层撞入，磁层被压缩、极区极光卵骤然增强。尺度以地球半径 Re 为基准，磁层顶约 10 Re、磁尾延伸数十 Re，相机位于数 Re 高度可见整个地球。太阳风速度/密度、Bz、Kp、磁层顶距离与磁尾长度、CME 强度/间隔、极光亮度与颜色均可实时调整", tag: "Three.js, three.quarks, 空间天气, 行星尺度", icon: icon_cosmic_solar_wind, updatedAt: "2026-09-21", available: true },
   { id: "cosmic-sonar", title: "VFX 声呐扫描波", category: "particles", description: "以深水介质与海底散射噪声构成水下空间，主动声呐以锥形脉冲向外推进、前沿最亮、后方按双程衰减留余辉；波前扫过海底时留下扇形多波束覆盖条带，命中目标时产生随距离衰减的回波闪亮，并有大量悬浮的海洋雪缓缓下沉。脉冲间隔/推进速度、波束张角、水体浑浊度、海雪密度、回波强度、目标距离、海底深度与颜色均可实时调整", tag: "Three.js, three.quarks, 水下探测, 声呐", icon: icon_cosmic_sonar, updatedAt: "2026-09-21", available: true },
   { id: "cosmic-startrails", title: "VFX 银河星轨延时", category: "particles", description: "以真实地球为观测基底的夜景长曝光：观测锚点落在真实地表，天极方向由观测纬度决定，星点绕天极轴旋转并在曝光时长内拖出同心圆弧轨迹，天极高度严格等于当地纬度；天顶半径约 0.05 Re 的天球仅保留地平线以上半球，地平以下由压暗后的真实地球影像作为夜间地景与剪影，星轨被真实地平线正确截断，地平附近受大气消光偏红偏暗。画面叠加银河、城市光污染穹顶与偶尔划过的流星，曝光周期循环时星轨从无到有生长。曝光时长、观测纬度、星数、星轨亮度、星点尺寸、循环周期、流星频率、城市辉光与天空配色均可实时调整", tag: "Three.js, 天文坐标, 长曝光模拟", icon: icon_cosmic_startrails, updatedAt: "2026-09-21", available: true },
+  { id: "crowd-evacuation-three", title: "城市人群疏散与出口流量", category: "cesium-three", description: "人群从广场内向出口汇集，个体速度、恐慌扰动、出口宽度和内部障碍共同影响疏散过程；实时统计已疏散人数、出口流率、峰值密度和仿真时间，可观察出口变窄后的拥堵。", tag: "Cesium + Three.js · 人群仿真", updatedAt: "2026-10-23", available: true },
   { id: "curve", title: "曲线-平滑贝塞尔曲线", category: "draw", description: "左键逐点采样、右键结束，自动生成平滑曲线；支持颜色、线宽与不透明度实时调整。", tag: "线绘制", icon: icon_curve, updatedAt: "2026-09-06", available: true },
   { id: "curve-edit", title: "曲线-编辑版", category: "draw", description: "绘制曲线后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_curve_edit, updatedAt: "2026-09-06", available: true },
   { id: "curve-line-arrow", title: "曲线箭头-贝塞尔曲箭头", category: "draw", description: "左键逐点确定曲线路径、右键结束，生成沿曲线前进的箭头；线宽与颜色可调。", tag: "箭头", icon: icon_curve_line_arrow, updatedAt: "2026-09-06", available: true },
@@ -714,10 +741,13 @@ export const demos: CaseMeta[] = [
   { id: "earthwork-analysis", title: "空间分析-土方量分析", category: "analysis", description: "在地图上贴地绘制多边形或矩形分析区域，按网格法对原始地形与设计面高差逐单元积分，输出挖方量、填方量、净方量与填挖热力图；设计面支持水平面、斜面（坡度与坡向）与地形偏移面三种模式，可调网格分辨率、设计高程、显示透明度等参数，支持 PDF/Word 分析报告输出，内置功能实现说明", tag: "空间分析", icon: icon_earthwork_analysis, available: true },
   { id: "echarts-map", title: "数据可视化-ECharts图表", category: "data", description: "使用 ECharts 离屏渲染图表并转为图片，以 Billboard 方式叠加到三维场景", tag: "数据可视化", icon: icon_echarts_map, available: true },
   { id: "elec-sphere", title: "三维特效-电弧球体", category: "effects", description: "电弧闪烁球体，支持颜色、透明度、闪烁速度与 XYZ 半径实时调节，可点击地图定位", tag: "电弧球体", icon: icon_elec_sphere, updatedAt: "2026-09-01", available: true },
+  { id: "emergency-dispatch-three", title: "城市应急联动与救援调度", category: "cesium-three", description: "火灾事故触发应急调度，多支地面救援队从不同站点沿道路驶向事故点，无人机从空中基地同步起飞侦察；协同开启后整体响应速度提升，实时显示首批到场时间、无人机 ETA 与现场覆盖半径。", tag: "Cesium + Three.js · 应急联动", updatedAt: "2026-10-23", available: true },
+  { id: "excavator-cycle-three", title: "挖掘机作业循环与物料装卸", category: "cesium-three", description: "挖掘机按作业循环完成回转、下探、挖掘、提升和卸料，动臂、斗杆与铲斗按预设角度联动，铲斗载荷随土体密度变化，卸料时生成颗粒状土屑；面板实时给出产量与回转角度。", tag: "Cesium + Three.js · 关节机械", updatedAt: "2026-10-23", available: true },
   { id: "explosion-boom", title: "爆炸特效-噪声云团", category: "particles", description: "屏幕空间 fbm 噪声云团爆炸与色彩渐变", tag: "着色器特效", icon: icon_explosion_boom, updatedAt: "2026-08-24", available: true },
   { id: "explosion-particles", title: "爆炸粒子-GPU计算", category: "particles", description: "GPU 粒子系统实时模拟爆炸冲击飞散", tag: "粒子系统", icon: icon_explosion_particles, updatedAt: "2026-08-23", available: true },
   { id: "fire-particles", title: "火焰粒子-GPU计算", category: "particles", description: "GPU 粒子系统实时模拟火焰喷射", tag: "粒子系统", icon: icon_fire_particles, updatedAt: "2026-08-23", available: true },
   { id: "fire-spread", title: "林火蔓延渲染分析", category: "system", description: "完整复刻 Cesium 林火蔓延渲染分析技术路线：在木里高山峡谷林区采样世界地形构建 160×160 模拟网格（失败自动回退程序化地形），世界地形支持按数量（10–500）或按距离（5–500 m）自定义重采样，叠加河道下切、道路与五类可燃物分布；蔓延求解采用 Rothermel 简化式，逐格计算基准速率、含水率阻尼、风速顺风对齐与坡度上坡对齐修正，再以到达时间场加优先级松弛（类 Dijkstra）一次性求出全域火场，因此显示时刻与求解完全解耦，可任意拖动时间轴回看；栅格专题以影像图层贴合地形，支持专题配色、到达时间场、蔓延强度场三种着色，可燃物类型作为独立下垫面（地表覆盖）图层可开闭，并叠加烧毁区填充、火线描边、外发光；火线由二值掩膜边界追踪提取闭合环并做 Douglas–Peucker 抽稀，用带流动噪声的自定义材质渲染火光，向前逐帧推进；火焰与烟雾由多发射器粒子池按在燃区域最远点采样分簇发射，覆盖全部在燃火线；三维风场以近地粒子沿风场平流并保留发光拖尾，风速/风向/粒子密度/拖尾长度/线宽/流动速度/湍流强度/亮度均可实时调整；专题配色、火线宽度、光晕强度、图层开关（栅格专题/可燃物类型/烧毁边界/火线/隔离带/火焰/烟雾/起火点/水系/道路/三维风场）均可实时调整；北斗网格支持 GB/T 39409 1~11 级剖分与自动 LOD（自动层级提高一级）；面板同步输出过火面积、火线周长、火头距离、平均与最大蔓延速率、火线平均海拔与坡度、过火区坡向、道路邻接率、陡坡侵蚀岸线长度与陡坡过火占比、主要可燃物等地理分析测算指标；单击地图可随时追加起火点并即时重新松弛到达时间场；推演完成后可一键生成分析报告，在线预览并导出 PDF/Word；底部播放轴统一承载播放、倍率与推演设置（时间步、总时长），推演参数可随时调整；「定位火场」按当前栅格专题成果覆盖范围聚焦，无成果时回退到全部起火点范围。", tag: "Cesium, 林火蔓延, Rothermel, 到达时间场, 元胞自动机, 地形贴合专题, 粒子系统, 地理测算", icon: icon_fire_spread, updatedAt: "2026-09-23", available: true },
+  { id: "fire-spread-three", title: "建筑与林地火灾蔓延及烟羽", category: "cesium-three", description: "在燃料栅格中心点火，火焰按燃料负载、湿度、风速和扑救状态向相邻网格传播，同时生成上升火苗与顺风烟羽；可观察已烧面积、火线扩展速度和烟羽高度。", tag: "Cesium + Three.js · 火灾传播", updatedAt: "2026-10-23", available: true },
   { id: "fireworks-three", title: "VFX 烟花粒子", category: "particles", description: "基于 three.quarks 粒子引擎与 Cesium 地球的烟花特效：球壳发射器定时爆裂，多层辉光球壳与拉伸拖尾火星同步绽放，重力与随机位置让烟花在地球上空连续随机升起，可选缤纷、金色、赤红、湛蓝、紫罗兰五种配色。爆裂粒子数、速度、尺寸、寿命、重力、爆裂半径、发射间隔均可实时调整并即时生效，切换配色方案会重建粒子系统", tag: "Three.js, three.quarks, 粒子特效", icon: icon_fireworks_three, updatedAt: "2026-09-19", available: true },
   { id: "flag-curve", title: "曲线旗标-曲边旗帜", category: "draw", description: "左键定起点拖至终点，右键完成生成飘动曲线旗标；颜色可调。", tag: "旗标", icon: icon_flag_curve, updatedAt: "2026-09-06", available: true },
   { id: "flag-curve-edit", title: "曲线旗标-编辑版", category: "draw", description: "绘制曲线旗标后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_flag_curve_edit, updatedAt: "2026-09-06", available: true },
@@ -736,6 +766,8 @@ export const demos: CaseMeta[] = [
   { id: "flood-yield-forecast", title: "DEM+气象预报 产水与淹没预测", category: "analysis", description: "从真实或模拟 DEM 出发，依次完成填洼、真实洼地识别、D8 流向、降水与下垫面产流（SCS-CN / 径流系数）、汇流演算，并以等体积平面或洼地蓄水+溢流方案模拟淹没，输出分级统计与情景对比。", tag: "DEM, 产流, 淹没", icon: icon_flood_yield_forecast, updatedAt: "2026-09-09", available: true },
   { id: "fluid-sph", title: "SPH 地形流体模拟", category: "water", description: "以 GPU 端 SPH 粒子与光滑核函数求解压力、重力与边界约束，多缓冲逐帧推进水位场，水流沿真实地形扩散汇聚成湖，支持实时移动水源并调节重力、水量与渲染质量", tag: "流体模拟", icon: icon_fluid_sph, available: true },
   { id: "fountain-three", title: "VFX 喷泉粒子", category: "particles", description: "基于 three.quarks 粒子引擎与 Cesium 地球的喷泉特效：锥形发射器喷出高速水滴，重力作用形成抛物线回落，叠加水雾粒子与湍流扰动。发射速率、寿命、速度、张角、重力、水雾浓度等参数均可实时调整并即时生效", tag: "Three.js, three.quarks, 粒子特效", icon: icon_fountain_three, updatedAt: "2026-09-19", available: true },
+  { id: "fps-roam-three", title: "地理空间第一人称与第三人称漫游", category: "cesium-three", description: "角色沿园区路线行走，遇到台阶自动抬升，并可跳跃跨越障碍；支持第一/第三人称切换，第一人称隐藏身体只保留双臂，相机会跟随角色朝向移动。", tag: "Cesium + Three.js · 角色控制", updatedAt: "2026-10-23", available: true },
+  { id: "free-fall-three", title: "地理空间自由落体与地形反弹", category: "cesium-three", description: "在选定地理锚点的 ENU 局部坐标中投放球体、木箱或桶体，按重力加速、地面碰撞恢复系数反弹并绘制三维轨迹；可切换几何体、数量、释放高度与材质弹性。", tag: "Cesium + Three.js · 刚体动力学", updatedAt: "2026-10-23", available: true },
   { id: "free-line", title: "自由线-随手手绘线条", category: "draw", description: "左键单击并拖拽即可绘制自由线条（类手绘），右键结束；支持颜色、线宽与不透明度实时调整。", tag: "线绘制", icon: icon_free_line, updatedAt: "2026-09-06", available: true },
   { id: "free-line-edit", title: "自由线-编辑版", category: "draw", description: "绘制自由线后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_free_line_edit, updatedAt: "2026-09-06", available: true },
   { id: "free-polygon", title: "自由面-拖拽围合区域", category: "draw", description: "左键按下拖拽围合不规则区域，右键结束生成自由面；支持颜色与不透明度实时调整。", tag: "面绘制", icon: icon_free_polygon, updatedAt: "2026-09-06", available: true },
@@ -762,6 +794,7 @@ export const demos: CaseMeta[] = [
   { id: "integral-height-fog", title: "天气特效-浓度积分高度雾", category: "weather", description: "使用线性与指数浓度积分计算高度雾", tag: "天气系统", icon: icon_integral_height_fog, available: true },
   { id: "land-use-suitability", title: "土地利用适宜性评价", category: "analysis", description: "基于 Cesium 真实地形采样或导入 DEM，在自绘多边形分析区内开展土地利用适宜性评价：选取坡度、高程、坡向与地形湿润指数四类因子，分别归一化为 0~1 适宜性得分，按可调权重加权叠加为 0~100 综合得分，并对超限坡度施加约束惩罚，分位数分级设色并提取适宜区等值线；支持真实地形采集/导入 DEM、区域绘制、参数提示、图例与结果说明、技术路线、在线报告与 PDF 导出，以及 GeoTIFF 栅格与 SHP/GeoJSON 矢量输出。", tag: "Cesium, 地形分析, 适宜性评价, 多因子加权, 坡度高程", icon: icon_land_use_suitability, updatedAt: "2026-09-19", available: true },
   { id: "landslide-cesium", title: "滑坡形成与运动演示", category: "analysis", description: "把滑坡发育过程移植到 Cesium 真实地形场景：基于解析式斜坡的高程网格、滑体沿弧形滑动面整体位移并在高速段解体、坡脚村庄掩埋与截排水沟/抗滑桩/抗滑挡墙等防治工程，配合 Bing 影像、阶段标注、降雨粒子与多机位预设，讲解滑坡从蠕动变形到减速堆积的四阶段", tag: "Cesium, 滑坡, 地质灾害, 三维场景", icon: icon_landslide_cesium, updatedAt: "2026-09-14", available: true },
+  { id: "landslide-rocks-three", title: "山地滑坡、滚石与防护拦截", category: "cesium-three", description: "在倾斜坡面上释放不同粒径的岩块，受重力沿坡加速、摩擦减速并冲击防护挡墙；实时统计最大速度、滚落距离和拦截率，支持干湿坡面与挡墙高度对比。", tag: "Cesium + Three.js · 坡面接触", updatedAt: "2026-10-23", available: true },
   { id: "landslide-sim", title: "滑坡动态模拟", category: "analysis", description: "基于 Cesium World Terrain 真实高程与深度积分浅水波方程（SWE）的滑坡运动模拟：源区圈定、Voellmy 摩擦、方量守恒、影响范围提取与 GeoJSON/KML 导出", tag: "SWE, 滑坡", icon: icon_landslide_sim, updatedAt: "2026-09-10", available: true },
   { id: "landslide-three", title: "滑坡形成与运动 3D 演示", category: "three", description: "纯 Three.js 构建的滑坡发育过程演示：解析式斜坡地形与弧形滑动面、滑体沿滑面整体位移并在高速段解体为碎屑、坡脚村庄与道路受威胁、截排水沟与抗滑桩等防治工程实时生效，配合要素标注、降雨粒子与侧剖面视角，完整讲解滑坡从蠕动变形到减速堆积的四个阶段", tag: "Three.js, 滑坡, 地质灾害", icon: icon_landslide_three, updatedAt: "2026-09-15", available: true },
   { id: "layer-tree", title: "标准图层树控件", category: "widgets", description: "严格按照 Cesium 图层树控件设计实现：统一数据模型与适配器架构，集中管理影像、地形、3D Tiles、数据源、实体、图元、模型、粒子等图层，支持分组、显隐、透明度、拖拽排序、搜索、右键菜单、快捷键、定位飞行与配置导出。", tag: "图层管理", icon: icon_layer_tree, updatedAt: "2026-09-10", available: true },
@@ -826,6 +859,7 @@ export const demos: CaseMeta[] = [
   { id: "polyline", title: "折线-连续节点直线", category: "draw", description: "左键逐点落线、右键闭合，绘制由直线段组成的折线；支持颜色、线宽与不透明度实时调整。", tag: "线绘制", icon: icon_polyline, updatedAt: "2026-09-06", available: true },
   { id: "polyline-create", title: "线面绘制-动态折线", category: "draw", description: "鼠标点击地图动态创建折线，支持线宽、颜色、线型、贴地等参数", tag: "线绘制", icon: icon_polyline_create, updatedAt: "2026-08-26", available: true },
   { id: "polyline-edit", title: "折线-编辑版", category: "draw", description: "绘制折线后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_polyline_edit, updatedAt: "2026-09-06", available: true },
+  { id: "precipitation-three", title: "雨雪冰雹与地表积水", category: "cesium-three", description: "在地理场景中模拟降雨、降雪和冰雹：粒子按类型改变下落速度、颜色和漂移，累计降水驱动地表积水范围与深度；可调降水强度、风速、重力、气温和积水增长系数。", tag: "Cesium + Three.js · 降水粒子", updatedAt: "2026-10-23", available: true },
   { id: "presentation-editor", title: "三维场景演示漫游制作系统", category: "system", description: "对标 Skyline Presentation 的 Cesium 演示编排系统：以 Step + Action 结构化编辑演示脚本，支持定点飞行、航线录制、图层显隐、建设时序、字幕弹窗与场景效果，内置播放/单步调试/进度跳转/倍速回放、工程保存导入导出，以及 1080P/2K/4K 视频导出。", tag: "演示漫游", icon: icon_presentation_editor, updatedAt: "2026-10-21", available: true },
   { id: "profile-analysis", title: "空间分析-剖面分析", category: "analysis", description: "沿折线路径插值采样真实地形高程，绘制高程剖面图", tag: "空间分析", icon: icon_profile_analysis, available: true },
   { id: "proportional-area", title: "空间分析-比例符号面", category: "analysis", description: "比例符号面：以面符号的面积或半径表示数值属性（面积正比/半径正比），支持比例系数、范围钳制、样式与标签等参数设定", tag: "缓冲区", icon: icon_proportional_area, updatedAt: "2026-08-30", available: true },
@@ -844,6 +878,7 @@ export const demos: CaseMeta[] = [
   { id: "right-angle-arrow-edit", title: "直角箭头-编辑版", category: "draw", description: "绘制直角箭头后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_right_angle_arrow_edit, updatedAt: "2026-09-06", available: true },
   { id: "river-channel", title: "真实河道水面仿真", category: "water", description: "在 Cesium 世界地形上还原真实河道水面：以黄河上游龙羊峡深切峡谷为锚点，按经纬度栅格采样真实地形高度，逐顶点计算「水面高程 − 河床高程」的水深并构建水平水面网格，地形高于水面处由着色器裁剪，河岸线因此沿真实等高线自然蜿蜒。水流方向不依赖人工指定：先用河道走廊掩膜的加权协方差（结构张量）求每个格点处的河道主轴作为流线切线，再由河床高程平滑势面的负梯度确定全局下游方向，从而统一流线的正负号，使水流始终沿河道走向并指向下游；流向以 GPU 动态箭头层连续滚动呈现，箭头方向实时贴合河道转弯，提供彗星/箭头/人字/短划/光点五种样式，密度、长度、宽度、速度、亮度与颜色均可实时调整。还可以在地图上直接手绘河道多边形来限定水面范围，水面与流场随即裁剪到该多边形内并按多边形内的地形重新估算水位。着色器按归一化水深在浅水区与深水区颜色/透明度间连续渐变，并以分形噪声导数构造切空间波法线叠加立体波纹，逐像素计算漫反射、镜面高光、太阳高光与菲涅尔反射；再以沿自动流向推进的分形噪声生成白浪，在浅滩与急流处聚集。水位、基础颜色/透明度、水深值、扭曲度、浅深水区颜色与透明度、菲涅尔反射色/系数、反射强度/混合度、水流速、流向偏转、白浪混合度/速度/缩放/强度、波高/振幅/密度/平滑/高光均可实时调整。", tag: "Cesium, 世界地形, 水面着色器, 真实河道, 自动流向", icon: icon_river_channel, updatedAt: "2026-09-21", available: true },
   { id: "river-flowfield", title: "河道流场水面", category: "water", description: "以真实河道水面多边形与中心线烘焙流场贴图，GPU 着色器沿流场驱动波纹流动、泡沫聚集与岸线羽化，深浅双色、菲涅尔与屏幕空间高光抗锯齿一体成型，支持叠加流向箭头粒子并实时调节全套参数", tag: "河道水流", icon: icon_river_flowfield, updatedAt: "2026-09-04", available: true },
+  { id: "robot-patrol-three", title: "机器人巡检导航与目标感知", category: "cesium-three", description: "巡检机器人沿园区航点路线循环运动，遇障碍时按横向偏移绕行，前向感知锥随扫描距离缩放并识别最近建筑目标；可调速度、感知范围、航点数量与机器人类型。", tag: "Cesium + Three.js · 机器人导航", updatedAt: "2026-10-23", available: true },
   { id: "rocket-launching", title: "运载火箭发射", category: "scene", description: "基于 CZML 逐秒轨迹数据模拟运载火箭发射到入轨全过程", tag: "CZML 轨迹", icon: icon_rocket_launching, updatedAt: "2026-09-06", available: true },
   { id: "rocket-three", title: "VFX 火箭发射", category: "particles", description: "以可循环的时序编排还原火箭发射：点火阶段尾焰由弱到强、导流槽高压水雾向上翻涌，离架后箭体沿加速曲线爬升，跨音速窗口在箭体尾部闪烁马赫盘钻石激波，达到分离高度后助推器抛离并触发分离闪光，随后回落复位进入下一轮。推力、尾焰尺寸/颜色、导流水雾量/张角、火星量、爬升加速度、最大高度、循环周期与风速均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 航天", icon: icon_rocket_three, updatedAt: "2026-09-20", available: true },
   { id: "rotation", title: "常用工具-初始化自转", category: "scene", description: "地图加载后相机自动旋转浏览，支持自转开关、角速度与 X/Y/Z 旋转轴实时调节", tag: "自转", icon: icon_rotation, updatedAt: "2026-08-27", available: true },
@@ -852,8 +887,10 @@ export const demos: CaseMeta[] = [
   { id: "sandstorm-three", title: "VFX 沙尘暴 / 尘卷风", category: "particles", description: "贴地沙粒沿风向高速平流并受多层湍流扰动，形成流动沙幕；尘卷风用环形发射器叠加绕竖直轴的涡旋场与向上抽吸，塑造螺旋上升的漏斗。沙粒数、沙粒颜色、风速、湍流、涡旋半径/转速/抽吸与整体沙尘浓度均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 天气", icon: icon_sandstorm_three, updatedAt: "2026-09-20", available: true },
   { id: "sector", title: "扇形-扇形作用区域", category: "draw", description: "左键定位圆心与半径方向并拖拽扫出扇角，右键结束；颜色可调。", tag: "形状", icon: icon_sector, updatedAt: "2026-09-06", available: true },
   { id: "sector-edit", title: "扇形-编辑版", category: "draw", description: "绘制扇形后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_sector_edit, updatedAt: "2026-09-06", available: true },
+  { id: "seismic-response-three", title: "地震作用与建筑动力响应", category: "cesium-three", description: "输入地面峰值加速度、频率和持续时间，楼层按模态形状做正弦响应并叠加衰减包络，展示顶层位移、层间位移角和峰值加速度；可切换一至三阶振型并观察变形曲线。", tag: "Cesium + Three.js · 结构动力", updatedAt: "2026-10-23", available: true },
   { id: "shadow-analysis", title: "空间分析-阴影分析", category: "analysis", description: "启用级联阴影映射叠加地面阴影方向指示，按规划街区参数化白模实时渲染任意时刻太阳光照下的建筑阴影，阴影随时刻连续扫动；支持日期、时间轴播放与变速、阴影分辨率、最大计算距离、暗度、软阴影等参数，并支持设定采样分析高度区间，输出对应采样高度的结果图，或输出区间内的空间网格/空间点集阴影率分析结果（平均/最大阴影率、高阴影占比），支持 PDF/Word 分析报告输出，内置功能实现说明", tag: "空间分析", icon: icon_shadow_analysis, available: true },
   { id: "shield-three", title: "VFX 能量护盾", category: "particles", description: "半球护盾以自定义着色器绘制滚动网格与菲涅尔边缘辉光，命中点在球面触发扩散涟漪并抛射电弧火花，涟漪以环状网格向外扩张；球面持续有能量微粒上升，营造电离气体流动感。半径、网格密度/滚动速度、辉光强度/不透明度、命中间隔与强度、电弧火花数/尺寸、能量微粒量、护盾颜色均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 科幻", icon: icon_shield_three, updatedAt: "2026-09-20", available: true },
+  { id: "ship-buoyancy-three", title: "波浪、船舶与浮力响应", category: "cesium-three", description: "海面由多频正弦波叠加生成动态波面，船体按采样波高与斜率产生升沉、横摇和纵摇，浮标随波起伏；可调波高、周期、浪向、风速、吃水和浮标数量。", tag: "Cesium + Three.js · 波浪与浮力", updatedAt: "2026-10-23", available: true },
   { id: "shuttle-line", title: "穿梭流光道路线", category: "effects", description: "GeoJSON 路网加载穿梭流光材质，亮带沿道路方向持续流动", tag: "流光线", icon: icon_shuttle_line, updatedAt: "2026-09-06", available: true },
   { id: "situation-plotting", title: "综合态势标绘控件", category: "widgets", description: "集成 21 种军事标绘几何绘制与文本、图片、模型三类点标注，点选后可移动/旋转/缩放并修改属性，支持 WGS84、Web墨卡托、北京54、西安80 等坐标系下的 GeoJSON / SHP 标准导出。", tag: "标绘标注导出", icon: icon_situation_plotting, updatedAt: "2026-09-07", available: true },
   { id: "skyline-analysis", title: "空间分析-天际线分析", category: "analysis", description: "从观测点沿水平方位角发射射线，求解各方向最高遮挡点并构建三维天际线、射线束与扇形可见天空面；支持观测点高度、方位角范围与采样间隔、自适应细分、最大分析半径、地形叠加、天际线配色等参数，提供极坐标天际线图与量化读数，内置功能实现说明", tag: "空间分析", icon: icon_skyline_analysis, available: true },
@@ -887,14 +924,19 @@ export const demos: CaseMeta[] = [
   { id: "tiles-3d-flatten", title: "3DTiles模型压平", category: "tiles", description: "自定义着色器实现 3DTiles 倾斜摄影区域压平", tag: "模型处理", icon: icon_tiles_3d_flatten, updatedAt: "2026-08-26", available: true },
   { id: "tiles-3d-load", title: "3DTiles加载", category: "tiles", description: "加载远程倾斜摄影 3DTiles 模型并支持定位与阴影", tag: "模型加载", icon: icon_tiles_3d_load, updatedAt: "2026-08-26", available: true },
   { id: "tiles-3d-local", title: "本地 3DTiles 查看器", category: "tiles", description: "加载本地（拖拽/选择文件夹）或远程 3DTiles，支持屏幕空间误差、包围盒、线框与裁剪平面等参数调整", tag: "模型加载", icon: icon_tiles_3d_local, updatedAt: "2026-09-09", available: true },
+  { id: "tower-crane-three", title: "塔吊吊装、钢缆摆动与载荷控制", category: "cesium-three", description: "塔吊按设定速度回转，小车沿吊臂变幅，吊钩随索长起升下降；吊物受回转离心力、风载和自身重力形成摆动。可调吊物质量、索长、回转速度、起升速度与阻尼，并显示工作半径和张力估算。", tag: "Cesium + Three.js · 关节与摆动", updatedAt: "2026-10-23", available: true },
   { id: "triangle-measure", title: "空间测量-三角量测", category: "measure", description: "两点直角三角形水平/垂直距离与斜边夹角量测，含地形与三维模型", tag: "测量", icon: icon_triangle_measure, updatedAt: "2026-08-24", available: true },
   { id: "tsunami-three", title: "VFX 海啸推进", category: "particles", description: "以三维高度场浪面还原海啸推进：水面在锋面处陡直抬升、向后方缓慢回落形成有体积感的浪墙，浪面叠加逐像素法线光照、菲涅尔反射与高频碎浪扰动，前缘由泡沫、飞沫与浑浊泥沙共同构成白水线。浪头沿推进方向逐栋淹没沿岸建筑并使其颜色转暗。浪面宽度、推进距离、浪高、浪背长度、碎浪扰动、波速、泡沫/飞沫/泥沙量与建筑数量/高度、水体与泥沙颜色、不透明度均可实时调整", tag: "Three.js, three.quarks, 粒子特效, 灾害", icon: icon_tsunami_three, updatedAt: "2026-09-20", available: true },
+  { id: "tunnel-boring-three", title: "盾构隧道掘进与管片支护", category: "cesium-three", description: "盾构机沿隧道轴线推进，刀盘按设定转速旋转，已开挖区段逐步安装管片环；随埋深增加掌子面水压上升，可调直径、推进速度、管片间距与总推力观察支护节奏。", tag: "Cesium + Three.js · 隧道工程", updatedAt: "2026-10-23", available: true },
+  { id: "uav-avoidance-three", title: "无人机航线飞行与建筑避障", category: "cesium-three", description: "无人机沿环形航点自动巡航，依据建筑包围盒与传感器范围抬升高度并侧向绕行；可调巡航高度、速度、感知距离、建筑密度与风漂移，实时显示最近障碍距离和剩余电量。", tag: "Cesium + Three.js · 飞行与避障", updatedAt: "2026-10-23", available: true },
   { id: "uav-test-field", title: "无人机试飞场 3D 演示", category: "three", description: "纯 Three.js 构建的无人机试飞场三维可视化：园区跑道、起降场、拱顶机库、通导监气反保障设备与围墙办公区完整建模，无人机沿闭环航线自动巡航并可切换手动操控，内置 GB 42590-2023 的 17 项强制安全测试科目，逐项演示电子围栏、应急处置、结构强度、抗风性、灯光等测试流程与实时结果", tag: "Three.js, 无人机, 试飞场, GB 42590", icon: icon_uav_test_field, updatedAt: "2026-09-18", available: true },
   { id: "underground-mode", title: "地下模式-地铁站", category: "scene", description: "地球半透明地下模式，查看埋设于地表下方的地铁站模型", tag: "地下可视化", icon: icon_underground_mode, updatedAt: "2026-09-06", available: true },
   { id: "urban-fire-three", title: "VFX 城市火灾蔓延", category: "particles", description: "街区建筑网格中每个着火单元挂一组火焰与烟羽发射器，轻量状态机按“未燃→燃烧→熄灭”推进，并按风向对下风侧邻栋提高引燃概率。建筑体色随状态在正常、燃烧、焦黑间切换，火势受风驱动弯曲。场景粒子总量按当前燃烧单元数自动均摊，蔓延到整片街区时单栋发射量下调以稳定帧率。网格规模、火焰/烟雾量、蔓延概率与间隔、燃烧时长、风向风速、烟雾浓度与亮度均可调整", tag: "Three.js, three.quarks, 粒子特效, 应急", icon: icon_urban_fire_three, updatedAt: "2026-09-20", available: true },
   { id: "urban-flood-risk", title: "城市内涝风险评估（简版）", category: "analysis", description: "基于 Cesium 真实地形采样或导入 DEM，在自绘多边形分析区内开展城市内涝风险评估：对 DEM 填洼后计算 D8 汇流累积，结合地形位置指数（TPI）与坡度构建孕灾因子，叠加可调降雨强度加权得到 0~100 风险指数，分位数分级设色并提取高风险区等值线；支持真实地形采集/导入 DEM、区域绘制、参数提示、图例与结果说明、技术路线、在线报告与 PDF 导出，以及 GeoTIFF 栅格与 SHP/GeoJSON 矢量输出。", tag: "Cesium, 地形分析, 城市内涝, 汇流累积, TPI", icon: icon_urban_flood_risk, updatedAt: "2026-09-19", available: true },
+  { id: "urban-flood-three", title: "城市洪涝淹没与动态水流", category: "cesium-three", description: "按入流过程线抬升城区水位，建筑首层逐步被淹没，水面叠加波纹与流动矢量；可调入流峰值、最大水深、涨落时长、地表糙率与建筑密度，并输出风险等级。", tag: "Cesium + Three.js · 浅水演示", updatedAt: "2026-10-23", available: true },
   { id: "vector-converter", title: "数据转换-矢量数据转换", category: "data", description: "纯前端矢量数据格式互转工具：自动识别并解析 GeoJSON/TopoJSON、KML/KMZ、奥维 OVKML/OVKMZ/OVJSN/OVOBJ、GPX、WKT、CSV、Shapefile 等格式，统一为 WGS84 中间模型并在三维场景中预览，支持 WGS84/CGCS2000/GCJ02/BD09/Web墨卡托/高斯投影等坐标系互转，可导出为 GeoJSON/KML/KMZ/奥维/GPX/WKT/CSV/SHP，点位矢量可额外导出为 Excel 表格，内置功能实现说明", tag: "数据转换", icon: icon_vector_converter, available: true },
   { id: "vector-loader", title: "本地矢量数据加载", category: "tiles", description: "加载并展示 SHP / GeoJSON / KML 本地矢量数据", tag: "数据图层", icon: icon_vector_loader, available: true },
+  { id: "vehicle-follow-three", title: "城市车辆驾驶与道路跟随", category: "cesium-three", description: "车辆沿参数化道路中心线行驶，按目标速度、坡度与摩擦逐步收敛；对向与同向车辆按车道偏移运动，实时显示航向、里程和跟车数量，可切换自动巡航与手动摆动。", tag: "Cesium + Three.js · 车辆运动", updatedAt: "2026-10-23", available: true },
   { id: "video-feather", title: "数据可视化-视频融合(羽化)", category: "data", description: "视频叠加到地形后边缘以羽化渐变方式渐隐融合，支持羽化宽度、透明度、位置、尺寸实时调节，过渡自然柔和", tag: "视频羽化", icon: icon_video_feather, updatedAt: "2026-09-01", available: true },
   { id: "video-fusion", title: "数据可视化-视频融合", category: "data", description: "视频以半透明方式与地形融合显示，支持透明度、位置、尺寸实时调节，实现影像与地形的无缝叠加", tag: "视频融合", icon: icon_video_fusion, updatedAt: "2026-09-01", available: true },
   { id: "video-plane", title: "数据可视化-平面视频", category: "data", description: "将视频作为纹理贴地显示为平面影像，支持宽度、高度、透明度调节，可点击地图定位视频区域", tag: "平面视频", icon: icon_video_plane, updatedAt: "2026-09-01", available: true },
@@ -942,6 +984,7 @@ export const demos: CaseMeta[] = [
   { id: "widget-tour-recorder", title: "地图导览录制控件", category: "widgets", description: "地图导览录制控件：采集多个相机关键帧，逐段设置停留与过渡时长并飞行动画，一键录制为导览视频，支持配置保存与加载", tag: "录制导出", icon: icon_widget_tour_recorder, updatedAt: "2026-09-26", available: true },
   { id: "widget-video-recorder", title: "视频录制控件", category: "widgets", description: "视频录制控件：录制当前三维场景（整图或框选区域）为视频，支持题图/来源水印与位置设置，导出 MP4 / WebM", tag: "录制导出", icon: icon_widget_video_recorder, updatedAt: "2026-09-26", available: true },
   { id: "widget-zoom-controller", title: "缩放控制器控件", category: "widgets", description: "缩放控制器控件：朝视线焦点前进放大、反方向拉远缩小，一键飞回默认视角", tag: "地图控件", icon: icon_widget_zoom_controller, available: true },
+  { id: "wind-cloth-three", title: "城市风场、旗帜布料与植被摇摆", category: "cesium-three", description: "风向风速连续变化，旗帜布料按顶点正弦约束产生行波，树冠随阵风摆动，地面漂浮物沿风向输运；可调风速、风向、阵风强度、布料刚度与植被响应幅度。", tag: "Cesium + Three.js · 风场与布料", updatedAt: "2026-10-23", available: true },
   { id: "wind-field-three", title: "VFX 全球风场可视化", category: "particles", description: "海量短拖尾粒子在无散度矢量风场中平流，寿命到期后原地重生以保持总数恒定，形成流动的“风之河”。风场由多尺度流函数涡旋（u=∂ψ/∂z、w=-∂ψ/∂x，保证不可压）叠加纬向急流带与近似 Rankine 气旋切向风构成，并按高度施加风速切变；粒子采用中点积分保证轨迹平滑，拖尾用时间常数连续逼近，速度映射到深蓝→青→绿→黄→橙→红的色带。风场在粗网格上采样、粒子经双线性插值读取，逐粒子开销大幅降低。粒子数、区域范围、风速、湍流、寿命、拖尾长度、气旋强度/半径、高度与厚度、亮度均可调整", tag: "Three.js, three.quarks, 风场, 数据可视化", icon: icon_wind_field_three, updatedAt: "2026-09-20", available: true },
   { id: "wind-layer-3d", title: "三维风场-WebGL2&GPU效果", category: "weather", description: "GPU 计算风场粒子流线与自定义四至生成", tag: "风场粒子", icon: icon_wind_layer_3d, updatedAt: "2026-08-23", available: true },
   { id: "xyz-axis", title: "自定义XYZ坐标轴-拖拽平移", category: "analysis", description: "在指定中心点创建红黄绿XYZ坐标轴，悬停高亮为黄色、按下加粗，拖动沿轴方向平移并实时同步坐标、控制台打印平移信息", tag: "坐标轴", icon: icon_xyz_axis, updatedAt: "2026-09-02", available: true },

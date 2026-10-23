@@ -86,6 +86,9 @@ function createS17(kit: import('../types').SceneKit): ScenarioRuntime {
     simTime = 0
     maxDensity = 0
     flowRate = 0
+    matrix.makeScale(0, 0, 0)
+    for (let i = 0; i < maxAgents; i += 1) crowd.setMatrixAt(i, matrix)
+    crowd.instanceMatrix.needsUpdate = true
   }
 
   const update = (dt: number, p: ParamValues): void => {
@@ -97,11 +100,7 @@ function createS17(kit: import('../types').SceneKit): ScenarioRuntime {
     simTime += dt
     for (let i = 0; i < maxAgents; i += 1) {
       const agent = agents[i]
-      if (!agent.active || agent.evacuated) {
-        matrix.makeScale(0, 0, 0)
-        crowd.setMatrixAt(i, matrix)
-        continue
-      }
+      if (!agent.active || agent.evacuated) continue
       const dx = 0 - agent.x
       const dz = -60 - agent.z
       const distance = Math.max(0.001, Math.sqrt(dx * dx + dz * dz))

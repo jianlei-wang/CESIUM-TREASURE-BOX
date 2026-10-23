@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
-import { addBox, addLine, addStageGround, disposeObject, surface } from '../helpers'
+import { addBox, addLine, addStageGround, damp, disposeObject, surface } from '../helpers'
 
 function createS07(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -61,6 +61,9 @@ function createS07(kit: import('../types').SceneKit): ScenarioRuntime {
   let heading = 0
   let viewMode = 'third'
   let speedState = 3
+  let jumpTimer = 2.4
+  let cameraRange = 52
+  let cameraPitch = -24
 
   const update = (dt: number, p: ParamValues): void => {
     const speed = num(p, 'moveSpeed', 3)
@@ -84,9 +87,11 @@ function createS07(kit: import('../types').SceneKit): ScenarioRuntime {
     const currentFrom = route[segment]
     const currentTo = route[(segment + 1) % route.length]
     const position = currentFrom.clone().lerp(currentTo, segmentT)
-    if (grounded && (simTime % (run ? 2.8 : 4.4)) < dt) {
+    jumpTimer -= dt
+    if (grounded && jumpTimer <= 0) {
       jumpVelocity = jumpForce
       grounded = false
+      jumpTimer = run ? 2.8 : 4.4
     }
     if (!grounded) {
       jumpVelocity -= gravity * dt
@@ -99,8 +104,13 @@ function createS07(kit: import('../types').SceneKit): ScenarioRuntime {
     }
     character.position.set(position.x, position.y + jumpY, position.z)
     const direction = currentTo.clone().sub(currentFrom)
-    heading = Math.atan2(direction.x, direction.z)
+    const desiredHeading = Math.atan2(direction.x, direction.z)
+    let turn = desiredHeading - heading
+    turn = ((turn + Math.PI * 3) % (Math.PI * 2)) - Math.PI
+    heading += turn * Math.min(1, dt * 6)
     character.rotation.y = heading
+    cameraRange = damp(cameraRange, viewMode === 'first' ? 16 : 52, 5, dt)
+    cameraPitch = damp(cameraPitch, viewMode === 'first' ? -6 : -24, 5, dt)
     const stride = Math.sin(simTime * (run ? 11 : 6.5)) * (grounded ? 0.5 : 0.1)
     character.position.y += Math.abs(stride) * 0.06
     cadence = run ? 2.9 : 1.7
@@ -108,13 +118,11 @@ function createS07(kit: import('../types').SceneKit): ScenarioRuntime {
     body.visible = viewMode !== 'first'
     head.visible = viewMode !== 'first'
     pathGroup.visible = showPath
-    if (simTime % 0.2 < dt) {
-      kit.focus(character.position, {
-        range: viewMode === 'first' ? 16 : 52,
-        pitch: viewMode === 'first' ? -6 : -24,
-        heading: (heading * 180) / Math.PI
-      })
-    }
+    kit.focus(character.position, {
+      range: cameraRange,
+      pitch: cameraPitch,
+      heading: (heading * 180) / Math.PI
+    })
   }
 
   return {
@@ -132,6 +140,7 @@ function createS07(kit: import('../types').SceneKit): ScenarioRuntime {
         jumpVelocity = 0
         grounded = true
         distance = 0
+        jumpTimer = 2.4
       }
     },
     readouts: () => ({

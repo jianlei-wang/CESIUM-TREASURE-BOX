@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
-import { addBox, addLine, addStageGround, addCylinder, disposeObject, seeded, surface, toRad } from '../helpers'
+import { addBox, addLine, addStageGround, addCylinder, disposeObject, seeded, surface, toRad, updateLine } from '../helpers'
 
 interface Vehicle {
   group: THREE.Group
@@ -152,6 +152,7 @@ function createS05(kit: import('../types').SceneKit): ScenarioRuntime {
     car.group.position.y = 0.08
     const heading = (Math.atan2(tangent.x, tangent.z) * 180) / Math.PI
     car.group.rotation.y = Math.atan2(tangent.x, tangent.z)
+    car.group.rotation.z = -swayLane * 0.012
     for (const wheel of car.wheels) wheel.rotation.y += dt * speed * 2
     for (const item of traffic) {
       item.t = (item.t + (item.speed * dt) / length) % 1
@@ -160,9 +161,8 @@ function createS05(kit: import('../types').SceneKit): ScenarioRuntime {
     }
     if (showTrail) {
       trailPoints.push(new THREE.Vector3(point.x, 0.3, point.z))
-      if (trailPoints.length > 200) trailPoints.shift()
-      trail.geometry.dispose()
-      trail.geometry = new THREE.BufferGeometry().setFromPoints(trailPoints)
+      if (trailPoints.length > 240) trailPoints.shift()
+      updateLine(trail, trailPoints)
     }
     trail.visible = showTrail
     car.group.userData.heading = heading

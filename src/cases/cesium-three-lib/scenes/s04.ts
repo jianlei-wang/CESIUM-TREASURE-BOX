@@ -13,6 +13,7 @@ function createS04(kit: import('../types').SceneKit): ScenarioRuntime {
   let water: THREE.Mesh | null = null
   let flowGroup: THREE.Group | null = null
   let simTime = 0
+  let normalTick = 0
   let level = 0
   let peakFlow = 0
   let lastSignature = ''
@@ -43,13 +44,12 @@ function createS04(kit: import('../types').SceneKit): ScenarioRuntime {
     waterGroup.clear()
     water = new THREE.Mesh(
       geometry,
-      new THREE.MeshPhysicalMaterial({
+      new THREE.MeshStandardMaterial({
         color: '#2c82c9',
         transparent: true,
         opacity: 0.5,
         roughness: 0.18,
         metalness: 0.15,
-        transmission: 0.15,
         side: THREE.DoubleSide,
         depthWrite: false
       })
@@ -85,7 +85,7 @@ function createS04(kit: import('../types').SceneKit): ScenarioRuntime {
     const showDepth = flag(p, 'depth', true)
     const showFlow = flag(p, 'flow', true)
     simTime += dt
-    const cycle = simTime % (duration + 14)
+    const cycle = simTime % (duration + 4)
     const phase = cycle / duration
     const wave = phase < 1 ? Math.sin(Math.PI * Math.min(1, phase)) : 0
     level = maxDepth * wave
@@ -93,7 +93,7 @@ function createS04(kit: import('../types').SceneKit): ScenarioRuntime {
     if (water) {
       water.position.y = 0.25 + level * 0.38
       water.visible = true
-      const material = water.material as THREE.MeshPhysicalMaterial
+      const material = water.material as THREE.MeshStandardMaterial
       material.opacity = showDepth ? 0.28 + Math.min(0.5, level / Math.max(1, maxDepth) * 0.45) : 0.2
       material.color.setHSL(0.56, 0.58, 0.42 + Math.min(0.18, level / 80))
       const position = geometry.attributes.position as THREE.BufferAttribute
@@ -104,7 +104,8 @@ function createS04(kit: import('../types').SceneKit): ScenarioRuntime {
         position.setY(i, ripple * (0.4 + roughness * 9))
       }
       position.needsUpdate = true
-      geometry.computeVertexNormals()
+      normalTick += 1
+      if (normalTick % 2 === 0) geometry.computeVertexNormals()
     }
     if (flowGroup) {
       flowGroup.visible = showFlow

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
-import { addBox, addLine, addStageGround, disposeObject, seeded, surface } from '../helpers'
+import { addBox, addLine, addStageGround, disposeObject, seeded, surface, updateLine } from '../helpers'
 
 interface Story {
   group: THREE.Group
@@ -16,6 +16,7 @@ function createS14(kit: import('../types').SceneKit): ScenarioRuntime {
   const building = new THREE.Group()
   root.add(building)
   const stories: Story[] = []
+  const shapePoints: THREE.Vector3[] = []
   let shapeLine: THREE.Line | null = null
   let floorsState = 8
   let simTime = 0
@@ -34,6 +35,7 @@ function createS14(kit: import('../types').SceneKit): ScenarioRuntime {
   const rebuild = (floors: number): void => {
     for (const story of stories) disposeObject(story.group)
     stories.length = 0
+    shapePoints.length = 0
     building.clear()
     const floorHeight = 4.2
     for (let i = 0; i < floors; i += 1) {
@@ -48,6 +50,7 @@ function createS14(kit: import('../types').SceneKit): ScenarioRuntime {
       group.position.set(0, floorHeight * (i + 1), 0)
       building.add(group)
       stories.push({ group, baseX: 0, baseY: floorHeight * (i + 1), offset: 0 })
+      shapePoints.push(new THREE.Vector3(0, floorHeight * (i + 1), 0))
     }
     addBox(building, [22, 1.4, 17], [0, 0, 0], surface('#59646e'))
     floorsState = floors
@@ -62,7 +65,8 @@ function createS14(kit: import('../types').SceneKit): ScenarioRuntime {
     const showDrift = flag(p, 'drift', true)
     simTime += dt
     frequencyState = frequency
-    const envelope = simTime < duration ? 1 : Math.max(0, 1 - (simTime - duration) / 8)
+    const quakeTime = simTime % Math.max(6, duration + 12)
+    const envelope = quakeTime < duration ? 1 : Math.max(0, 1 - (quakeTime - duration) / 8)
     const modes = parseInt(mode, 10) || 1
     const amplitude = pga * 42 * envelope * Math.exp(-damping * simTime * 0.06)
     peakAcceleration = amplitude * (Math.PI * 2 * frequency) ** 2 * 0.0009
@@ -82,12 +86,13 @@ function createS14(kit: import('../types').SceneKit): ScenarioRuntime {
     building.position.x = Math.sin(simTime * 40) * envelope * pga * 0.3
     building.position.z = Math.cos(simTime * 34) * envelope * pga * 0.18
     if (showDrift) {
-      const points = stories.map((story) => new THREE.Vector3(story.offset + 9.5, story.baseY, 0))
+      for (let i = 0; i < stories.length; i += 1) {
+        shapePoints[i].set(stories[i].offset + 9.5, stories[i].baseY, 0)
+      }
       if (!shapeLine) {
-        shapeLine = addLine(building, points, '#ffd666', 0.95)
+        shapeLine = addLine(building, shapePoints, '#ffd666', 0.95)
       } else {
-        shapeLine.geometry.dispose()
-        shapeLine.geometry = new THREE.BufferGeometry().setFromPoints(points)
+        updateLine(shapeLine, shapePoints)
       }
     }
     if (shapeLine) shapeLine.visible = showDrift

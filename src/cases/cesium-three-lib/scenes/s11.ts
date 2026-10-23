@@ -122,6 +122,8 @@ function createS11(kit: import('../types').SceneKit): ScenarioRuntime {
         burning[i] = 0
         burnt[i] = 1
         burnedCells += 1
+        color.setHSL(0.03, 0.25, 0.12)
+        fuel.setColorAt(i, color)
         spreadFrom(i, p)
       }
       const gx = i % gridSize
@@ -129,12 +131,6 @@ function createS11(kit: import('../types').SceneKit): ScenarioRuntime {
       const distance = Math.sqrt((gx - gridSize / 2) ** 2 + (gz - gridSize / 2) ** 2) * cellSize
       frontRadius = Math.max(frontRadius, distance)
       color.setHSL(0.58 - burn[i] * 0.25, 0.8, 0.18 + burn[i] * 0.2)
-      fuel.setColorAt(i, color)
-    }
-    if (fuel.instanceColor) fuel.instanceColor.needsUpdate = true
-    for (let i = 0; i < cellCount; i += 1) {
-      if (!burnt[i]) continue
-      color.setHSL(0.03, 0.25, 0.12)
       fuel.setColorAt(i, color)
     }
     if (fuel.instanceColor) fuel.instanceColor.needsUpdate = true

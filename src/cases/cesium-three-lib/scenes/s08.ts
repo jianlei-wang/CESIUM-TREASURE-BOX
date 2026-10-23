@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
-import { addBox, addLine, addStageGround, disposeObject, surface } from '../helpers'
+import { addBox, addLine, addStageGround, disposeObject, surface, updateLine } from '../helpers'
 
 function createS08(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -69,6 +69,7 @@ function createS08(kit: import('../types').SceneKit): ScenarioRuntime {
   let simTime = 0
   let swingPeak = 0
   let tension = 0
+  const cablePoints = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
 
   const update = (dt: number, p: ParamValues): void => {
     const slewSpeed = num(p, 'slewSpeed', 0.28)
@@ -99,12 +100,10 @@ function createS08(kit: import('../types').SceneKit): ScenarioRuntime {
     slew.rotation.y = slewAngle
     jib.rotation.y = 0
     trolley.position.x = trolleyRadius
-    cable.geometry.dispose()
-    cable.geometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(swingX * 0.5, -cableLength * 0.5, swingZ * 0.5),
-      new THREE.Vector3(swingX, -cableLength, swingZ)
-    ])
+    cablePoints[0].set(0, 0, 0)
+    cablePoints[1].set(swingX * 0.5, -cableLength * 0.5, swingZ * 0.5)
+    cablePoints[2].set(swingX, -cableLength, swingZ)
+    updateLine(cable, cablePoints)
     hook.position.set(swingX, -cableLength, swingZ)
     hook.rotation.z = -swingX * 0.12
     hook.rotation.x = swingZ * 0.12

@@ -41,6 +41,7 @@ function createS13(kit: import('../types').SceneKit): ScenarioRuntime {
     }
   })()
   let simTime = 0
+  let normalTick = 0
   let waveAmplitude = 0
   let roll = 0
   let pitch = 0
@@ -94,7 +95,8 @@ function createS13(kit: import('../types').SceneKit): ScenarioRuntime {
       waveAmplitude = Math.max(waveAmplitude, Math.abs(y))
     }
     position.needsUpdate = true
-    geometry.computeVertexNormals()
+    normalTick += 1
+    if (normalTick % 2 === 0) geometry.computeVertexNormals()
     const shipWave = waveAt(0, 0, height, period, direction)
     ship.position.set(0, shipWave - draft, 0)
     roll = Math.sin(simTime * 1.2) * height * 0.12 + Math.sin(simTime * 2.1) * wind * 0.012

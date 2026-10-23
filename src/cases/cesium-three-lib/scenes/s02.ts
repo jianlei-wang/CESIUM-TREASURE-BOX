@@ -1,16 +1,31 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { num } from '../types'
-import { addStageGround, disposeObject, seeded, surface } from '../helpers'
+import { addStageGround, basic, disposeObject, seeded, surface } from '../helpers'
 
 interface Block {
   mesh: THREE.Mesh
   home: THREE.Vector3
   velocity: THREE.Vector3
+  spin: THREE.Vector3
   size: number
+  delay: number
   active: boolean
   settled: boolean
 }
+
+interface DustPuff {
+  x: number
+  y: number
+  z: number
+  vx: number
+  vy: number
+  vz: number
+  life: number
+  max: number
+}
+
+const DUST_COUNT = 420
 
 function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -19,6 +34,30 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
   root.add(building)
   const blocks: Block[] = []
   const colors = ['#9aa8b5', '#b9c4cd', '#8595a3', '#c9d2d9']
+  const dustGeometry = new THREE.BufferGeometry()
+  const dustPositions = new Float32Array(DUST_COUNT * 3)
+  dustPositions.fill(-1000)
+  dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3))
+  const dustMaterial = new THREE.PointsMaterial({
+    color: '#c9b9a4',
+    size: 4.2,
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false,
+    sizeAttenuation: true
+  })
+  const dust = new THREE.Points(dustGeometry, dustMaterial)
+  dust.frustumCulled = false
+  root.add(dust)
+  const dustState: DustPuff[] = Array.from({ length: DUST_COUNT }, () => ({ x: 0, y: -100, z: 0, vx: 0, vy: 0, vz: 0, life: -1, max: 0 }))
+  let dustCursor = 0
+  let dustEmit = 0
+  const dustRing = new THREE.Mesh(new THREE.RingGeometry(1, 1.45, 72), basic('#d8c6ad', 0))
+  dustRing.rotation.x = -Math.PI / 2
+  dustRing.position.y = 0.08
+  dustRing.visible = false
+  root.add(dustRing)
+  let ringAge = 99
   let triggered = false
   let countdown = 1.2
   let simTime = 0
@@ -50,7 +89,16 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
           mesh.position.set(x, y, z)
           mesh.rotation.y = (random() - 0.5) * 0.035
           building.add(mesh)
-          blocks.push({ mesh, home: mesh.position.clone(), velocity: new THREE.Vector3(), size: blockSize, active: false, settled: false })
+          blocks.push({
+            mesh,
+            home: mesh.position.clone(),
+            velocity: new THREE.Vector3(),
+            spin: new THREE.Vector3(),
+            size: blockSize,
+            delay: 0,
+            active: false,
+            settled: false
+          })
         }
       }
     }
@@ -58,6 +106,16 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
     countdown = num(p, 'delay', 1.2)
     simTime = 0
     peakImpulse = 0
+    ringAge = 99
+    dustRing.visible = false
+    dustRing.material.opacity = 0
+    dustEmit = 0
+    for (const puff of dustState) {
+      puff.life = -1
+      puff.y = -100
+    }
+    for (let i = 0; i < DUST_COUNT; i += 1) dustPositions[i * 3 + 1] = -100
+    dustGeometry.attributes.position.needsUpdate = true
   }
 
   const blast = (p: ParamValues): void => {
@@ -65,14 +123,20 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
     triggered = true
     const impulse = num(p, 'impulse', 30)
     peakImpulse = impulse
+    ringAge = 0
+    dustRing.visible = true
     for (const block of blocks) {
       const fromCenter = new THREE.Vector3(block.mesh.position.x, 0, block.mesh.position.z)
       const distance = Math.max(6, fromCenter.length())
       const direction = fromCenter.normalize()
+      const tangent = new THREE.Vector3(-direction.z, 0, direction.x)
       const heightFactor = 0.35 + block.mesh.position.y / 40
       const strength = impulse * (0.45 + 18 / distance) * (0.45 + heightFactor * 0.55)
-      block.velocity.set(direction.x * strength, strength * 0.42, direction.z * strength)
-      block.active = true
+      block.velocity.set(direction.x * strength, strength * (0.38 + Math.random() * 0.14), direction.z * strength)
+      block.velocity.addScaledVector(tangent, (Math.random() - 0.5) * strength * 0.35)
+      block.spin.set((Math.random() - 0.5) * 1.8, (Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.8)
+      block.delay = 0.08 + distance * 0.012 + block.mesh.position.y * 0.006 + Math.random() * 0.08
+      block.active = false
     }
   }
 
@@ -84,13 +148,66 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
       countdown -= dt
       if (countdown <= 0) blast(p)
     }
+    if (triggered) {
+      ringAge += dt
+      dustRing.visible = ringAge < 2.2
+      dustRing.scale.setScalar(7 + ringAge * 42)
+      dustRing.material.opacity = Math.max(0, 0.52 * (1 - ringAge / 2.2))
+      dustEmit += dt * 220
+      while (dustEmit >= 1 && blocks.length > 0) {
+        dustEmit -= 1
+        const source = blocks[Math.floor(Math.random() * blocks.length)]
+        const puff = dustState[dustCursor % DUST_COUNT]
+        dustCursor += 1
+        const angle = Math.random() * Math.PI * 2
+        const speed = 4 + Math.random() * 12
+        puff.x = source.mesh.position.x * 0.92 + (Math.random() - 0.5) * 8
+        puff.y = Math.max(1, source.mesh.position.y * 0.85) + Math.random() * 5
+        puff.z = source.mesh.position.z * 0.92 + (Math.random() - 0.5) * 8
+        puff.vx = Math.cos(angle) * speed
+        puff.vz = Math.sin(angle) * speed
+        puff.vy = 1.6 + Math.random() * 4.2
+        puff.life = 0
+        puff.max = 1.6 + Math.random() * 2.4
+      }
+    }
+    for (let i = 0; i < DUST_COUNT; i += 1) {
+      const puff = dustState[i]
+      if (puff.life < 0) {
+        dustPositions[i * 3 + 1] = -100
+        continue
+      }
+      puff.life += dt
+      if (puff.life > puff.max) {
+        puff.life = -1
+        dustPositions[i * 3 + 1] = -100
+        continue
+      }
+      const drag = Math.max(0, 1 - dt * 1.4)
+      puff.vx *= drag
+      puff.vz *= drag
+      puff.vy = puff.vy * drag + dt * 0.5
+      puff.x += puff.vx * dt
+      puff.y += puff.vy * dt
+      puff.z += puff.vz * dt
+      dustPositions[i * 3] = puff.x
+      dustPositions[i * 3 + 1] = puff.y
+      dustPositions[i * 3 + 2] = puff.z
+    }
+    dustGeometry.attributes.position.needsUpdate = true
+
     for (const block of blocks) {
+      if (triggered && !block.active && !block.settled) {
+        block.delay -= dt
+        if (block.delay <= 0) block.active = true
+      }
       if (!block.active || block.settled) continue
       block.velocity.y -= gravity * dt
       const ground = block.size * 0.31
       block.mesh.position.addScaledVector(block.velocity, dt)
-      block.mesh.rotation.x += block.velocity.z * dt * 0.015
-      block.mesh.rotation.z -= block.velocity.x * dt * 0.015
+      block.mesh.rotation.x += block.spin.x * dt
+      block.mesh.rotation.y += block.spin.y * dt
+      block.mesh.rotation.z += block.spin.z * dt
       if (block.mesh.position.y < ground) {
         block.mesh.position.y = ground
         if (Math.abs(block.velocity.y) > 1.3) {
@@ -98,10 +215,13 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
         } else {
           block.velocity.y = 0
         }
-        block.velocity.x *= 1 - Math.min(0.85, damping)
-        block.velocity.z *= 1 - Math.min(0.85, damping)
-        if (block.velocity.length() < 0.28) {
+        const friction = Math.min(0.92, (0.65 + damping * 9) * dt)
+        block.velocity.x *= 1 - friction
+        block.velocity.z *= 1 - friction
+        block.spin.multiplyScalar(Math.max(0, 1 - dt * 3.2))
+        if (block.velocity.length() < 0.32 && block.spin.length() < 0.45) {
           block.velocity.set(0, 0, 0)
+          block.spin.set(0, 0, 0)
           block.settled = true
         }
       }

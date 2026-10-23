@@ -39,6 +39,7 @@ function createS15(kit: import('../types').SceneKit): ScenarioRuntime {
   const dust = addGlowPoints(root, 160, '#d8b98a', 1.4, 0.55)
   const dustState: { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }[] = []
   let simTime = 0
+  let cyclePhase = 0
   let bucketLoad = 0
   let lastDump = 0
   let digAngle = 0
@@ -55,7 +56,8 @@ function createS15(kit: import('../types').SceneKit): ScenarioRuntime {
     const showSpoil = flag(p, 'spoil', true)
     simTime += dt
     cycleState = cycleTime
-    const cycle = (simTime % Math.max(2, cycleTime)) / Math.max(2, cycleTime)
+    cyclePhase = (cyclePhase + dt / Math.max(2, cycleTime)) % 1
+    const cycle = cyclePhase
     const swing = Math.sin(cycle * Math.PI * 2) * 1.05
     const work = Math.sin(cycle * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5
     digAngle = Math.sin(cycle * Math.PI * 2) * 18

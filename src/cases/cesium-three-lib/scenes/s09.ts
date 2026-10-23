@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
-import { addBox, addLine, addStageGround, disposeObject, seeded, surface } from '../helpers'
+import { addBox, addLine, addStageGround, disposeObject, seeded, surface, updateLine } from '../helpers'
 
 interface DeckSegment {
   mesh: THREE.Mesh
@@ -35,11 +35,13 @@ function createS09(kit: import('../types').SceneKit): ScenarioRuntime {
   let lastVehicleCount = -1
   let resonanceRatio = 0
   let modeLine: THREE.Line | null = null
+  const modePoints: THREE.Vector3[] = []
 
   for (let i = 0; i < segmentCount; i += 1) {
     const x = -deckLength / 2 + segLength * (i + 0.5)
     const mesh = addBox(bridge, [segLength * 0.96, 1.1, 16], [x, deckY, 0], surface(i % 2 ? '#68747e' : '#727f89', { roughness: 0.82 }))
     segments.push({ mesh, baseY: deckY, offset: 0, velocity: 0, x })
+    modePoints.push(new THREE.Vector3(x, deckY + 2.8, -9))
   }
   addBox(bridge, [deckLength, 0.35, 0.4], [0, deckY + 1.1, -7.8], surface('#d5c07b'))
   addBox(bridge, [deckLength, 0.35, 0.4], [0, deckY + 1.1, 7.8], surface('#d5c07b'))
@@ -78,7 +80,7 @@ function createS09(kit: import('../types').SceneKit): ScenarioRuntime {
     const speed = num(p, 'vehicleSpeed', 18)
     const stiffness = num(p, 'stiffness', 1)
     const damping = num(p, 'damping', 0.08)
-    const amplification = num(p, 'amplification', 12)
+    const amplification = num(p, 'amplification', 4)
     const showMode = flag(p, 'mode', true)
     simTime += dt
     naturalFrequency = 1.15 * Math.sqrt(stiffness)
@@ -87,9 +89,6 @@ function createS09(kit: import('../types').SceneKit): ScenarioRuntime {
       vehicle.speed = speed * (0.75 + vehicle.mass / 30)
       vehicle.x += vehicle.speed * dt
       if (vehicle.x > deckLength / 2 + 10) vehicle.x = -deckLength / 2 - 10
-      const localX = vehicle.x
-      const wave = Math.cos(Math.min(1, Math.abs(localX) / (deckLength / 2)) * Math.PI / 2)
-      vehicle.group.position.set(localX, deckY + 0.6 + wave * 0.02, 3.6)
     }
     let peakDeflection = 0
     for (const segment of segments) {
@@ -108,15 +107,20 @@ function createS09(kit: import('../types').SceneKit): ScenarioRuntime {
       peakDeflection = Math.max(peakDeflection, Math.abs(segment.offset))
       segment.mesh.position.y = segment.baseY + segment.offset * amplification
     }
+    for (const vehicle of vehicles) {
+      const slot = Math.min(segmentCount - 1, Math.max(0, Math.floor((vehicle.x + deckLength / 2) / segLength)))
+      const local = segments[slot]
+      vehicle.group.position.set(vehicle.x, deckY + 0.6 + local.offset * amplification, 3.6)
+    }
     midspan = peakDeflection
     if (showMode) {
-      const points: THREE.Vector3[] = []
-      for (const segment of segments) points.push(new THREE.Vector3(segment.x, segment.baseY + segment.offset * amplification + 2.8, -9))
+      for (let i = 0; i < segments.length; i += 1) {
+        modePoints[i].y = segments[i].baseY + segments[i].offset * amplification + 2.8
+      }
       if (!modeLine) {
-        modeLine = addLine(bridge, points, '#ffd666', 0.9)
+        modeLine = addLine(bridge, modePoints, '#ffd666', 0.9)
       } else {
-        modeLine.geometry.dispose()
-        modeLine.geometry = new THREE.BufferGeometry().setFromPoints(points)
+        updateLine(modeLine, modePoints)
       }
     }
     if (modeLine) modeLine.visible = showMode
@@ -201,7 +205,7 @@ export const S09: ScenarioMeta = {
       params: [
         { key: 'stiffness', label: '桥面刚度', type: 'range', min: 0.2, max: 2.5, step: 0.05, value: 1 },
         { key: 'damping', label: '结构阻尼', type: 'range', min: 0.02, max: 0.3, step: 0.01, value: 0.08 },
-        { key: 'amplification', label: '视觉放大', type: 'range', min: 1, max: 60, step: 1, value: 12, unit: '×' }
+        { key: 'amplification', label: '视觉放大', type: 'range', min: 1, max: 60, step: 1, value: 4, unit: '×' }
       ]
     },
     {

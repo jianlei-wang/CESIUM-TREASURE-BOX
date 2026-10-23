@@ -48,6 +48,7 @@ function createS10(kit: import('../types').SceneKit): ScenarioRuntime {
   const leafState: { x: number; y: number; z: number; phase: number }[] = []
   for (let i = 0; i < 140; i += 1) leafState.push({ x: (random() - 0.5) * 220, y: random() * 50, z: (random() - 0.5) * 220, phase: random() * 6 })
   let simTime = 0
+  let normalTick = 0
   let amplitude = 0
   let canopyOffset = 0
   let windState = 8
@@ -84,7 +85,8 @@ function createS10(kit: import('../types').SceneKit): ScenarioRuntime {
       amplitude = Math.max(amplitude, Math.abs(z))
     }
     position.needsUpdate = true
-    clothGeometry.computeVertexNormals()
+    normalTick += 1
+    if (normalTick % 2 === 0) clothGeometry.computeVertexNormals()
     cloth.rotation.y = Math.atan2(windX, windZ)
     canopyOffset = 0
     for (const tree of trees) {

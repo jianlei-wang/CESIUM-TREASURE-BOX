@@ -78,15 +78,13 @@ function createS12(kit: import('../types').SceneKit): ScenarioRuntime {
     intensityState = intensity
     tempState = temperature
     simTime += dt
-    const activeCount = Math.max(80, Math.floor((maxParticles * intensity) / 100))
+    const activeCount = Math.max(80, Math.min(maxParticles, Math.floor((maxParticles * intensity) / 100)))
     const position = geometry.attributes.position as THREE.BufferAttribute
     const speedScale = kind === 'snow' ? 0.16 : kind === 'hail' ? 1.3 : 0.8
+    geometry.setDrawRange(0, activeCount)
     for (let i = 0; i < maxParticles; i += 1) {
       const state = states[i]
-      if (i > activeCount) {
-        position.setXYZ(i, 0, -1000, 0)
-        continue
-      }
+      const visible = i < activeCount
       state.y -= (state.speed * speedScale + gravity * 0.3) * dt
       if (kind === 'snow') {
         state.x += Math.sin(simTime * 0.8 + state.drift) * dt * 4 + wind * dt
@@ -100,7 +98,7 @@ function createS12(kit: import('../types').SceneKit): ScenarioRuntime {
         state.x = (Math.random() - 0.5) * 260
         state.z = (Math.random() - 0.5) * 260
       }
-      position.setXYZ(i, state.x, state.y, state.z)
+      if (visible) position.setXYZ(i, state.x, state.y, state.z)
     }
     position.needsUpdate = true
     material.color.set(kind === 'snow' ? '#e8f4ff' : kind === 'hail' ? '#b9ecff' : '#89c9e8')

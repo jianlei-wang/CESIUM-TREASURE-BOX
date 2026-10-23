@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
-import { addBox, addLine, addSphere, addStageGround, disposeObject, seeded, surface } from '../helpers'
+import { addBox, addLine, addSphere, addStageGround, damp, disposeObject, seeded, surface } from '../helpers'
 
 function createS16(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -46,6 +46,8 @@ function createS16(kit: import('../types').SceneKit): ScenarioRuntime {
   let simTime = 0
   let lastWaypoints = -1
   let speedState = 1.6
+  let headingState = 0
+  let lateralState = 0
 
   const buildRoute = (count: number): void => {
     for (const child of [...pathGroup.children]) disposeObject(child)
@@ -91,13 +93,17 @@ function createS16(kit: import('../types').SceneKit): ScenarioRuntime {
     progress += (speedState * dt) / Math.max(1, routeLength)
     const point = sampleRoute(progress * routeLength)
     const near = sampleRoute((progress * routeLength + 3) % routeLength)
-    const heading = Math.atan2(near.x - point.x, near.z - point.z)
-    let lateral = 0
-    if (avoidance) lateral = Math.sin(progress * Math.PI * 14) * 3.5
-    robot.position.set(point.x + Math.cos(heading) * lateral, 0.05, point.z - Math.sin(heading) * lateral)
-    robot.rotation.y = heading
+    const desiredHeading = Math.atan2(near.x - point.x, near.z - point.z)
+    let turn = desiredHeading - headingState
+    turn = ((turn + Math.PI * 3) % (Math.PI * 2)) - Math.PI
+    headingState += turn * Math.min(1, dt * 4.5)
+    const targetLateral = avoidance ? Math.sin(progress * Math.PI * 14) * 3.5 : 0
+    lateralState = damp(lateralState, targetLateral, 3, dt)
+    robot.position.set(point.x + Math.cos(headingState) * lateralState, 0.05, point.z - Math.sin(headingState) * lateralState)
+    robot.rotation.y = headingState
     scanner.position.z = 12
     scanner.scale.setScalar(scanRange / 25)
+    scanner.rotation.y = Math.sin(simTime * 1.1) * 0.3
     scanner.visible = true
     nearest = 999
     scanned = '未发现目标'

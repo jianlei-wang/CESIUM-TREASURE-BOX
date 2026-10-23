@@ -87,6 +87,35 @@ export function addLine(
   return line
 }
 
+export function updateLine(line: THREE.Line, points: readonly THREE.Vector3[]): void {
+  line.frustumCulled = false
+  if (points.length === 0) {
+    line.geometry.setDrawRange(0, 0)
+    return
+  }
+  let attribute = line.geometry.getAttribute('position') as THREE.BufferAttribute | undefined
+  if (!attribute || attribute.count < points.length) {
+    const capacity = Math.max(16, points.length * 2)
+    attribute = new THREE.BufferAttribute(new Float32Array(capacity * 3), 3)
+    line.geometry.setAttribute('position', attribute)
+  }
+  const array = attribute.array as Float32Array
+  for (let i = 0; i < points.length; i += 1) {
+    const point = points[i]
+    array[i * 3] = point.x
+    array[i * 3 + 1] = point.y
+    array[i * 3 + 2] = point.z
+  }
+  attribute.needsUpdate = true
+  line.geometry.setDrawRange(0, points.length)
+}
+
+export function damp(current: number, target: number, rate: number, dt: number): number {
+  const blend = 1 - Math.exp(-rate * dt)
+  const next = current + (target - current) * blend
+  return Math.abs(target - next) < 0.0001 ? target : next
+}
+
 export function addStageGround(
   parent: THREE.Object3D,
   radius: number,

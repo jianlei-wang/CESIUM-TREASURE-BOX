@@ -46,6 +46,7 @@ function createS19(kit: import('../types').SceneKit): ScenarioRuntime {
   let stability = 'neutral'
   let maxConcentration = 0
   let plumeLength = 0
+  let emitAccumulator = 0
   const stackMaterial = surface('#b6c2cc', { roughness: 0.8, metalness: 0.25 })
   const capMaterial = surface('#ff9d5c', { emissive: '#d96a2a', emissiveIntensity: 0.8, transparent: true, opacity: 0.6 })
 
@@ -85,13 +86,16 @@ function createS19(kit: import('../types').SceneKit): ScenarioRuntime {
     const wx = Math.cos(rad) * windSpeed
     const wz = Math.sin(rad) * windSpeed
     simTime += dt
-    const rate = emission
-    const spawnCount = Math.min(24, Math.floor(rate * dt * 2))
-    for (let i = 0; i < spawnCount; i += 1) {
+    emitAccumulator += emission * dt * 2
+    let spawnCount = 0
+    while (emitAccumulator >= 1 && spawnCount < 32) {
+      emitAccumulator -= 1
       const source = Math.floor(Math.random() * sourceCount)
       spawn((source - (sourceCount - 1) / 2) * 22, stackHeight, 0)
       emitted += 1
+      spawnCount += 1
     }
+    emitAccumulator = Math.min(emitAccumulator, 32)
     for (let i = 0; i < MAX_PARTICLES; i += 1) {
       if (pAge[i] <= 0) {
         positions[i * 3 + 1] = -100
@@ -106,9 +110,10 @@ function createS19(kit: import('../types').SceneKit): ScenarioRuntime {
         positions[i * 3 + 1] = -100
         continue
       }
-      const turbulence = (Math.random() - 0.5) * mixFactor * 1.8 * dt
-      vX[i] += ((wx - vX[i]) * 0.55 + turbulence) * dt
-      vZ[i] += ((wz - vZ[i]) * 0.55 + turbulence) * dt
+      const swirl = Math.sin(pY[i] * 0.07 + simTime * 1.6 + pX[i] * 0.025) * mixFactor * 0.9
+      const cross = Math.cos(pZ[i] * 0.06 + simTime * 1.25 + pY[i] * 0.03) * mixFactor * 0.7
+      vX[i] += ((wx - vX[i]) * 0.55 + swirl) * dt
+      vZ[i] += ((wz - vZ[i]) * 0.55 + cross) * dt
       vY[i] += (mixFactor * 0.7 - 0.35) * dt
       pX[i] += vX[i] * dt
       pY[i] += vY[i] * dt
@@ -128,7 +133,10 @@ function createS19(kit: import('../types').SceneKit): ScenarioRuntime {
     }
     geometry.attributes.position.needsUpdate = true
     geometry.attributes.color.needsUpdate = true
-    const centerCount = pX.filter((x, i) => pAge[i] > 0 && Math.abs(x) < 60).length
+    let centerCount = 0
+    for (let i = 0; i < MAX_PARTICLES; i += 1) {
+      if (pAge[i] > 0 && Math.abs(pX[i]) < 60) centerCount += 1
+    }
     maxConcentration = Math.max(maxConcentration, centerCount / 40)
     plumeLength = windSpeed * 16 * (stability === 'stable' ? 0.7 : 1)
     particleMaterial.visible = showGrid

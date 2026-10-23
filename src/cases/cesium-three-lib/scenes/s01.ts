@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
-import { addStageGround, addLine, disposeObject, seeded, surface } from '../helpers'
+import { addStageGround, addLine, disposeObject, seeded, surface, updateLine } from '../helpers'
 
 interface DroppedBody {
   mesh: THREE.Mesh
@@ -11,6 +11,9 @@ interface DroppedBody {
   trail: THREE.Line
   positions: THREE.Vector3[]
   trailClock: number
+  delay: number
+  age: number
+  restitutionScale: number
 }
 
 function makeMesh(kind: string, radius: number, color: string): THREE.Mesh {
@@ -67,7 +70,10 @@ function createS01(kit: import('../types').SceneKit): ScenarioRuntime {
         bounces: 0,
         trail,
         positions: [mesh.position.clone()],
-        trailClock: 0
+        trailClock: 0,
+        delay: i * 0.14 + random() * 0.12,
+        age: 0,
+        restitutionScale: 0.86 + random() * 0.28
       })
     }
   }
@@ -79,33 +85,38 @@ function createS01(kit: import('../types').SceneKit): ScenarioRuntime {
     const showTrail = flag(p, 'trail', true)
     simTime += dt
     for (const body of bodies) {
+      body.age += dt
+      body.trail.visible = showTrail && body.age > body.delay
+      if (body.age < body.delay) continue
       body.velocity.y -= gravity * dt
       body.mesh.position.addScaledVector(body.velocity, dt)
       if (body.mesh.position.y < body.radius) {
         body.mesh.position.y = body.radius
         const impact = Math.abs(body.velocity.y)
         impactPeak = Math.max(impactPeak, impact)
-        if (impact > 1.2) {
-          body.velocity.y = impact * restitution
+        if (impact > 1.1) {
+          body.velocity.y = impact * restitution * body.restitutionScale
           body.bounces += 1
           bounces += 1
+          body.velocity.x += (Math.random() - 0.5) * 0.6
+          body.velocity.z += (Math.random() - 0.5) * 0.6
         } else {
           body.velocity.y = 0
-          body.velocity.x *= 0.92
-          body.velocity.z *= 0.92
+          body.velocity.x *= 1 - Math.min(0.9, dt * 3.2)
+          body.velocity.z *= 1 - Math.min(0.9, dt * 3.2)
+          if (Math.abs(body.velocity.x) < 0.05) body.velocity.x = 0
+          if (Math.abs(body.velocity.z) < 0.05) body.velocity.z = 0
         }
       }
       peakHeight = Math.max(peakHeight, body.mesh.position.y)
       body.mesh.rotation.x += body.velocity.z * dt * 0.28 * spin
       body.mesh.rotation.z -= body.velocity.x * dt * 0.28 * spin
-      body.trail.visible = showTrail
       body.trailClock += dt
-      if (showTrail && body.trailClock > 0.075) {
+      if (showTrail && body.trailClock > 0.04) {
         body.trailClock = 0
         body.positions.push(body.mesh.position.clone())
-        if (body.positions.length > 70) body.positions.shift()
-        body.trail.geometry.dispose()
-        body.trail.geometry = new THREE.BufferGeometry().setFromPoints(body.positions)
+        if (body.positions.length > 90) body.positions.shift()
+        updateLine(body.trail, body.positions)
       }
     }
   }

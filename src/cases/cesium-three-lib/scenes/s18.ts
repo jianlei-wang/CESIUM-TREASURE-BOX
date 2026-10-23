@@ -55,11 +55,12 @@ function createS18(kit: import('../types').SceneKit): ScenarioRuntime {
     spacingState = spacing
     diameterState = diameter
     for (let i = 0; i < 40; i += 1) {
-      const z = i * spacing + spacing
-      matrix.makeRotationFromEuler(new THREE.Euler(0, 0, 0))
-      matrix.setPosition(0, 3, z)
-      matrix.multiply(scale)
-      ringMesh.setMatrixAt(i, i < ringCount ? matrix : new THREE.Matrix4().makeScale(0, 0, 0))
+      if (i < ringCount) {
+        matrix.copy(scale).setPosition(0, 3, i * spacing + spacing)
+      } else {
+        matrix.makeScale(0, 0, 0)
+      }
+      ringMesh.setMatrixAt(i, matrix)
     }
     ringMesh.instanceMatrix.needsUpdate = true
   }
@@ -84,14 +85,12 @@ function createS18(kit: import('../types').SceneKit): ScenarioRuntime {
     const visibleRings = ringCount
     for (let i = 0; i < 40; i += 1) {
       if (i < visibleRings) {
-        const z = i * spacingState + spacingState
-        matrix.makeRotationFromEuler(new THREE.Euler(0, 0, 0))
-        matrix.setPosition(0, 3, z)
-        matrix.multiply(new THREE.Matrix4().makeScale(diameterState / 6.2, diameterState / 6.2, 1))
-        ringMesh.setMatrixAt(i, matrix)
+        matrix.makeScale(diameterState / 6.2, diameterState / 6.2, 1)
+        matrix.setPosition(0, 3, i * spacingState + spacingState)
       } else {
-        ringMesh.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0))
+        matrix.makeScale(0, 0, 0)
       }
+      ringMesh.setMatrixAt(i, matrix)
     }
     ringMesh.instanceMatrix.needsUpdate = true
     pressure = water ? (0.08 + (tbmZ / 230) * 0.34) * (1 - supportDensity / 220) : 0.02

@@ -119,14 +119,14 @@ function createS20(kit: import('../types').SceneKit): ScenarioRuntime {
       if (!truck.group.visible) continue
       if (!truck.arrived) {
         const distance = stations[i].distanceTo(incident) * 1.15
-        truck.progress = Math.min(1, truck.progress + (effectiveSpeed * dt) / distance)
+        const pace = 0.45 + 0.55 * Math.sin(Math.PI * Math.min(1, truck.progress))
+        truck.progress = Math.min(1, truck.progress + (effectiveSpeed * pace * dt) / distance)
         const point = positionOnPath(i, truck.progress)
         truck.group.position.set(point.x, 0, point.z)
         const ahead = positionOnPath(i, Math.min(1, truck.progress + 0.02))
         truck.group.rotation.y = Math.atan2(ahead.x - point.x, ahead.z - point.z)
         if (truck.progress >= 1) {
           truck.arrived = true
-          truck.group.position.set(40 + i * 8, 0, 30)
           if (firstArrival < 0) firstArrival = simTime
         }
       }
@@ -144,8 +144,14 @@ function createS20(kit: import('../types').SceneKit): ScenarioRuntime {
     fire.scale.setScalar(pulse * (4 + severity * 8))
     for (const puff of smoke.children) {
       puff.position.y += dt * (2 + severity * 3)
-      puff.position.x += Math.sin(simTime + puff.position.y) * dt * 0.6
-      if (puff.position.y > 40) puff.position.y = 8
+      puff.position.x += Math.sin(simTime * 0.9 + puff.position.y * 0.12) * dt * 0.8
+      puff.position.z += Math.cos(simTime * 0.7 + puff.position.y * 0.16) * dt * 0.5
+      if (puff.position.y > 56) puff.position.y = 8
+      const fadeOut = Math.max(0, Math.min(1, (56 - puff.position.y) / 18))
+      const fadeIn = Math.max(0, Math.min(1, (puff.position.y - 8) / 14))
+      const material = (puff as THREE.Mesh).material as THREE.MeshBasicMaterial
+      material.opacity = 0.22 * fadeOut * fadeIn
+      puff.scale.setScalar(0.75 + puff.position.y * 0.012)
     }
     coverage = (5 + severity * 22) * (coordination ? 1.2 : 1)
     fire.material.opacity = 0.45 + Math.sin(simTime * 7) * 0.12

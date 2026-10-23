@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
-import { addBox, addLine, addStageGround, disposeObject, seeded, surface, toRad } from '../helpers'
+import { addBox, addLine, addStageGround, disposeObject, seeded, surface, toRad, updateLine } from '../helpers'
 
 interface Boulder {
   mesh: THREE.Mesh
@@ -150,28 +150,27 @@ function createS03(kit: import('../types').SceneKit): ScenarioRuntime {
       item.mesh.position.x += item.velocity.x * dt
       item.mesh.position.z += item.velocity.z * dt
       item.mesh.position.y = groundY(item.mesh.position.x, slope) + item.radius
-      item.mesh.rotation.x -= item.velocity.x * dt * 0.4
-      item.mesh.rotation.z += item.velocity.z * dt * 0.4
+      item.mesh.rotation.z -= (item.velocity.x * dt) / Math.max(0.4, item.radius)
+      item.mesh.rotation.x -= (item.velocity.z * dt) / Math.max(0.4, item.radius)
       const barrierTop = 1 + barrierValue * 10
       if (!item.intercepted && item.mesh.position.x > 6 && item.mesh.position.x < 12 && item.mesh.position.y < barrierTop) {
         if (barrierValue > 0.3) {
           item.intercepted = true
-          item.velocity.x *= -0.18
-          item.velocity.z *= 0.4
+          item.velocity.x *= -0.22
+          item.velocity.z *= 0.42
           intercepted += 1
-          item.mesh.position.x = 5
+          item.mesh.position.x = 5.6
         }
       }
       maxSpeed = Math.max(maxSpeed, item.velocity.length())
       runout = Math.max(runout, item.mesh.position.x)
       if (showTrail) {
         item.clock += dt
-        if (item.clock > 0.12) {
+        if (item.clock > 0.045) {
           item.clock = 0
           item.points.push(item.mesh.position.clone())
-          if (item.points.length > 80) item.points.shift()
-          item.trail.geometry.dispose()
-          item.trail.geometry = new THREE.BufferGeometry().setFromPoints(item.points)
+          if (item.points.length > 140) item.points.shift()
+          updateLine(item.trail, item.points)
         }
       }
       item.trail.visible = showTrail
@@ -202,10 +201,6 @@ function createS03(kit: import('../types').SceneKit): ScenarioRuntime {
     sync,
     action: (key, p) => {
       if (key === 'release') release(p)
-      if (key === 'rain') {
-        const wet = !flag(p, 'wet', false)
-        p.wet = wet
-      }
     },
     readouts: () => ({
       释放岩块: released,
@@ -268,8 +263,7 @@ export const S03: ScenarioMeta = {
       title: '防护结构',
       params: [{ key: 'barrier', label: '挡墙高度', type: 'range', min: 0, max: 1, step: 0.05, value: 0.7 }],
       actions: [
-        { key: 'release', label: '释放滚石', style: 'primary' },
-        { key: 'rain', label: '切换干湿', style: 'accent' }
+        { key: 'release', label: '释放滚石', style: 'primary' }
       ]
     }
   ],

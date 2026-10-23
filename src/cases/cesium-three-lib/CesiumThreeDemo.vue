@@ -12,6 +12,7 @@ const props = defineProps<{ scenario: string }>()
 const meta = SCENARIO_MAP[props.scenario]
 const host = ref<HTMLElement | null>(null)
 const values = reactive<ParamValues>(meta ? defaultValues(meta) : {})
+const smoothedValues: ParamValues = meta ? { ...defaultValues(meta) } : {}
 const readouts = ref<Record<string, number | string>>({})
 const paused = ref(false)
 const status = ref('初始化中…')
@@ -57,7 +58,21 @@ function resetParams(): void {
 }
 
 function resetCamera(): void {
-  stage?.setView(meta.camera)
+  stage?.setView(meta.camera, 1.1)
+}
+
+function advanceSmoothing(dt: number): void {
+  const blend = 1 - Math.exp(-7 * dt)
+  for (const key of Object.keys(values)) {
+    const target = values[key]
+    const current = smoothedValues[key]
+    if (typeof target === 'number' && typeof current === 'number') {
+      const next = current + (target - current) * blend
+      smoothedValues[key] = Math.abs(target - next) < 0.0005 ? target : next
+    } else {
+      smoothedValues[key] = target
+    }
+  }
 }
 
 onMounted(() => {
@@ -79,7 +94,10 @@ onMounted(() => {
   runtime.sync?.({ ...values })
   let accumulator = 0
   stage.onFrame = (dt) => {
-    if (!paused.value) runtime?.update(dt, { ...values })
+    if (!paused.value) {
+      advanceSmoothing(dt)
+      runtime?.update(dt, smoothedValues)
+    }
     accumulator += dt
     if (accumulator >= 0.2) {
       accumulator = 0

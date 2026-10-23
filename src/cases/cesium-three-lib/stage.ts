@@ -23,16 +23,25 @@ export class GeoThreeStage {
   private readonly worldMatrix = new Matrix4()
   private readonly matrixArray: number[] = new Array<number>(16)
   private readonly anchor: GeoAnchor
-  private accumulator = 0
   private lastTime = performance.now()
   private disposed = false
+  private frameAverage = 1 / 60
+  private qualityTimer = 0
+  private qualityScale = 0.7
 
   constructor(viewer: Viewer, container: HTMLElement, anchor: GeoAnchor) {
     this.viewer = viewer
     this.container = container
     this.anchor = anchor
 
-    const pixelRatio = Math.min(1.75, window.devicePixelRatio || 1)
+    viewer.resolutionScale = this.qualityScale
+    viewer.scene.postProcessStages.fxaa.enabled = false
+    viewer.scene.globe.maximumScreenSpaceError = 4
+    viewer.scene.globe.showGroundAtmosphere = false
+    viewer.scene.fog.enabled = false
+    if (viewer.scene.sun) viewer.scene.sun.show = false
+
+    const pixelRatio = Math.min(1.5, window.devicePixelRatio || 1)
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
     this.renderer.setPixelRatio(pixelRatio)
     this.renderer.setClearColor(0x000000, 0)
@@ -78,7 +87,7 @@ export class GeoThreeStage {
     Matrix4.multiply(this.enuToEcef, this.axisSwap, this.threeToEcef)
   }
 
-  setView(camera: CameraSpec): void {
+  setView(camera: CameraSpec, duration = 0): void {
     const range = camera.range
     const pitch = (camera.pitch * Math.PI) / 180
     const heading = (camera.heading * Math.PI) / 180
@@ -88,7 +97,11 @@ export class GeoThreeStage {
     const north = -horizontal * Math.cos(heading)
     const up = targetY + range * Math.sin(-pitch)
     const destination = Matrix4.multiplyByPoint(this.enuToEcef, new Cartesian3(east, north, up), new Cartesian3())
-    this.viewer.camera.setView({ destination, orientation: { heading, pitch, roll: 0 } })
+    if (duration > 0) {
+      this.viewer.camera.flyTo({ destination, orientation: { heading, pitch, roll: 0 }, duration })
+    } else {
+      this.viewer.camera.setView({ destination, orientation: { heading, pitch, roll: 0 } })
+    }
   }
 
   focus(target: THREE.Vector3, camera: Partial<CameraSpec>): void {
@@ -117,17 +130,15 @@ export class GeoThreeStage {
   private renderFrame(): void {
     if (this.disposed || this.viewer.isDestroyed()) return
     const now = performance.now()
-    const elapsed = Math.min(0.1, Math.max(0, (now - this.lastTime) / 1000))
+    const raw = Math.max(0, (now - this.lastTime) / 1000)
     this.lastTime = now
-    const fixedDt = 1 / 60
-    this.accumulator += elapsed
-    let steps = 0
-    while (this.accumulator >= fixedDt && steps < 5) {
-      this.onFrame?.(fixedDt)
-      this.accumulator -= fixedDt
-      steps += 1
+    const elapsed = Math.min(0.35, raw)
+    if (elapsed > 0) {
+      const stepCount = Math.min(18, Math.max(1, Math.ceil(elapsed * 60)))
+      const step = elapsed / stepCount
+      for (let i = 0; i < stepCount; i += 1) this.onFrame?.(step)
     }
-    if (steps >= 5 && this.accumulator >= fixedDt) this.accumulator = 0
+    this.adaptQuality(raw)
 
     Matrix4.multiply(this.viewer.camera.viewMatrix, this.threeToEcef, this.viewMatrix)
     Matrix4.inverse(this.viewMatrix, this.worldMatrix)
@@ -141,6 +152,24 @@ export class GeoThreeStage {
     this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert()
 
     this.renderer.render(this.scene, this.camera)
+  }
+
+  private adaptQuality(realDt: number): void {
+    if (realDt <= 0 || realDt > 2) return
+    this.frameAverage = this.frameAverage * 0.9 + realDt * 0.1
+    this.qualityTimer += realDt
+    if (this.qualityTimer < 0.9) return
+    this.qualityTimer = 0
+    let scale = this.qualityScale
+    if (this.frameAverage > 1 / 15) scale -= 0.15
+    else if (this.frameAverage > 1 / 30) scale -= 0.1
+    else if (this.frameAverage < 1 / 58 && scale < 1) scale += 0.05
+    scale = Math.min(1, Math.max(0.45, scale))
+    if (Math.abs(scale - this.qualityScale) < 0.001) return
+    this.qualityScale = scale
+    this.viewer.resolutionScale = scale
+    const pixelRatio = Math.min(1.5, window.devicePixelRatio || 1) * (scale < 0.7 ? 0.9 : 1)
+    this.renderer.setPixelRatio(pixelRatio)
   }
 
   getAnchor(): GeoAnchor {

@@ -1,0 +1,709 @@
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import type { Viewer } from 'cesium'
+import { createMapScene, destroyScene, loadBingImagery } from '../../lib/cesium-scene'
+import { GeoThreeStage } from './stage'
+import type { ParamValue, ParamValues, ScenarioRuntime } from './types'
+import { defaultValues } from './types'
+import { SCENARIO_MAP } from './scenarios'
+
+const props = defineProps<{ scenario: string }>()
+
+const meta = SCENARIO_MAP[props.scenario]
+const host = ref<HTMLElement | null>(null)
+const values = reactive<ParamValues>(meta ? defaultValues(meta) : {})
+const readouts = ref<Record<string, number | string>>({})
+const paused = ref(false)
+const status = ref('初始化中…')
+const infoOpen = ref(false)
+
+let viewer: Viewer | null = null
+let stage: GeoThreeStage | null = null
+let runtime: ScenarioRuntime | null = null
+let syncTimer: number | null = null
+
+function asNumber(value: ParamValue | undefined): number {
+  return typeof value === 'number' ? value : 0
+}
+
+function asText(value: ParamValue | undefined): string {
+  return typeof value === 'string' ? value : String(value ?? '')
+}
+
+function readout(key: string): string {
+  const value = readouts.value[key]
+  if (value === undefined) return '—'
+  return String(value)
+}
+
+function onInput(key: string, type: string, event: Event): void {
+  const target = event.target as HTMLInputElement | HTMLSelectElement
+  if (type === 'range') values[key] = Number(target.value)
+  else if (type === 'toggle') values[key] = (target as HTMLInputElement).checked
+  else values[key] = target.value
+}
+
+function togglePause(): void {
+  paused.value = !paused.value
+  status.value = paused.value ? '已暂停' : '运行中'
+}
+
+function runAction(key: string): void {
+  runtime?.action?.(key, { ...values })
+}
+
+function resetParams(): void {
+  Object.assign(values, defaultValues(meta))
+}
+
+function resetCamera(): void {
+  stage?.setView(meta.camera)
+}
+
+onMounted(() => {
+  if (!host.value || !meta) return
+  viewer = createMapScene(host.value)
+  loadBingImagery(viewer, {}, (layer) => {
+    layer.brightness = 0.58
+    layer.saturation = 0.45
+    layer.contrast = 1.1
+  })
+  stage = new GeoThreeStage(viewer, host.value, meta.anchor)
+  stage.setView(meta.camera)
+  runtime = meta.create({
+    root: stage.root,
+    accent: meta.accent,
+    focus: (target, camera) => stage?.focus(target, camera)
+  })
+  if (runtime.object !== stage.root) stage.root.add(runtime.object)
+  runtime.sync?.({ ...values })
+  let accumulator = 0
+  stage.onFrame = (dt) => {
+    if (!paused.value) runtime?.update(dt, { ...values })
+    accumulator += dt
+    if (accumulator >= 0.2) {
+      accumulator = 0
+      readouts.value = runtime?.readouts() ?? {}
+    }
+  }
+  readouts.value = runtime.readouts()
+  status.value = '运行中'
+})
+
+onBeforeUnmount(() => {
+  if (syncTimer !== null) window.clearTimeout(syncTimer)
+  runtime?.dispose()
+  runtime = null
+  stage?.dispose()
+  stage = null
+  if (viewer) destroyScene(viewer)
+  viewer = null
+})
+
+watch(
+  values,
+  () => {
+    if (syncTimer !== null) window.clearTimeout(syncTimer)
+    syncTimer = window.setTimeout(() => {
+      runtime?.sync?.({ ...values })
+    }, 140)
+  },
+  { deep: true }
+)
+</script>
+
+<template>
+  <div v-if="meta" class="ct-shell" :style="{ '--ct-accent': meta.accent }">
+    <div ref="host" class="scene-canvas"></div>
+
+    <div class="scene-head">
+      <div class="head-title">{{ meta.title }}</div>
+      <div class="head-sub">{{ meta.subtitle }}</div>
+      <div class="head-tag">{{ meta.tag }}</div>
+    </div>
+
+    <div class="metric-strip">
+      <div v-for="metric in meta.metrics" :key="metric.key" class="metric-card">
+        <span class="metric-label">{{ metric.label }}</span>
+        <span class="metric-value">{{ readout(metric.key) }}</span>
+      </div>
+    </div>
+
+    <div class="control-panel">
+      <div class="panel-title-row">
+        <div>
+          <div class="panel-title">{{ meta.title }}</div>
+          <div class="panel-sub">参数面板 · {{ meta.sections.reduce((sum, section) => sum + (section.params?.length ?? 0), 0) }} 项</div>
+        </div>
+        <button class="info-btn" title="查看说明" @click="infoOpen = true">说明</button>
+      </div>
+
+      <div v-for="section in meta.sections" :key="section.title" class="panel-section">
+        <div class="section-title">{{ section.title }}</div>
+        <div v-for="param in section.params ?? []" :key="param.key" class="param-row">
+          <div class="param-head">
+            <span class="param-label">{{ param.label }}</span>
+            <span v-if="param.type === 'range'" class="param-value">{{ asNumber(values[param.key]).toFixed(param.step < 1 ? 2 : 0) }}{{ param.unit ?? '' }}</span>
+          </div>
+
+          <input
+            v-if="param.type === 'range'"
+            class="ct-range"
+            type="range"
+            :min="param.min"
+            :max="param.max"
+            :step="param.step"
+            :value="asNumber(values[param.key])"
+            @input="onInput(param.key, param.type, $event)"
+          />
+
+          <select
+            v-else-if="param.type === 'select'"
+            class="ct-select"
+            :value="asText(values[param.key])"
+            @change="onInput(param.key, param.type, $event)"
+          >
+            <option v-for="option in param.options" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+
+          <label v-else-if="param.type === 'toggle'" class="ct-toggle">
+            <input
+              type="checkbox"
+              :checked="Boolean(values[param.key])"
+              @change="onInput(param.key, param.type, $event)"
+            />
+            <span class="toggle-track"><span class="toggle-dot"></span></span>
+            <span class="toggle-text">{{ Boolean(values[param.key]) ? '开启' : '关闭' }}</span>
+          </label>
+
+          <input
+            v-else-if="param.type === 'color'"
+            class="ct-color"
+            type="color"
+            :value="asText(values[param.key])"
+            @input="onInput(param.key, param.type, $event)"
+          />
+        </div>
+
+        <div v-if="section.actions?.length" class="button-row">
+          <button
+            v-for="action in section.actions"
+            :key="action.key"
+            class="action-button"
+            :class="action.style ?? 'primary'"
+            @click="runAction(action.key)"
+          >
+            {{ action.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="section-title">播放与视角</div>
+      <div class="button-row">
+        <button class="action-button primary" @click="togglePause">{{ paused ? '继续' : '暂停' }}</button>
+        <button class="action-button accent" @click="resetCamera">重置视角</button>
+      </div>
+      <div class="button-row">
+        <button class="action-button danger" @click="resetParams">重置参数</button>
+      </div>
+
+      <div class="status-line">状态：{{ status }} · 相机与三维层逐帧同步</div>
+      <div class="hint">{{ meta.hint }}</div>
+    </div>
+
+    <div v-if="meta.legend?.length" class="legend">
+      <div v-for="item in meta.legend" :key="item.label" class="legend-row">
+        <span class="legend-dot" :style="{ background: item.color }"></span>
+        <span class="legend-text">{{ item.label }}</span>
+      </div>
+    </div>
+
+    <div v-if="infoOpen" class="info-overlay" @click.self="infoOpen = false">
+      <div class="info-modal">
+        <div class="info-head">
+          <span class="info-title">{{ meta.title }}</span>
+          <button class="info-close" title="关闭" @click="infoOpen = false">×</button>
+        </div>
+        <div class="info-body">
+          <p class="info-text">{{ meta.description }}</p>
+          <p class="info-label">实现说明</p>
+          <ul class="info-list">
+            <li v-for="(line, index) in meta.info" :key="index" class="info-text">{{ line }}</li>
+          </ul>
+          <p class="info-label">交互提示</p>
+          <p class="info-text">{{ meta.hint }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.ct-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #08111c;
+}
+
+.scene-canvas {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.scene-head {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 46%;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 40%, transparent);
+  border-left: 3px solid var(--ct-accent);
+  border-radius: 7px;
+  background: rgba(6, 15, 26, 0.78);
+  backdrop-filter: blur(5px);
+  pointer-events: none;
+}
+
+.head-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #eaf7ff;
+}
+
+.head-sub {
+  font-size: 10px;
+  color: #9dbbcb;
+}
+
+.head-tag {
+  margin-top: 2px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--ct-accent);
+}
+
+.metric-strip {
+  position: absolute;
+  top: 100px;
+  left: 16px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 176px;
+  pointer-events: none;
+}
+
+.metric-card {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 9px;
+  border: 1px solid rgba(137, 210, 233, 0.2);
+  border-radius: 6px;
+  background: rgba(6, 18, 31, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.metric-label {
+  font-size: 10px;
+  color: #8fa9bc;
+}
+
+.metric-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ct-accent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.control-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 296px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid rgba(137, 210, 233, 0.28);
+  border-radius: 9px;
+  background: rgba(8, 24, 40, 0.93);
+  backdrop-filter: blur(6px);
+  color: #ddf2f8;
+  font-size: 11px;
+}
+
+.panel-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.panel-sub {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--ct-accent);
+}
+
+.info-btn {
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 60%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ct-accent) 18%, transparent);
+  color: var(--ct-accent);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.info-btn:hover {
+  background: color-mix(in srgb, var(--ct-accent) 34%, transparent);
+}
+
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.section-title {
+  margin-top: 7px;
+  margin-bottom: 2px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(137, 210, 233, 0.16);
+  font-size: 11px;
+  font-weight: 700;
+  color: #7fd0e6;
+}
+
+.param-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.param-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.param-label {
+  color: #c7dce8;
+}
+
+.param-value {
+  color: #9fd6ef;
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-range {
+  width: 100%;
+  height: 4px;
+  margin: 4px 0 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 3px;
+  background: #1e2d3a;
+  outline: none;
+  cursor: pointer;
+}
+
+.ct-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid #0d2233;
+  border-radius: 50%;
+  background: var(--ct-accent);
+  cursor: pointer;
+}
+
+.ct-range::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: 2px solid #0d2233;
+  border-radius: 50%;
+  background: var(--ct-accent);
+  cursor: pointer;
+}
+
+.ct-select {
+  margin: 3px 0 5px;
+  padding: 4px 6px;
+  border: 1px solid rgba(137, 210, 233, 0.3);
+  border-radius: 5px;
+  background: rgba(21, 48, 78, 0.7);
+  color: #ddf2f8;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.ct-color {
+  width: 100%;
+  height: 26px;
+  margin: 3px 0 5px;
+  padding: 0;
+  border: 1px solid rgba(137, 210, 233, 0.3);
+  border-radius: 5px;
+  background: rgba(21, 48, 78, 0.7);
+  cursor: pointer;
+}
+
+.ct-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 3px 0 5px;
+  cursor: pointer;
+  color: #b9d2e2;
+}
+
+.ct-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle-track {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 30px;
+  height: 15px;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: #223444;
+  transition: background 0.18s ease;
+}
+
+.toggle-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #7e95a6;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.ct-toggle input:checked + .toggle-track {
+  background: color-mix(in srgb, var(--ct-accent) 32%, #223444);
+}
+
+.ct-toggle input:checked + .toggle-track .toggle-dot {
+  transform: translateX(15px);
+  background: var(--ct-accent);
+}
+
+.toggle-text {
+  font-size: 10px;
+  color: #8fa9bc;
+}
+
+.button-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.action-button {
+  flex: 1;
+  min-height: 27px;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #edfaff;
+}
+
+.action-button.primary {
+  background: #257f9e;
+}
+
+.action-button.accent {
+  background: #8a6d1a;
+  color: #fff3d6;
+}
+
+.action-button.danger {
+  background: #4a5a72;
+  color: #ffd6d6;
+}
+
+.status-line {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #9fb8d4;
+}
+
+.hint {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(137, 210, 233, 0.16);
+  font-size: 10px;
+  line-height: 1.7;
+  color: #7f97ad;
+}
+
+.legend {
+  position: absolute;
+  left: 16px;
+  bottom: 34px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 1px solid rgba(137, 210, 233, 0.2);
+  border-radius: 7px;
+  background: rgba(6, 18, 31, 0.72);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.legend-text {
+  font-size: 10px;
+  color: #a9c2d2;
+}
+
+.info-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 26px;
+  box-sizing: border-box;
+  background: rgba(4, 13, 26, 0.6);
+  backdrop-filter: blur(2px);
+}
+
+.info-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 92%);
+  max-height: 88%;
+  padding: 14px 16px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 55%, transparent);
+  border-radius: 10px;
+  background: rgba(10, 28, 48, 0.97);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45);
+  color: #e3f2f8;
+}
+
+.info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ct-accent) 30%, transparent);
+}
+
+.info-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ct-accent);
+}
+
+.info-close {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 50%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ct-accent) 14%, transparent);
+  color: var(--ct-accent);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.info-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  overflow-y: auto;
+  padding: 10px 2px 2px;
+}
+
+.info-label {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #8fd6ff;
+}
+
+.info-text {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.75;
+  color: #c7dce8;
+}
+
+.info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding-left: 16px;
+}
+
+@media (max-width: 1100px) {
+  .control-panel {
+    width: 258px;
+  }
+
+  .scene-head {
+    max-width: 40%;
+  }
+
+  .metric-strip {
+    width: 156px;
+    top: 92px;
+  }
+}
+</style>

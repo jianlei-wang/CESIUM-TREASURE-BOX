@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
 import { addBox, addCylinder, addLine, addSphere, addStageGround, disposeObject, surface } from '../helpers'
+import { createS20Model, S20_STATIONS } from '../simulations/s20.model'
 
 function createS20(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -15,12 +16,7 @@ function createS20(kit: import('../types').SceneKit): ScenarioRuntime {
   root.add(vehicles)
   root.add(incidentGroup)
   const incident = new THREE.Vector3(0, 0, 0)
-  const stations = [
-    new THREE.Vector3(-110, 0, 70),
-    new THREE.Vector3(110, 0, 60),
-    new THREE.Vector3(-100, 0, -70),
-    new THREE.Vector3(100, 0, -80)
-  ]
+  const stations = S20_STATIONS.map(([x, z]) => new THREE.Vector3(x, 0, z))
   const paths = stations.map((station) => {
     const corner = new THREE.Vector3(station.x, 0, incident.z)
     return [station, corner, incident]
@@ -33,7 +29,7 @@ function createS20(kit: import('../types').SceneKit): ScenarioRuntime {
     addBox(group, [0.8, 0.8, 3.4], [2.2, 1.2, 0], surface('#2b3238'))
     addBox(group, [0.5, 0.5, 0.5], [0, 5.9, 0], surface('#4fd6ff', { emissive: '#2f9fc4', emissiveIntensity: 1.4 }))
     vehicles.add(group)
-    return { group, progress: 0, arrived: false, index }
+    return { group, index }
   })
   const drone = new THREE.Group()
   addBox(drone, [4.6, 0.8, 4.6], [0, 0, 0], surface('#39434c'))
@@ -69,33 +65,17 @@ function createS20(kit: import('../types').SceneKit): ScenarioRuntime {
   }
   const dronePath = addLine(routes, [new THREE.Vector3(90, 0.4, 90), new THREE.Vector3(0, 0.4, 0)], '#ffd27a', 0.55)
   dronePath.name = 'drone-route'
-  let simTime = 0
-  let firstArrival = -1
-  let droneEta = 0
-  let dispatched = 0
-  let droneProgress = 0
-  let droneAltitude = 70
-  let severity = 0.5
-  let speedState = 22
-  let teamCount = 2
-  let coverage = 0
   let lastTeams = -1
-  let showRoutes = true
   const droneOrigin = new THREE.Vector3(90, 0, 90)
-  const clock = new THREE.Clock()
-  clock.start()
+  const model = createS20Model({ severity: 0.5, teams: 2, speed: 22, altitude: 70, coordination: true })
 
-  const reset = (count: number): void => {
+  const reset = (): void => {
+    model.reset()
+    const count = model.state.dispatched
     for (let i = 0; i < trucks.length; i += 1) {
-      trucks[i].progress = 0
-      trucks[i].arrived = false
       trucks[i].group.visible = i < count
       trucks[i].group.position.copy(stations[i])
     }
-    droneProgress = 0
-    simTime = 0
-    firstArrival = -1
-    dispatched = count
     drone.visible = true
   }
 
@@ -105,47 +85,43 @@ function createS20(kit: import('../types').SceneKit): ScenarioRuntime {
     return path[1].clone().lerp(path[2], (t - 0.5) / 0.5)
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    speedState = num(p, 'speed', 22)
-    severity = num(p, 'severity', 0.5)
-    droneAltitude = num(p, 'altitude', 70)
-    const coordination = flag(p, 'coordination', true)
-    showRoutes = flag(p, 'routes', true)
-    simTime += dt
-    dispatched = teamCount
-    const effectiveSpeed = speedState * (coordination ? 1.12 : 0.86)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      severity: num(p, 'severity', 0.5),
+      teams: Math.round(num(p, 'teams', 2)),
+      speed: num(p, 'speed', 22),
+      altitude: num(p, 'altitude', 70),
+      coordination: flag(p, 'coordination', true)
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (alpha: number, p: ParamValues): void => {
+    const dt = 1 / 60
+    const showRoutesValue = flag(p, 'routes', true)
+    const altitude = num(p, 'altitude', 70)
+    const severity = num(p, 'severity', 0.5)
+    const state = model.state
     for (let i = 0; i < trucks.length; i += 1) {
-      const truck = trucks[i]
-      if (!truck.group.visible) continue
-      if (!truck.arrived) {
-        const distance = stations[i].distanceTo(incident) * 1.15
-        const pace = 0.45 + 0.55 * Math.sin(Math.PI * Math.min(1, truck.progress))
-        truck.progress = Math.min(1, truck.progress + (effectiveSpeed * pace * dt) / distance)
-        const point = positionOnPath(i, truck.progress)
-        truck.group.position.set(point.x, 0, point.z)
-        const ahead = positionOnPath(i, Math.min(1, truck.progress + 0.02))
-        truck.group.rotation.y = Math.atan2(ahead.x - point.x, ahead.z - point.z)
-        if (truck.progress >= 1) {
-          truck.arrived = true
-          if (firstArrival < 0) firstArrival = simTime
-        }
-      }
+      const truck = state.trucks[i]
+      if (!truck || i >= state.dispatched) continue
+      const progress = Math.min(1, truck.progress + (truck.arrived ? 0 : (state.effectiveSpeed / Math.max(1, truck.distance)) * alpha * dt))
+      const point = positionOnPath(i, progress)
+      trucks[i].group.position.set(point.x, 0, point.z)
+      const ahead = positionOnPath(i, Math.min(1, progress + 0.02))
+      trucks[i].group.rotation.y = Math.atan2(ahead.x - point.x, ahead.z - point.z)
     }
-    droneProgress = Math.min(1, droneProgress + (effectiveSpeed * 1.8 * dt) / 200)
-    const dronePoint = droneOrigin.clone().lerp(incident, droneProgress)
-    dronePoint.y = 12 + Math.sin(droneProgress * Math.PI) * droneAltitude
+    const dronePoint = droneOrigin.clone().lerp(incident, state.droneProgress)
+    dronePoint.y = 12 + Math.sin(state.droneProgress * Math.PI) * altitude
     drone.position.copy(dronePoint)
     drone.rotation.y += dt * 0.6
-    for (const child of drone.children) {
-      if (child.name === 'rotor') child.rotation.y += dt * 40
-    }
-    droneEta = Math.max(0, 200 * (1 - droneProgress) / (effectiveSpeed * 1.8))
-    const pulse = 1 + Math.sin(simTime * 5) * 0.08 + severity * 0.4
+    for (const child of drone.children) if (child.name === 'rotor') child.rotation.y += dt * 40
+    const pulse = 1 + Math.sin(state.time * 5) * 0.08 + severity * 0.4
     fire.scale.setScalar(pulse * (4 + severity * 8))
     for (const puff of smoke.children) {
       puff.position.y += dt * (2 + severity * 3)
-      puff.position.x += Math.sin(simTime * 0.9 + puff.position.y * 0.12) * dt * 0.8
-      puff.position.z += Math.cos(simTime * 0.7 + puff.position.y * 0.16) * dt * 0.5
+      puff.position.x += Math.sin(state.time * 0.9 + puff.position.y * 0.12) * dt * 0.8
+      puff.position.z += Math.cos(state.time * 0.7 + puff.position.y * 0.16) * dt * 0.5
       if (puff.position.y > 56) puff.position.y = 8
       const fadeOut = Math.max(0, Math.min(1, (56 - puff.position.y) / 18))
       const fadeIn = Math.max(0, Math.min(1, (puff.position.y - 8) / 14))
@@ -153,38 +129,49 @@ function createS20(kit: import('../types').SceneKit): ScenarioRuntime {
       material.opacity = 0.22 * fadeOut * fadeIn
       puff.scale.setScalar(0.75 + puff.position.y * 0.012)
     }
-    coverage = (5 + severity * 22) * (coordination ? 1.2 : 1)
-    fire.material.opacity = 0.45 + Math.sin(simTime * 7) * 0.12
-    routes.visible = showRoutes
+    fire.material.opacity = 0.45 + Math.sin(state.time * 7) * 0.12
+    routes.visible = showRoutesValue
+  }
+
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   const sync = (p: ParamValues): void => {
     const count = Math.round(num(p, 'teams', 2))
     if (count !== lastTeams) {
       lastTeams = count
-      teamCount = count
-      reset(count)
+      reset()
     }
   }
 
-  reset(2)
+  reset()
   lastTeams = 2
 
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
-    action: (key, p) => {
-      if (key === 'dispatch') reset(Math.round(num(p, 'teams', 2)))
+    action: (key) => {
+      if (key === 'dispatch') reset()
     },
-    readouts: () => ({
-      首批到场: firstArrival < 0 ? '待抵达' : `${firstArrival.toFixed(1)} s`,
-      出动车辆: `${dispatched} 辆`,
-      无人机到达: `${droneEta.toFixed(0)} s`,
-      覆盖半径: `${coverage.toFixed(0)} m`,
-      事故等级: severity.toFixed(2),
-      仿真时间: `${simTime.toFixed(1)} s`
-    }),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        首批到场: state.firstArrival < 0 ? '待抵达' : `${state.firstArrival.toFixed(1)} s`,
+        出动车辆: `${state.dispatched} 辆`,
+        无人机到达: `${state.droneEta.toFixed(0)} s`,
+        覆盖半径: `${state.coverage.toFixed(0)} m`,
+        事故等级: model.getConfig().severity.toFixed(2),
+        仿真时间: `${state.time.toFixed(1)} s`
+      }
+    },
     dispose: () => disposeObject(root)
   }
 }

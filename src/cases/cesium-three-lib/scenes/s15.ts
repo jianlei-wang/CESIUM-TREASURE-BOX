@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
 import { addBox, addGlowPoints, addStageGround, disposeObject, surface, toRad } from '../helpers'
+import { createS15Model } from '../simulations/s15.model'
 
 function createS15(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -38,43 +39,36 @@ function createS15(kit: import('../types').SceneKit): ScenarioRuntime {
   target.name = 'truck'
   const dust = addGlowPoints(root, 160, '#d8b98a', 1.4, 0.55)
   const dustState: { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }[] = []
-  let simTime = 0
-  let cyclePhase = 0
-  let bucketLoad = 0
-  let lastDump = 0
-  let digAngle = 0
-  let cycleState = 12
   let dustCursor = 0
+  let lastDumpEvent = 0
+  const model = createS15Model({ boomAngle: 38, stickAngle: -62, bucketAngle: 55, swingSpeed: 0.5, soilDensity: 1.6, cycleTime: 12 })
 
-  const update = (dt: number, p: ParamValues): void => {
-    const boomAngle = num(p, 'boomAngle', 38)
-    const stickAngle = num(p, 'stickAngle', -62)
-    const bucketAngle = num(p, 'bucketAngle', 55)
-    const swingSpeed = num(p, 'swingSpeed', 0.5)
-    const density = num(p, 'soilDensity', 1.6)
-    const cycleTime = num(p, 'cycleTime', 12)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      boomAngle: num(p, 'boomAngle', 38),
+      stickAngle: num(p, 'stickAngle', -62),
+      bucketAngle: num(p, 'bucketAngle', 55),
+      swingSpeed: num(p, 'swingSpeed', 0.5),
+      soilDensity: num(p, 'soilDensity', 1.6),
+      cycleTime: num(p, 'cycleTime', 12)
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (alpha: number, p: ParamValues): void => {
+    const dt = 1 / 60
     const showSpoil = flag(p, 'spoil', true)
-    simTime += dt
-    cycleState = cycleTime
-    cyclePhase = (cyclePhase + dt / Math.max(2, cycleTime)) % 1
-    const cycle = cyclePhase
-    const swing = Math.sin(cycle * Math.PI * 2) * 1.05
-    const work = Math.sin(cycle * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5
-    digAngle = Math.sin(cycle * Math.PI * 2) * 18
-    boomPivot.rotation.z = toRad(boomAngle + work * 16)
-    stickPivot.rotation.z = toRad(stickAngle + digAngle * 0.8)
-    bucketPivot.rotation.z = toRad(bucketAngle + digAngle)
-    machine.rotation.y = swing * swingSpeed * 1.4
-    bucketLoad = density * 2.6 * Math.min(1, Math.max(0, Math.sin(cycle * Math.PI)))
+    const state = model.state
+    boomPivot.rotation.z = toRad(state.boom)
+    stickPivot.rotation.z = toRad(state.stick)
+    bucketPivot.rotation.z = toRad(state.bucket)
+    machine.rotation.y = state.swing
     spoil.visible = showSpoil
     dust.visible = showSpoil
-    const drop = cycle > 0.55 && cycle < 0.82
-    if (drop && simTime - lastDump > 0.12) {
-      lastDump = simTime
+    if (state.dumpEvent - lastDumpEvent > 0.08) {
+      lastDumpEvent = state.dumpEvent
       for (let i = 0; i < 8; i += 1) {
-        if (dustState.length < 160) {
-          dustState.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: -1 })
-        }
+        if (dustState.length < 160) dustState.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: -1 })
         const slot = dustState[dustCursor % dustState.length]
         dustCursor += 1
         slot.x = -50 + (Math.random() - 0.5) * 12
@@ -106,25 +100,39 @@ function createS15(kit: import('../types').SceneKit): ScenarioRuntime {
       dustPosition.setXYZ(i, item.x, item.y, item.z)
     }
     dustPosition.needsUpdate = true
+    void alpha
+  }
+
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     action: (key) => {
       if (key === 'reset') {
-        simTime = 0
-        bucketLoad = 0
+        model.reset()
+        lastDumpEvent = 0
         for (const item of dustState) item.life = -1
       }
     },
-    readouts: () => ({
-      铲斗载荷: `${bucketLoad.toFixed(1)} t`,
-      循环时间: `${cycleState.toFixed(1)} s`,
-      小时产量: `${((3600 / Math.max(2, cycleState)) * bucketLoad).toFixed(0)} t/h`,
-      回转角度: `${((machine.rotation.y * 180) / Math.PI).toFixed(0)}°`,
-      仿真时间: `${simTime.toFixed(1)} s`
-    }),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        铲斗载荷: `${state.bucketLoad.toFixed(1)} t`,
+        循环时间: `${model.getConfig().cycleTime.toFixed(1)} s`,
+        小时产量: `${(state.production * 3600 / Math.max(1, state.time)).toFixed(0)} t/h`,
+        回转角度: `${((state.swing * 180) / Math.PI).toFixed(0)}°`,
+        仿真时间: `${state.time.toFixed(1)} s`
+      }
+    },
     dispose: () => disposeObject(root)
   }
 }

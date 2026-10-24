@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
 import { addBox, addLine, addStageGround, disposeObject, surface, updateLine } from '../helpers'
+import { createS08Model } from '../simulations/s08.model'
 
 function createS08(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -59,75 +60,57 @@ function createS08(kit: import('../types').SceneKit): ScenarioRuntime {
   envelope.position.y = 0.08
   root.add(envelope)
 
-  let slewAngle = 0
-  let trolleyRadius = 42
-  let cableLength = 30
-  let swingX = 0
-  let swingZ = 0
-  let swingVX = 0
-  let swingVZ = 0
-  let simTime = 0
-  let swingPeak = 0
-  let tension = 0
   const cablePoints = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
+  const model = createS08Model({ loadMass: 6, cableLength: 30, slewSpeed: 0.28, hoistSpeed: 1.5, wind: 3, damping: 0.35 })
 
-  const update = (dt: number, p: ParamValues): void => {
-    const slewSpeed = num(p, 'slewSpeed', 0.28)
-    const hoistSpeed = num(p, 'hoistSpeed', 1.5)
-    const mass = num(p, 'loadMass', 6)
-    const targetLength = num(p, 'cableLength', 30)
-    const wind = num(p, 'wind', 3)
-    const damping = num(p, 'damping', 0.35)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      loadMass: num(p, 'loadMass', 6),
+      cableLength: num(p, 'cableLength', 30),
+      slewSpeed: num(p, 'slewSpeed', 0.28),
+      hoistSpeed: num(p, 'hoistSpeed', 1.5),
+      wind: num(p, 'wind', 3),
+      damping: num(p, 'damping', 0.35)
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const showEnvelope = flag(p, 'envelope', true)
-    simTime += dt
-    slewAngle += slewSpeed * dt
-    trolleyRadius = 34 + Math.sin(simTime * 0.18) * 22
-    cableLength += (targetLength - cableLength) * Math.min(1, dt * hoistSpeed * 0.32)
-    const drive = slewSpeed * slewSpeed * trolleyRadius * 0.018 + wind * 0.0035
-    swingVX += drive * dt
-    swingVZ += Math.cos(slewAngle * 2.3) * wind * 0.002 * dt
-    const stiffness = 9.81 / Math.max(4, cableLength)
-    swingVX -= swingX * stiffness * dt
-    swingVZ -= swingZ * stiffness * dt
-    const drag = Math.max(0, 1 - damping * dt * 2.2)
-    swingVX *= drag
-    swingVZ *= drag
-    swingX += swingVX * dt
-    swingZ += swingVZ * dt
-    const angle = Math.sqrt(swingX * swingX + swingZ * swingZ)
-    swingPeak = Math.max(swingPeak, (angle * 180) / Math.PI)
-    tension = mass * 9.81 + mass * Math.abs(swingVX) * 2.4
-    slew.rotation.y = slewAngle
+    const state = model.state
+    slew.rotation.y = state.slewAngle
     jib.rotation.y = 0
-    trolley.position.x = trolleyRadius
+    trolley.position.x = state.trolleyRadius
     cablePoints[0].set(0, 0, 0)
-    cablePoints[1].set(swingX * 0.5, -cableLength * 0.5, swingZ * 0.5)
-    cablePoints[2].set(swingX, -cableLength, swingZ)
+    cablePoints[1].set(state.swingX * 0.5, -state.cableLength * 0.5, state.swingZ * 0.5)
+    cablePoints[2].set(state.swingX, -state.cableLength, state.swingZ)
     updateLine(cable, cablePoints)
-    hook.position.set(swingX, -cableLength, swingZ)
-    hook.rotation.z = -swingX * 0.12
-    hook.rotation.x = swingZ * 0.12
+    hook.position.set(state.swingX, -state.cableLength, state.swingZ)
+    hook.rotation.z = -state.swingX * 0.12
+    hook.rotation.x = state.swingZ * 0.12
     envelope.visible = showEnvelope
   }
 
   return {
     object: root,
-    update,
-    action: (key) => {
-      if (key === 'steady') {
-        swingX = 0
-        swingZ = 0
-        swingVX = 0
-        swingVZ = 0
-        swingPeak = 0
-      }
+    update: (dt, p) => {
+      fixedUpdate(dt, p)
+      renderSync(1, p)
     },
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
+    action: (key) => {
+      if (key === 'steady') model.steady()
+    },
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
     readouts: () => ({
-      工作半径: `${trolleyRadius.toFixed(1)} m`,
-      吊物摆角: `${swingPeak.toFixed(1)}°`,
-      钢缆张力: `${tension.toFixed(1)} kN`,
-      吊索长度: `${cableLength.toFixed(1)} m`,
-      仿真时间: `${simTime.toFixed(1)} s`
+      工作半径: `${model.state.trolleyRadius.toFixed(1)} m`,
+      吊物摆角: `${model.state.swingPeak.toFixed(1)}°`,
+      钢缆张力: `${model.state.tension.toFixed(1)} kN`,
+      吊索长度: `${model.state.cableLength.toFixed(1)} m`,
+      仿真时间: `${model.state.time.toFixed(1)} s`
     }),
     dispose: () => disposeObject(root)
   }

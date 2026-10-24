@@ -1,7 +1,9 @@
 import type * as THREE from 'three'
+import type { CalibrationRow, SimulationMode } from './simulations/contract'
 
 export type ParamValue = number | string | boolean
 export type ParamValues = Record<string, ParamValue>
+export type { CalibrationRow, SimulationMode }
 
 export interface RangeParam {
   key: string
@@ -92,6 +94,11 @@ export interface SceneKit {
 export interface ScenarioRuntime {
   object: THREE.Object3D
   update: (dt: number, params: ParamValues) => void
+  fixedUpdate?: (dt: number, params: ParamValues) => void
+  renderSync?: (alpha: number, params: ParamValues) => void
+  setMode?: (mode: SimulationMode) => void
+  diagnostics?: () => Record<string, number | string>
+  calibration?: () => CalibrationRow[]
   sync?: (params: ParamValues) => void
   action?: (key: string, params: ParamValues) => void
   preset?: (key: string) => void

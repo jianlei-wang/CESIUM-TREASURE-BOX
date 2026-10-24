@@ -2,13 +2,14 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
 import { addCylinder, addGlowPoints, addStageGround, disposeObject, seeded, surface, toRad } from '../helpers'
+import { createS10Model, S10_HEIGHT, S10_WIDTH } from '../simulations/s10.model'
 
 function createS10(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
   addStageGround(root, 240, { disc: '#1b2620', accent: kit.accent })
   const pole = addCylinder(root, 0.22, 0.3, 26, [-18, 13, 0], surface('#aab4bb', { metalness: 0.6 }), 12)
   pole.name = 'flag-pole'
-  const clothGeometry = new THREE.PlaneGeometry(30, 18, 24, 14)
+  const clothGeometry = new THREE.PlaneGeometry(S10_WIDTH, S10_HEIGHT, 24, 14)
   const clothBase = Float32Array.from(clothGeometry.attributes.position.array as Float32Array)
   const cloth = new THREE.Mesh(
     clothGeometry,
@@ -47,60 +48,45 @@ function createS10(kit: import('../types').SceneKit): ScenarioRuntime {
   const leaves = addGlowPoints(root, 140, '#d8ef9f', 1.1, 0.72)
   const leafState: { x: number; y: number; z: number; phase: number }[] = []
   for (let i = 0; i < 140; i += 1) leafState.push({ x: (random() - 0.5) * 220, y: random() * 50, z: (random() - 0.5) * 220, phase: random() * 6 })
-  let simTime = 0
   let normalTick = 0
-  let amplitude = 0
-  let canopyOffset = 0
-  let windState = 8
-  let directionState = 45
+  const model = createS10Model({ wind: 8, direction: 45, gust: 0.35, clothStiffness: 0.55, treeSway: 1 })
 
-  const update = (dt: number, p: ParamValues): void => {
-    const wind = num(p, 'wind', 8)
-    const direction = num(p, 'direction', 45)
-    const gust = num(p, 'gust', 0.35)
-    const stiffness = num(p, 'clothStiffness', 0.55)
-    const sway = num(p, 'treeSway', 1)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      wind: num(p, 'wind', 8),
+      direction: num(p, 'direction', 45),
+      gust: num(p, 'gust', 0.35),
+      clothStiffness: num(p, 'clothStiffness', 0.55),
+      treeSway: num(p, 'treeSway', 1)
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (alpha: number, p: ParamValues): void => {
+    const dt = 1 / 60
     const showVectors = flag(p, 'vectors', true)
     const showLeaves = flag(p, 'leaves', true)
-    simTime += dt
-    windState = wind
-    directionState = direction
-    const dirRad = toRad(direction)
-    const windX = Math.sin(dirRad)
-    const windZ = -Math.cos(dirRad)
-    const gustWave = 1 + Math.sin(simTime * 1.7) * gust * 0.55 + Math.sin(simTime * 3.3 + 0.8) * gust * 0.22
-    const effectiveWind = wind * gustWave
+    const sway = num(p, 'treeSway', 1)
+    const state = model.state
     const position = clothGeometry.attributes.position as THREE.BufferAttribute
-    amplitude = 0
     for (let i = 0; i < position.count; i += 1) {
-      const bx = clothBase[i * 3]
-      const by = clothBase[i * 3 + 1]
-      const u = (bx + 15) / 30
-      const v = (by + 9) / 18
-      const wave =
-        Math.sin(u * Math.PI * 3.2 - simTime * (2.5 + effectiveWind * 0.22)) * 0.95 * u +
-        Math.sin(v * Math.PI * 2.4 + u * 2.8 - simTime * 2.1) * 0.55 * u
-      const z = wave * (0.4 + stiffness * 0.9) * (effectiveWind / 12)
-      position.setZ(i, z)
-      amplitude = Math.max(amplitude, Math.abs(z))
+      position.setXYZ(i, state.cloth[i * 3] - S10_WIDTH / 2, state.cloth[i * 3 + 1], state.cloth[i * 3 + 2])
     }
     position.needsUpdate = true
     normalTick += 1
     if (normalTick % 2 === 0) clothGeometry.computeVertexNormals()
-    cloth.rotation.y = Math.atan2(windX, windZ)
-    canopyOffset = 0
+    cloth.rotation.y = Math.atan2(state.windX, state.windZ)
     for (const tree of trees) {
-      const force = effectiveWind * sway * 0.022
-      tree.group.rotation.z = Math.sin(simTime * (1.1 + sway * 0.3) + tree.phase) * force
-      tree.group.rotation.x = Math.cos(simTime * 0.9 + tree.phase) * force * 0.55
-      tree.canopy.rotation.z = Math.sin(simTime * 1.9 + tree.phase) * force * 1.4
-      canopyOffset = Math.max(canopyOffset, Math.abs(force) * 4)
+      const force = state.canopyOffset * 0.012 + state.effectiveWind * sway * 0.009
+      tree.group.rotation.z = Math.sin(state.time * (1.1 + sway * 0.3) + tree.phase) * force
+      tree.group.rotation.x = Math.cos(state.time * 0.9 + tree.phase) * force * 0.55
+      tree.canopy.rotation.z = Math.sin(state.time * 1.9 + tree.phase) * force * 1.4
     }
     vectors.visible = showVectors
     if (showVectors) {
       for (const child of vectors.children) {
-        child.rotation.y = Math.atan2(windX, windZ)
-        const scale = 0.4 + effectiveWind / 16
+        child.rotation.y = Math.atan2(state.windX, state.windZ)
+        const scale = 0.4 + state.effectiveWind / 16
         child.scale.set(scale, scale, scale)
       }
     }
@@ -109,9 +95,9 @@ function createS10(kit: import('../types').SceneKit): ScenarioRuntime {
       const leafPositions = leaves.geometry.attributes.position as THREE.BufferAttribute
       for (let i = 0; i < leafState.length; i += 1) {
         const leaf = leafState[i]
-        leaf.x += windX * effectiveWind * dt * 0.6
-        leaf.z += windZ * effectiveWind * dt * 0.6
-        leaf.y += Math.sin(simTime * 2 + leaf.phase) * dt * 1.2 - dt * 0.4
+        leaf.x += state.windX * state.effectiveWind * dt * 0.6
+        leaf.z += state.windZ * state.effectiveWind * dt * 0.6
+        leaf.y += Math.sin(state.time * 2 + leaf.phase) * dt * 1.2 - dt * 0.4
         if (leaf.x > 120) leaf.x = -120
         if (leaf.x < -120) leaf.x = 120
         if (leaf.z > 120) leaf.z = -120
@@ -123,16 +109,29 @@ function createS10(kit: import('../types').SceneKit): ScenarioRuntime {
     }
   }
 
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
+  }
+
   return {
     object: root,
     update,
-    readouts: () => ({
-      风速: `${windState.toFixed(1)} m/s`,
-      风向: `${directionState.toFixed(0)}°`,
-      旗帜摆幅: `${amplitude.toFixed(2)} m`,
-      树冠位移: `${canopyOffset.toFixed(2)} m`,
-      仿真时间: `${simTime.toFixed(1)} s`
-    }),
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        风速: `${state.effectiveWind.toFixed(1)} m/s`,
+        风向: `${state.direction.toFixed(0)}°`,
+        旗帜摆幅: `${state.amplitude.toFixed(2)} m`,
+        树冠位移: `${state.canopyOffset.toFixed(2)} m`,
+        仿真时间: `${state.time.toFixed(1)} s`
+      }
+    },
     dispose: () => disposeObject(root)
   }
 }

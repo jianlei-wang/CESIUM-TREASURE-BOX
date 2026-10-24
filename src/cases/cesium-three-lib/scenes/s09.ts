@@ -1,21 +1,17 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
-import { addBox, addLine, addStageGround, disposeObject, seeded, surface, updateLine } from '../helpers'
+import { addBox, addLine, addStageGround, disposeObject, surface, updateLine } from '../helpers'
+import { createS09Model, S09_LENGTH, S09_SEGMENTS } from '../simulations/s09.model'
 
 interface DeckSegment {
   mesh: THREE.Mesh
   baseY: number
-  offset: number
-  velocity: number
   x: number
 }
 
 interface BridgeVehicle {
   group: THREE.Group
-  x: number
-  speed: number
-  mass: number
 }
 
 function createS09(kit: import('../types').SceneKit): ScenarioRuntime {
@@ -23,24 +19,21 @@ function createS09(kit: import('../types').SceneKit): ScenarioRuntime {
   addStageGround(root, 280, { disc: '#171f27', accent: kit.accent })
   const bridge = new THREE.Group()
   root.add(bridge)
-  const deckLength = 300
+  const deckLength = S09_LENGTH
   const deckY = 22
   const segments: DeckSegment[] = []
   const vehicles: BridgeVehicle[] = []
-  const segmentCount = 30
+  const segmentCount = S09_SEGMENTS
   const segLength = deckLength / segmentCount
-  let simTime = 0
-  let midspan = 0
-  let naturalFrequency = 1.8
   let lastVehicleCount = -1
-  let resonanceRatio = 0
+  const model = createS09Model({ vehicleMass: 12, vehicleSpeed: 18, vehicleCount: 2, stiffness: 1, damping: 0.08, amplification: 4 })
   let modeLine: THREE.Line | null = null
   const modePoints: THREE.Vector3[] = []
 
   for (let i = 0; i < segmentCount; i += 1) {
     const x = -deckLength / 2 + segLength * (i + 0.5)
     const mesh = addBox(bridge, [segLength * 0.96, 1.1, 16], [x, deckY, 0], surface(i % 2 ? '#68747e' : '#727f89', { roughness: 0.82 }))
-    segments.push({ mesh, baseY: deckY, offset: 0, velocity: 0, x })
+    segments.push({ mesh, baseY: deckY, x })
     modePoints.push(new THREE.Vector3(x, deckY + 2.8, -9))
   }
   addBox(bridge, [deckLength, 0.35, 0.4], [0, deckY + 1.1, -7.8], surface('#d5c07b'))
@@ -67,63 +60,57 @@ function createS09(kit: import('../types').SceneKit): ScenarioRuntime {
   const rebuildVehicles = (count: number): void => {
     for (const item of vehicles) disposeObject(item.group)
     vehicles.length = 0
-    const random = seeded(1818)
-    for (let i = 0; i < count; i += 1) {
+    model.configure({ vehicleCount: count })
+    model.rebuildVehicles()
+    for (const vehicle of model.state.vehicles) {
       const group = buildVehicle()
       bridge.add(group)
-      vehicles.push({ group, x: -deckLength / 2 + random() * deckLength, speed: 14 + random() * 8, mass: 5 + random() * 14 })
+      group.position.set(vehicle.x, deckY + 0.6, 3.6)
+      vehicles.push({ group })
     }
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const mass = num(p, 'vehicleMass', 12)
-    const speed = num(p, 'vehicleSpeed', 18)
-    const stiffness = num(p, 'stiffness', 1)
-    const damping = num(p, 'damping', 0.08)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      vehicleMass: num(p, 'vehicleMass', 12),
+      vehicleSpeed: num(p, 'vehicleSpeed', 18),
+      vehicleCount: Math.round(num(p, 'vehicleCount', 2)),
+      stiffness: num(p, 'stiffness', 1),
+      damping: num(p, 'damping', 0.08),
+      amplification: num(p, 'amplification', 4)
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (alpha: number, p: ParamValues): void => {
+    const dt = 1 / 60
     const amplification = num(p, 'amplification', 4)
     const showMode = flag(p, 'mode', true)
-    simTime += dt
-    naturalFrequency = 1.15 * Math.sqrt(stiffness)
-    resonanceRatio = speed / Math.max(1, naturalFrequency * 10)
-    for (const vehicle of vehicles) {
-      vehicle.speed = speed * (0.75 + vehicle.mass / 30)
-      vehicle.x += vehicle.speed * dt
-      if (vehicle.x > deckLength / 2 + 10) vehicle.x = -deckLength / 2 - 10
+    const state = model.state
+    for (let index = 0; index < segments.length; index += 1) {
+      segments[index].mesh.position.y = segments[index].baseY + state.deflection[index] * amplification
     }
-    let peakDeflection = 0
-    for (const segment of segments) {
-      let target = 0
-      for (const vehicle of vehicles) {
-        const distance = Math.abs(segment.x - vehicle.x)
-        if (distance < 24) {
-          const influence = Math.cos((distance / 24) * Math.PI / 2) * Math.sin(Math.PI * (segment.x + deckLength / 2) / deckLength)
-          target -= influence * (mass * 0.05 + vehicle.mass * 0.02) / stiffness
-        }
-      }
-      const stiffnessForce = 24 * stiffness
-      const acceleration = (target - segment.offset) * stiffnessForce - segment.velocity * damping * 24
-      segment.velocity += acceleration * dt
-      segment.offset += segment.velocity * dt
-      peakDeflection = Math.max(peakDeflection, Math.abs(segment.offset))
-      segment.mesh.position.y = segment.baseY + segment.offset * amplification
-    }
-    for (const vehicle of vehicles) {
+    for (let index = 0; index < state.vehicles.length; index += 1) {
+      const vehicle = state.vehicles[index]
+      const visual = vehicles[index]
+      if (!visual) continue
       const slot = Math.min(segmentCount - 1, Math.max(0, Math.floor((vehicle.x + deckLength / 2) / segLength)))
       const local = segments[slot]
-      vehicle.group.position.set(vehicle.x, deckY + 0.6 + local.offset * amplification, 3.6)
+      visual.group.position.set(vehicle.x + vehicle.speed * alpha * dt, deckY + 0.6 + local.mesh.position.y - local.baseY, 3.6)
     }
-    midspan = peakDeflection
     if (showMode) {
       for (let i = 0; i < segments.length; i += 1) {
-        modePoints[i].y = segments[i].baseY + segments[i].offset * amplification + 2.8
+        modePoints[i].y = segments[i].mesh.position.y + 2.8
       }
-      if (!modeLine) {
-        modeLine = addLine(bridge, modePoints, '#ffd666', 0.9)
-      } else {
-        updateLine(modeLine, modePoints)
-      }
+      if (!modeLine) modeLine = addLine(bridge, modePoints, '#ffd666', 0.9)
+      else updateLine(modeLine, modePoints)
     }
     if (modeLine) modeLine.visible = showMode
+  }
+
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   const sync = (p: ParamValues): void => {
@@ -139,23 +126,35 @@ function createS09(kit: import('../types').SceneKit): ScenarioRuntime {
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key) => {
       if (key === 'restart') {
-        simTime = 0
-        for (const segment of segments) {
-          segment.offset = 0
-          segment.velocity = 0
+        model.rebuildVehicles()
+        const state = model.state
+        for (let index = 0; index < state.vehicles.length; index += 1) {
+          const vehicle = state.vehicles[index]
+          const visual = vehicles[index]
+          if (!visual) continue
+          const slot = Math.min(segmentCount - 1, Math.max(0, Math.floor((vehicle.x + deckLength / 2) / segLength)))
+          visual.group.position.set(vehicle.x, deckY + 0.6 + model.state.deflection[slot], 3.6)
         }
       }
     },
-    readouts: () => ({
-      跨中挠度: `${(midspan * 1000).toFixed(1)} mm`,
-      一阶频率: `${naturalFrequency.toFixed(2)} Hz`,
-      共振比: `${resonanceRatio.toFixed(2)}`,
-      活载车辆: vehicles.length,
-      仿真时间: `${simTime.toFixed(1)} s`
-    }),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        跨中挠度: `${(state.midspan * 1000).toFixed(1)} mm`,
+        一阶频率: `${state.naturalFrequency.toFixed(2)} Hz`,
+        共振比: `${state.resonanceRatio.toFixed(2)}`,
+        活载车辆: state.vehicles.length,
+        仿真时间: `${state.time.toFixed(1)} s`
+      }
+    },
     dispose: () => {
       if (modeLine) disposeObject(modeLine)
       disposeObject(root)

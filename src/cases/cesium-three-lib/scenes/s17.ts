@@ -1,25 +1,15 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
-import { addBox, addStageGround, disposeObject, seeded, surface } from '../helpers'
-
-interface Agent {
-  x: number
-  z: number
-  vx: number
-  vz: number
-  speed: number
-  offset: number
-  active: boolean
-  evacuated: boolean
-}
+import { addBox, addStageGround, disposeObject, surface } from '../helpers'
+import { createS17Model, S17_MAX_AGENTS, s17Obstacles } from '../simulations/s17.model'
 
 function createS17(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
   addStageGround(root, 250, { disc: '#20201d', accent: kit.accent })
   const walls = new THREE.Group()
   root.add(walls)
-  const maxAgents = 400
+  const maxAgents = S17_MAX_AGENTS
   const agentGeometry = new THREE.CapsuleGeometry(0.75, 2.2, 5, 8)
   const agentMaterial = new THREE.MeshStandardMaterial({ roughness: 0.75 })
   const crowd = new THREE.InstancedMesh(agentGeometry, agentMaterial, maxAgents)
@@ -32,20 +22,11 @@ function createS17(kit: import('../types').SceneKit): ScenarioRuntime {
   exitGlow.rotation.x = -Math.PI / 2
   exitGlow.position.set(0, 0.08, -51)
   root.add(exitGlow)
-  const agents: Agent[] = []
   const matrix = new THREE.Matrix4()
   const color = new THREE.Color()
-  const random = seeded(2277)
-  for (let i = 0; i < maxAgents; i += 1) {
-    agents.push({ x: (random() - 0.5) * 100, z: (random() - 0.5) * 84, vx: 0, vz: 0, speed: 0, offset: random() * 4 - 2, active: false, evacuated: false })
-  }
-  let simTime = 0
-  let evacuated = 0
-  let maxDensity = 0
-  let flowRate = 0
   let lastExit = -1
   let lastWalls = -1
-  let panicState = 0.2
+  const model = createS17Model({ crowdSize: 200, agentSpeed: 1.6, panic: 0.25, exitWidth: 4, wallCount: 2 })
 
   const buildWalls = (exitWidth: number, wallCount: number): void => {
     for (const child of [...walls.children]) disposeObject(child)
@@ -61,66 +42,38 @@ function createS17(kit: import('../types').SceneKit): ScenarioRuntime {
     addBox(walls, [110, 7, 2.2], [0, 3.5, 52], surface('#5c646b'))
     addBox(walls, [2.2, 7, 104], [-55, 3.5, 0], surface('#5c646b'))
     addBox(walls, [2.2, 7, 104], [55, 3.5, 0], surface('#5c646b'))
-    for (let i = 0; i < wallCount; i += 1) {
-      const z = -20 + (i % 3) * 22
-      const x = i % 2 === 0 ? -22 : 24
-      addBox(walls, [2, 5, 18], [x, 2.5, z], surface('#7d848a'))
+    for (const obstacle of s17Obstacles(wallCount)) {
+      addBox(walls, [obstacle.halfX * 2, 5, obstacle.halfZ * 2], [obstacle.x, 2.5, obstacle.z], surface('#7d848a'))
     }
     exitGlow.scale.set(gap, 1, 1)
     exitGlow.position.set(0, 0.08, -51)
   }
 
-  const resetCrowd = (count: number): void => {
-    for (let i = 0; i < maxAgents; i += 1) {
-      const agent = agents[i]
-      agent.active = i < count
-      agent.evacuated = false
-      agent.x = (random() - 0.5) * 96
-      agent.z = (random() - 0.5) * 88
-      agent.vx = 0
-      agent.vz = 0
-      agent.speed = 1 + random() * 0.8
-      agent.offset = random() * 4 - 2
-    }
-    evacuated = 0
-    simTime = 0
-    maxDensity = 0
-    flowRate = 0
+  const resetCrowd = (): void => {
+    model.resetCrowd()
     matrix.makeScale(0, 0, 0)
     for (let i = 0; i < maxAgents; i += 1) crowd.setMatrixAt(i, matrix)
     crowd.instanceMatrix.needsUpdate = true
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const count = Math.round(num(p, 'crowdSize', 200))
-    const panic = num(p, 'panic', 0.25)
-    const speed = num(p, 'agentSpeed', 1.6)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      crowdSize: Math.round(num(p, 'crowdSize', 200)),
+      agentSpeed: num(p, 'agentSpeed', 1.6),
+      panic: num(p, 'panic', 0.25),
+      exitWidth: num(p, 'exitWidth', 4),
+      wallCount: Math.round(num(p, 'wallCount', 2))
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const showDensity = flag(p, 'density', true)
-    panicState = panic
-    simTime += dt
+    const panic = num(p, 'panic', 0.25)
+    const state = model.state
     for (let i = 0; i < maxAgents; i += 1) {
-      const agent = agents[i]
-      if (!agent.active || agent.evacuated) continue
-      const dx = 0 - agent.x
-      const dz = -60 - agent.z
-      const distance = Math.max(0.001, Math.sqrt(dx * dx + dz * dz))
-      const jitter = Math.sin(simTime * 1.7 + i * 2.7) * panic * 1.9
-      const desiredX = (dx / distance) * speed * (1 + panic * 1.2) + Math.cos(simTime + i) * panic
-      const desiredZ = (dz / distance) * speed * (1 + panic * 1.2) + Math.sin(simTime * 1.3 + i) * panic
-      agent.vx += (desiredX + jitter - agent.vx) * Math.min(1, dt * 3)
-      agent.vz += (desiredZ + jitter * 0.4 - agent.vz) * Math.min(1, dt * 3)
-      agent.x += agent.vx * dt
-      agent.z += agent.vz * dt
-      if (agent.x < -52) agent.x = -52
-      if (agent.x > 52) agent.x = 52
-      if (agent.z > 49) agent.z = 49
-      if (Math.abs(agent.x) > 2.6 && agent.z < -48) {
-        agent.z = -48
-        agent.x += (agent.x > 0 ? 1 : -1) * dt * 4
-      }
-      if (agent.z < -53 && Math.abs(agent.x) < 7) {
-        agent.evacuated = true
-        evacuated += 1
+      const agent = state.agents[i]
+      if (!agent || !agent.active || agent.evacuated) {
         matrix.makeScale(0, 0, 0)
         crowd.setMatrixAt(i, matrix)
         continue
@@ -133,14 +86,13 @@ function createS17(kit: import('../types').SceneKit): ScenarioRuntime {
     }
     crowd.instanceMatrix.needsUpdate = true
     if (crowd.instanceColor) crowd.instanceColor.needsUpdate = true
-    const area = 110 * 104
-    maxDensity = Math.max(maxDensity, (count * (1 - evacuated / Math.max(1, count))) / area * 100)
-    flowRate = simTime > 0 ? (evacuated / simTime) * 60 : 0
-    const elapsed = simTime
-    if (elapsed > 1) {
-      exitGlow.material.opacity = 0.4 + 0.3 * Math.sin(simTime * 4)
-    }
+    if (state.time > 1) exitGlow.material.opacity = 0.4 + 0.3 * Math.sin(state.time * 4)
     agentMaterial.roughness = 0.7
+  }
+
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   const sync = (p: ParamValues): void => {
@@ -154,31 +106,37 @@ function createS17(kit: import('../types').SceneKit): ScenarioRuntime {
     const count = Math.round(num(p, 'crowdSize', 200))
     if (count !== lastExit) {
       lastExit = count
-      resetCrowd(count)
+      resetCrowd()
     }
   }
 
   buildWalls(4, 2)
-  resetCrowd(200)
+  resetCrowd()
   lastWalls = 4 * 100 + 2
   lastExit = 200
 
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
-    action: (key, p) => {
-      if (key === 'reset') {
-        resetCrowd(Math.round(num(p, 'crowdSize', 200)))
+    action: (key) => {
+      if (key === 'reset') resetCrowd()
+    },
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        已疏散人数: state.evacuated,
+        出口流率: `${state.flowRate.toFixed(1)} 人/min`,
+        峰值密度: `${state.maxDensity.toFixed(1)} 人/100m²`,
+        人群恐慌度: model.getConfig().panic.toFixed(2),
+        仿真时间: `${state.time.toFixed(1)} s`
       }
     },
-    readouts: () => ({
-      已疏散人数: evacuated,
-      出口流率: `${flowRate.toFixed(1)} 人/min`,
-      峰值密度: `${maxDensity.toFixed(1)} 人/100m²`,
-      人群恐慌度: panicState.toFixed(2),
-      仿真时间: `${simTime.toFixed(1)} s`
-    }),
     dispose: () => disposeObject(root)
   }
 }

@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
-import { addBox, addLine, addSphere, addStageGround, damp, disposeObject, seeded, surface } from '../helpers'
+import { addBox, addLine, addSphere, addStageGround, disposeObject, seeded, surface } from '../helpers'
+import { createS16Model, type S16Obstacle } from '../simulations/s16.model'
 
 function createS16(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -24,6 +25,14 @@ function createS16(kit: import('../types').SceneKit): ScenarioRuntime {
     addBox(city, [width * 0.62, 0.4, width * 0.62], [x, height + 0.2, z], surface('#7fd0e6', { emissive: '#2f90ad', emissiveIntensity: 0.7 }))
   }
   robot.scale.setScalar(1.8)
+  const obstacles: S16Obstacle[] = []
+  for (const child of city.children) {
+    if (!(child instanceof THREE.Mesh)) continue
+    const geometry = child.geometry as THREE.BoxGeometry
+    obstacles.push({ x: child.position.x, z: child.position.z, width: geometry.parameters.width, depth: geometry.parameters.depth })
+  }
+  const model = createS16Model({ speed: 1.6, waypoints: 6, robotType: 'wheeled', scanRange: 25, avoidance: true, obstacles })
+
   addBox(robot, [5.6, 1.4, 4.2], [0, 1.2, 0], surface('#e07a3f', { roughness: 0.5, metalness: 0.2 }))
   addBox(robot, [3.2, 2.2, 2.8], [0, 3, -0.2], surface('#283b4a'))
   addSphere(robot, 0.65, [0, 4.5, 0], surface('#9fd8ef', { emissive: '#4fb3d9', emissiveIntensity: 0.7 }), 12)
@@ -38,16 +47,8 @@ function createS16(kit: import('../types').SceneKit): ScenarioRuntime {
   robot.add(scanner)
   let waypoints: THREE.Vector3[] = []
   let route: THREE.Vector3[] = []
-  let routeLength = 1
-  let progress = 0
-  let battery = 100
-  let nearest = 999
-  let scanned = '—'
-  let simTime = 0
   let lastWaypoints = -1
-  let speedState = 1.6
-  let headingState = 0
-  let lateralState = 0
+  let viewHeading = 0
 
   const buildRoute = (count: number): void => {
     for (const child of [...pathGroup.children]) disposeObject(child)
@@ -65,59 +66,36 @@ function createS16(kit: import('../types').SceneKit): ScenarioRuntime {
       for (let step = 0; step < 16; step += 1) route.push(from.clone().lerp(to, step / 16))
     }
     route.push(route[0].clone())
-    routeLength = 0
-    for (let i = 1; i < route.length; i += 1) routeLength += route[i].distanceTo(route[i - 1])
     addLine(pathGroup, route, '#8fd6ff', 0.5)
     for (const point of waypoints) addSphere(pathGroup, 2.4, [point.x, 2.4, point.z], surface('#ffcf80', { emissive: '#c88a2c', emissiveIntensity: 1 }), 12)
-    progress = 0
+    model.configure({ waypoints: count })
+    model.reset()
   }
 
-  const sampleRoute = (distance: number): THREE.Vector3 => {
-    let remaining = distance % Math.max(1, routeLength)
-    for (let i = 1; i < route.length; i += 1) {
-      const segment = route[i].distanceTo(route[i - 1])
-      if (remaining <= segment) return route[i - 1].clone().lerp(route[i], remaining / Math.max(0.001, segment))
-      remaining -= segment
-    }
-    return route[0].clone()
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      speed: num(p, 'speed', 1.6),
+      waypoints: Math.round(num(p, 'waypoints', 6)),
+      robotType: text(p, 'robotType', 'wheeled') === 'quadruped' ? 'quadruped' : 'wheeled',
+      scanRange: num(p, 'scanRange', 25),
+      avoidance: flag(p, 'avoidance', true)
+    })
+    model.fixedStep(dt)
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const speed = num(p, 'speed', 1.6)
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const scanRange = num(p, 'scanRange', 25)
-    const avoidance = flag(p, 'avoidance', true)
     const showPath = flag(p, 'path', true)
-    const kind = text(p, 'robotType', 'wheeled')
-    speedState = speed * (kind === 'quadruped' ? 0.8 : 1)
-    simTime += dt
-    progress += (speedState * dt) / Math.max(1, routeLength)
-    const point = sampleRoute(progress * routeLength)
-    const near = sampleRoute((progress * routeLength + 3) % routeLength)
-    const desiredHeading = Math.atan2(near.x - point.x, near.z - point.z)
-    let turn = desiredHeading - headingState
+    const state = model.state
+    robot.position.set(state.position.x + Math.cos(state.heading) * state.lateral, 0.05, state.position.z - Math.sin(state.heading) * state.lateral)
+    let turn = state.heading - viewHeading
     turn = ((turn + Math.PI * 3) % (Math.PI * 2)) - Math.PI
-    headingState += turn * Math.min(1, dt * 4.5)
-    const targetLateral = avoidance ? Math.sin(progress * Math.PI * 14) * 3.5 : 0
-    lateralState = damp(lateralState, targetLateral, 3, dt)
-    robot.position.set(point.x + Math.cos(headingState) * lateralState, 0.05, point.z - Math.sin(headingState) * lateralState)
-    robot.rotation.y = headingState
+    viewHeading += turn * Math.min(1, 0.016 * 4.5)
+    robot.rotation.y = viewHeading
     scanner.position.z = 12
     scanner.scale.setScalar(scanRange / 25)
-    scanner.rotation.y = Math.sin(simTime * 1.1) * 0.3
+    scanner.rotation.y = Math.sin(state.time * 1.1) * 0.3
     scanner.visible = true
-    nearest = 999
-    scanned = '未发现目标'
-    let closest: THREE.Vector3 | null = null
-    for (const child of city.children) {
-      if (!(child instanceof THREE.Mesh)) continue
-      const dx = child.position.x - robot.position.x
-      const dz = child.position.z - robot.position.z
-      const distance = Math.sqrt(dx * dx + dz * dz)
-      nearest = Math.min(nearest, distance)
-      if (distance < scanRange + 12 && !closest) closest = child.position.clone()
-    }
-    if (closest) scanned = `建筑 (${closest.x.toFixed(0)}, ${closest.z.toFixed(0)})`
-    battery = Math.max(0, battery - dt * (0.03 + speedState * 0.008))
     pathGroup.visible = showPath
   }
 
@@ -134,20 +112,25 @@ function createS16(kit: import('../types').SceneKit): ScenarioRuntime {
 
   return {
     object: root,
-    update,
+    update: (dt, p) => {
+      fixedUpdate(dt, p)
+      renderSync(1, p)
+    },
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key) => {
-      if (key === 'recharge') {
-        battery = 100
-        progress = 0
-      }
+      if (key === 'recharge') model.reset()
     },
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
     readouts: () => ({
-      巡检进度: `${Math.min(100, progress * 100).toFixed(0)}%`,
-      剩余电量: `${battery.toFixed(0)}%`,
-      最近障碍: `${nearest.toFixed(1)} m`,
-      扫描目标: scanned,
-      仿真时间: `${simTime.toFixed(1)} s`
+      巡检进度: `${Math.min(100, model.state.progress * 100).toFixed(0)}%`,
+      剩余电量: `${model.state.battery.toFixed(0)}%`,
+      最近障碍: `${Number.isFinite(model.state.nearest) ? model.state.nearest.toFixed(1) : '—'} m`,
+      扫描目标: model.state.scanned,
+      仿真时间: `${model.state.time.toFixed(1)} s`
     }),
     dispose: () => disposeObject(root)
   }

@@ -2,12 +2,12 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
 import { addBox, addLine, addStageGround, disposeObject, seeded, surface, updateLine } from '../helpers'
+import { createS14Model } from '../simulations/s14.model'
 
 interface Story {
   group: THREE.Group
   baseX: number
   baseY: number
-  offset: number
 }
 
 function createS14(kit: import('../types').SceneKit): ScenarioRuntime {
@@ -18,13 +18,8 @@ function createS14(kit: import('../types').SceneKit): ScenarioRuntime {
   const stories: Story[] = []
   const shapePoints: THREE.Vector3[] = []
   let shapeLine: THREE.Line | null = null
-  let floorsState = 8
-  let simTime = 0
-  let roofDisplacement = 0
-  let peakAcceleration = 0
-  let drift = 0
   let lastFloors = -1
-  let frequencyState = 2.4
+  const model = createS14Model({ pga: 0.35, frequency: 2.4, duration: 18, damping: 0.05, floors: 8, mode: 1 })
   const random = seeded(9281)
   for (let i = 0; i < 8; i += 1) {
     const angle = random() * Math.PI * 2
@@ -49,53 +44,46 @@ function createS14(kit: import('../types').SceneKit): ScenarioRuntime {
       }
       group.position.set(0, floorHeight * (i + 1), 0)
       building.add(group)
-      stories.push({ group, baseX: 0, baseY: floorHeight * (i + 1), offset: 0 })
+      stories.push({ group, baseX: 0, baseY: floorHeight * (i + 1) })
       shapePoints.push(new THREE.Vector3(0, floorHeight * (i + 1), 0))
     }
     addBox(building, [22, 1.4, 17], [0, 0, 0], surface('#59646e'))
-    floorsState = floors
+  }
+
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      pga: num(p, 'pga', 0.35),
+      frequency: num(p, 'frequency', 2.4),
+      duration: num(p, 'duration', 18),
+      damping: num(p, 'damping', 0.05),
+      floors: Math.round(num(p, 'floors', 8)),
+      mode: parseInt(text(p, 'mode', '1'), 10) || 1
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (alpha: number, p: ParamValues): void => {
+    const showDrift = flag(p, 'drift', true)
+    const state = model.state
+    const storiesState = state.displacement
+    for (let i = 0; i < stories.length; i += 1) {
+      const story = stories[i]
+      const velocity = state.velocity[i] ?? 0
+      story.group.position.x = (storiesState[i] ?? 0) + velocity * alpha * (1 / 60)
+    }
+    building.position.x = (state.groundAcceleration / 9.81) * 0.25
+    building.position.z = Math.cos(state.time * 34) * state.envelope * num(p, 'pga', 0.35) * 0.18
+    if (showDrift) {
+      for (let i = 0; i < stories.length; i += 1) shapePoints[i].set((storiesState[i] ?? 0) + 9.5, stories[i].baseY, 0)
+      if (!shapeLine) shapeLine = addLine(building, shapePoints, '#ffd666', 0.95)
+      else updateLine(shapeLine, shapePoints)
+    }
+    if (shapeLine) shapeLine.visible = showDrift
   }
 
   const update = (dt: number, p: ParamValues): void => {
-    const pga = num(p, 'pga', 0.35)
-    const frequency = num(p, 'frequency', 2.4)
-    const duration = num(p, 'duration', 18)
-    const damping = num(p, 'damping', 0.05)
-    const mode = text(p, 'mode', '1')
-    const showDrift = flag(p, 'drift', true)
-    simTime += dt
-    frequencyState = frequency
-    const quakeTime = simTime % Math.max(6, duration + 12)
-    const envelope = quakeTime < duration ? 1 : Math.max(0, 1 - (quakeTime - duration) / 8)
-    const modes = parseInt(mode, 10) || 1
-    const amplitude = pga * 42 * envelope * Math.exp(-damping * simTime * 0.06)
-    peakAcceleration = amplitude * (Math.PI * 2 * frequency) ** 2 * 0.0009
-    let roof = 0
-    let previous = 0
-    for (let i = 0; i < stories.length; i += 1) {
-      const story = stories[i]
-      const shape = Math.sin(((i + 1) * Math.PI * modes) / (stories.length + 1))
-      const oscillation = Math.sin(simTime * Math.PI * 2 * frequency + i * 0.08)
-      story.offset = shape * amplitude * oscillation
-      story.group.position.x = story.offset
-      roof = Math.max(roof, Math.abs(story.offset))
-      drift = Math.max(drift, Math.abs(story.offset - previous))
-      previous = story.offset
-    }
-    roofDisplacement = roof
-    building.position.x = Math.sin(simTime * 40) * envelope * pga * 0.3
-    building.position.z = Math.cos(simTime * 34) * envelope * pga * 0.18
-    if (showDrift) {
-      for (let i = 0; i < stories.length; i += 1) {
-        shapePoints[i].set(stories[i].offset + 9.5, stories[i].baseY, 0)
-      }
-      if (!shapeLine) {
-        shapeLine = addLine(building, shapePoints, '#ffd666', 0.95)
-      } else {
-        updateLine(shapeLine, shapePoints)
-      }
-    }
-    if (shapeLine) shapeLine.visible = showDrift
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   const sync = (p: ParamValues): void => {
@@ -112,21 +100,25 @@ function createS14(kit: import('../types').SceneKit): ScenarioRuntime {
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key) => {
-      if (key === 'restart') {
-        simTime = 0
-        drift = 0
-        peakAcceleration = 0
+      if (key === 'restart') model.rebuild()
+    },
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        顶层位移: `${(state.roofDisplacement * 100).toFixed(1)} cm`,
+        层间位移角: state.driftRatio > 0 ? `1/${Math.max(1, Math.round(1 / state.driftRatio))}` : '0',
+        峰值加速度: `${state.peakAcceleration.toFixed(2)} g`,
+        自振周期: `${(1 / Math.max(0.2, state.fundamentalFrequency)).toFixed(2)} s`,
+        楼层数: state.displacement.length
       }
     },
-    readouts: () => ({
-      顶层位移: `${(roofDisplacement * 10).toFixed(1)} cm`,
-      层间位移角: `1/${drift > 0.002 ? Math.round(3.8 / drift) : 9999}`,
-      峰值加速度: `${peakAcceleration.toFixed(2)} g`,
-      自振周期: `${(1 / Math.max(0.2, frequencyState)).toFixed(2)} s`,
-      楼层数: floorsState
-    }),
     dispose: () => disposeObject(root)
   }
 }

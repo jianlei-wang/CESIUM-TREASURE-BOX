@@ -29,11 +29,28 @@ export interface S13State {
   rollVelocity: number
   pitchVelocity: number
   heaveVelocity: number
+  displacementVolume: number
+  displacementMass: number
+  equilibriumDraft: number
+  waterline: number
+  buoyancySamples: number
 }
 
 const GRAVITY = 9.81
 const DEPTH = 40
 const COMPONENTS = 32
+const WATER_DENSITY = 1025
+const HULL_LENGTH = 30
+const HULL_BEAM = 12
+const HULL_BLOCK = 0.68
+const WATERPLANE_AREA = HULL_LENGTH * HULL_BEAM * HULL_BLOCK
+const SAMPLE_POINTS: Array<[number, number]> = [
+  [0, -13],
+  [0, 13],
+  [-5.2, 0],
+  [5.2, 0],
+  [0, 0]
+]
 
 const dispersion = (omega: number): number => {
   let low = 0.0001
@@ -52,6 +69,7 @@ export function createS13Model(config: S13Config): ScenarioSimulation & {
   configure(next: Partial<S13Config>): void
   waveAt(x: number, z: number): number
   waveSlope(x: number, z: number): [number, number]
+  getConfig(): S13Config
   reset(): void
 } {
   let cfg = { ...config }
@@ -67,7 +85,12 @@ export function createS13Model(config: S13Config): ScenarioSimulation & {
     buoyancy: 0,
     rollVelocity: 0,
     pitchVelocity: 0,
-    heaveVelocity: 0
+    heaveVelocity: 0,
+    displacementVolume: WATERPLANE_AREA * cfg.draft,
+    displacementMass: WATER_DENSITY * WATERPLANE_AREA * cfg.draft,
+    equilibriumDraft: cfg.draft,
+    waterline: 0,
+    buoyancySamples: SAMPLE_POINTS.length
   }
 
   const buildSpectrum = (): void => {
@@ -133,20 +156,26 @@ export function createS13Model(config: S13Config): ScenarioSimulation & {
     state.rollVelocity = 0
     state.pitchVelocity = 0
     state.heaveVelocity = 0
+    state.waterline = cfg.draft
+    state.displacementVolume = WATERPLANE_AREA * cfg.draft
+    state.displacementMass = WATER_DENSITY * state.displacementVolume
+    state.equilibriumDraft = cfg.draft
+    state.buoyancy = 1
     buildSpectrum()
   }
 
   const fixedStep = (dt: number): void => {
     const step = clamp(dt, 1 / 120, 1 / 30)
     state.time += step
-    const center = waveAt(0, 0)
+    const samples = SAMPLE_POINTS.map(([x, z]) => waveAt(x, z))
+    const center = samples.reduce((sum, value) => sum + value, 0) / samples.length
     const bow = waveAt(0, -15)
     const stern = waveAt(0, 15)
     const port = waveAt(-6, 0)
     const starboard = waveAt(6, 0)
     state.waveAmplitude = Math.max(state.waveAmplitude, Math.abs(center))
     const waveFactor = 0.55 + cfg.wind * 0.012
-    const targetHeave = center + cfg.draft * 0.25
+    const targetHeave = center
     const targetRoll = Math.atan2(port - starboard, 12) * waveFactor
     const targetPitch = Math.atan2(stern - bow, 30) * waveFactor
     const heaveOmega = (2 * Math.PI) / Math.max(2, cfg.period)
@@ -158,9 +187,13 @@ export function createS13Model(config: S13Config): ScenarioSimulation & {
     state.heave += state.heaveVelocity * step
     state.roll += state.rollVelocity * step
     state.pitch += state.pitchVelocity * step
-    const freeboard = 3.2 - cfg.draft
-    const waterline = Math.max(0.1, cfg.waveHeight * 0.35)
-    state.buoyancy = clamp((freeboard + waterline) / 4.2, 0, 1.2)
+    const waterline = cfg.draft - state.heave + center
+    state.waterline = waterline
+    state.displacementVolume = WATERPLANE_AREA * clamp(waterline, 0, 8)
+    state.displacementMass = WATER_DENSITY * state.displacementVolume
+    const referenceVolume = WATERPLANE_AREA * Math.max(0.1, cfg.draft)
+    state.equilibriumDraft = state.displacementVolume / WATERPLANE_AREA
+    state.buoyancy = clamp(state.displacementVolume / referenceVolume, 0, 1.5)
   }
 
   const calibration = (): CalibrationRow[] => {
@@ -168,8 +201,9 @@ export function createS13Model(config: S13Config): ScenarioSimulation & {
     return [
       calibrationRow('有效波高', cfg.waveHeight, cfg.waveHeight, 'm', 0.001),
       calibrationRow('波面峰值', state.waveAmplitude, hmax, 'm', Math.max(0.1, hmax)),
+      calibrationRow('静水吃水', state.equilibriumDraft, cfg.draft, 'm', Math.max(0.3, cfg.waveHeight * 0.6)),
       calibrationRow('横摇角', Math.abs(state.roll), 0.6, 'rad', 0.6),
-      calibrationRow('浮力储备', state.buoyancy, 1, '', 0.25),
+      calibrationRow('浮力比', state.buoyancy, 1, '', 0.2),
       calibrationRow('谱分量', state.components.length, COMPONENTS, '个', 0)
     ]
   }
@@ -191,6 +225,7 @@ export function createS13Model(config: S13Config): ScenarioSimulation & {
       mode = next
     },
     configure,
+    getConfig: () => ({ ...cfg }),
     waveAt,
     waveSlope,
     reset,
@@ -203,7 +238,9 @@ export function createS13Model(config: S13Config): ScenarioSimulation & {
       横摇角deg: Number(((state.roll * 180) / Math.PI).toFixed(1)),
       纵摇角deg: Number(((state.pitch * 180) / Math.PI).toFixed(1)),
       升沉m: Number(state.heave.toFixed(2)),
-      浮力储备: Number(state.buoyancy.toFixed(2))
+      吃水m: Number(state.equilibriumDraft.toFixed(2)),
+      浮力比: Number(state.buoyancy.toFixed(2)),
+      排水量t: Number((state.displacementMass / 1000).toFixed(0))
     }),
     calibration,
     serialize: () => ({ ...state })

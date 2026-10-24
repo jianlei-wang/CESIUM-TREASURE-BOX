@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
-import { flag, num } from '../types'
+import { flag, num, text } from '../types'
 import { addBox, addCylinder, addSphere, addStageGround, disposeObject, surface } from '../helpers'
 import { createS18Model } from '../simulations/s18.model'
 
@@ -69,7 +69,8 @@ function createS18(kit: import('../types').SceneKit): ScenarioRuntime {
       diameter: num(p, 'diameter', 6),
       spacing: num(p, 'spacing', 6),
       support: num(p, 'support', 60),
-      water: flag(p, 'water', true)
+      water: flag(p, 'water', true),
+      rock: text(p, 'rock', 'IV') as 'III' | 'IV' | 'V'
     })
     model.fixedStep(dt)
   }
@@ -137,8 +138,10 @@ function createS18(kit: import('../types').SceneKit): ScenarioRuntime {
         掘进里程: `${state.distance.toFixed(1)} m`,
         管片环数: `${state.rings} 环`,
         刀盘转速: `${model.getConfig().rpm.toFixed(1)} rpm`,
+        推进速度: `${(state.advanceVelocity * 1000).toFixed(1)} mm/s`,
+        净推力: `${(state.netForce / 1000).toFixed(0)} kN`,
         掌子面水压: `${state.facePressure.toFixed(2)} MPa`,
-        总推力: `${model.getConfig().thrust.toFixed(0)} kN`,
+        出渣闭合: `${state.muckBalance.toFixed(1)} kg`,
         仿真时间: `${state.time.toFixed(1)} s`
       }
     },
@@ -151,7 +154,7 @@ export const S18: ScenarioMeta = {
   title: '盾构隧道掘进与管片支护',
   subtitle: '刀盘切削、推进速度与水压风险',
   description:
-    '盾构机沿隧道轴线推进，刀盘按设定转速旋转，已开挖区段逐步安装管片环；随埋深增加掌子面水压上升，可调直径、推进速度、管片间距与总推力观察支护节奏。',
+    '盾构机沿隧道轴线推进，推进速度由总推力与围岩抗力共同决定，刀盘按设定转速旋转，已开挖区段逐步安装管片环；随埋深增加掌子面水压上升，可调围岩级别、直径、推进速度、管片间距与总推力观察支护节奏。',
   tag: 'Cesium + Three.js · 隧道工程',
   updatedAt: '2026-10-23',
   accent: '#d8a45c',
@@ -159,9 +162,9 @@ export const S18: ScenarioMeta = {
   camera: { range: 210, pitch: -20, heading: 18, targetY: 22 },
   metrics: [
     { key: '掘进里程', label: '掘进里程' },
-    { key: '管片环数', label: '管片环数' },
-    { key: '掌子面水压', label: '掌子面水压' },
-    { key: '总推力', label: '总推力' }
+    { key: '推进速度', label: '推进速度' },
+    { key: '净推力', label: '净推力' },
+    { key: '掌子面水压', label: '掌子面水压' }
   ],
   legend: [
     { color: '#c47a35', label: '盾构机' },
@@ -189,6 +192,7 @@ export const S18: ScenarioMeta = {
       params: [
         { key: 'spacing', label: '管片间距', type: 'range', min: 3, max: 12, step: 1, value: 6, unit: ' m' },
         { key: 'support', label: '支护强度', type: 'range', min: 0, max: 100, step: 5, value: 60, unit: '%' },
+        { key: 'rock', label: '围岩级别', type: 'select', value: 'IV', options: [{ value: 'III', label: 'III 级（较硬）' }, { value: 'IV', label: 'IV 级（中硬）' }, { value: 'V', label: 'V 级（软弱）' }] },
         { key: 'water', label: '地下水压', type: 'toggle', value: true },
         { key: 'rings', label: '显示管片', type: 'toggle', value: true }
       ],

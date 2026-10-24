@@ -52,6 +52,10 @@ test('S13 wave field produces bounded ship motion', () => {
   assert.ok(Math.abs(model.state.roll) < 1)
   assert.ok(Math.abs(model.state.pitch) < 1)
   assert.ok(Number.isFinite(model.state.heave))
+  assert.ok(model.state.displacementMass > 500000)
+  assert.ok(Math.abs(model.state.equilibriumDraft - 4) < 1.2)
+  assert.ok(model.state.waterline > 0)
+  assert.ok(model.state.buoyancySamples >= 5)
 })
 
 test('S14 shear building amplifies roof displacement', () => {
@@ -89,6 +93,14 @@ test('S18 TBM advances and installs rings', () => {
   assert.ok(model.state.rings >= 1)
   assert.ok(model.state.torque > 0)
   assert.ok(model.state.facePressure > 0)
+  assert.ok(model.state.advanceVelocity > 0)
+  assert.ok(model.state.muckMass > 0)
+  assert.ok(Math.abs(model.state.muckBalance) < 1e-6)
+  assert.equal(model.state.rock, 'IV')
+  const blocked = createS18Model({ advance: 1.4, rpm: 1.8, thrust: 1200, diameter: 6.4, spacing: 1.5, support: 0.32, water: true, rock: 'III' })
+  run(blocked, 60)
+  assert.ok(blocked.state.distance < 0.2, `blocked distance=${blocked.state.distance}`)
+  assert.ok(blocked.state.netForce < 0)
 })
 
 test('S19 plume concentration decays with distance', () => {
@@ -110,4 +122,10 @@ test('S20 dispatch vehicles and drone reach incident', () => {
   assert.ok(model.state.firstArrival > 0)
   assert.ok(model.state.droneEta >= 0)
   assert.ok(model.state.coverage > 0)
+  const first = model.state.trucks[0]
+  assert.ok(first.route.length >= 3)
+  assert.ok(first.routeDistance > 0)
+  assert.ok(model.state.events.some((event) => event.type === 'dispatch'))
+  assert.ok(model.state.events.some((event) => event.type === 'arrive'))
+  assert.ok(model.state.networkDistance > 0)
 })

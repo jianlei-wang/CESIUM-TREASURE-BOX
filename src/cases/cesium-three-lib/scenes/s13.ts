@@ -85,8 +85,7 @@ function createS13(kit: import('../types').SceneKit): ScenarioRuntime {
     position.needsUpdate = true
     normalTick += 1
     if (normalTick % 2 === 0) geometry.computeVertexNormals()
-    const draft = num(p, 'draft', 1.2)
-    ship.position.set(0, state.heave - draft, 0)
+    ship.position.set(0, state.heave - state.equilibriumDraft, 0)
     ship.rotation.z = state.roll
     ship.rotation.x = state.pitch
     for (const item of buoys) {
@@ -133,9 +132,12 @@ function createS13(kit: import('../types').SceneKit): ScenarioRuntime {
       const state = model.state
       return {
         有效波高: `${(state.waveAmplitude * 2).toFixed(2)} m`,
+        静水吃水: `${state.equilibriumDraft.toFixed(2)} m`,
+        水线深度: `${state.waterline.toFixed(2)} m`,
+        排水量: `${(state.displacementMass / 1000).toFixed(0)} t`,
         横摇角: `${((state.roll * 180) / Math.PI).toFixed(1)}°`,
         纵摇角: `${((state.pitch * 180) / Math.PI).toFixed(1)}°`,
-        浮力储备: `${(state.buoyancy * 100).toFixed(0)}%`,
+        浮力比: `${(state.buoyancy * 100).toFixed(0)}%`,
         仿真时间: `${state.time.toFixed(1)} s`
       }
     },
@@ -156,19 +158,19 @@ export const S13: ScenarioMeta = {
   camera: { range: 300, pitch: -21, heading: 28, targetY: 24 },
   metrics: [
     { key: '有效波高', label: '有效波高' },
+    { key: '静水吃水', label: '静水吃水' },
     { key: '横摇角', label: '横摇角' },
-    { key: '纵摇角', label: '纵摇角' },
-    { key: '浮力储备', label: '浮力储备' }
+    { key: '浮力比', label: '浮力比' }
   ],
   legend: [
     { color: '#1f6490', label: '动态波面' },
     { color: '#d7e2e9', label: '船舶船体' },
     { color: '#e4b64a', label: '浮标与航标' }
   ],
-  hint: '波高增大时船体横摇明显 · 周期越长波浪越平缓 · 吃水加深会降低干舷与浮力储备',
+  hint: '波高增大时船体横摇明显 · 周期越长波浪越平缓 · 吃水加深会提高排水量并降低干舷',
   info: [
     '波面使用三组不同波长、频率和方向的解析波叠加，船体姿态由波面采样与相位近似得到。',
-    '浮力储备根据波高与吃水的相对关系估算，用于展示趋势，未求解船体排水量与稳性曲线。',
+    '浮力按排水体积与海水密度计算，水线深度由波面采样和船体升沉共同确定；稳性曲线与六自由度耐波性仍属未建模部分。',
     '真实船舶运动需要船体几何、质量惯性矩、附加质量、兴波阻力和六自由度耐波性模型。'
   ],
   sections: [

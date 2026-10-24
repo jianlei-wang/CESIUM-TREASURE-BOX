@@ -3,6 +3,7 @@ import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
 import { addBox, addCylinder, addLine, addSphere, addStageGround, disposeObject, surface } from '../helpers'
 import { createS20Model, S20_STATIONS } from '../simulations/s20.model'
+import type { OcclusionProxy } from '../core/OcclusionProxy'
 
 function createS20(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -53,12 +54,17 @@ function createS20(kit: import('../types').SceneKit): ScenarioRuntime {
     puff.name = `puff-${i}`
   }
   const buildingMaterial = surface('#4d5a66', { roughness: 0.9 })
+  const buildingProxies: OcclusionProxy[] = []
   for (let i = 0; i < 12; i += 1) {
     const angle = (i / 12) * Math.PI * 2
     const radius = 60 + (i % 3) * 26
     const height = 14 + (i % 5) * 9
-    addBox(city, [14, height, 14], [Math.cos(angle) * radius, height / 2, Math.sin(angle) * radius], buildingMaterial)
+    const x = Math.cos(angle) * radius
+    const z = Math.sin(angle) * radius
+    addBox(city, [14, height, 14], [x, height / 2, z], buildingMaterial)
+    buildingProxies.push({ id: `building-${i}`, kind: 'building', box: { min: [x - 7, 0, z - 7], max: [x + 7, height, z + 7] } })
   }
+  kit.setOcclusionProxies?.(buildingProxies)
   for (let i = 0; i < 4; i += 1) {
     const line = addLine(routes, [stations[i].clone(), new THREE.Vector3(stations[i].x, 0.4, incident.z), new THREE.Vector3(incident.x, 0.4, incident.z)], '#9fd8ef', 0.42)
     line.name = `route-${i}`

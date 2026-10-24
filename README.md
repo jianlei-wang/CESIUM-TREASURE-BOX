@@ -4,78 +4,108 @@
 [![forks](https://img.shields.io/github/forks/jianlei-wang/CESIUM-TREASURE-BOX?style=social)](https://github.com/jianlei-wang/CESIUM-TREASURE-BOX/network/members)
 [![watchers](https://img.shields.io/github/watchers/jianlei-wang/CESIUM-TREASURE-BOX?style=social)](https://github.com/jianlei-wang/CESIUM-TREASURE-BOX/watchers)
 
-> Cesium 三维地球示例案例库：汇集三维特效、天气、粒子、水面、标绘、测量、空间分析、数据可视化、三维数据加载、大气环境、光照、大屏、D3 地理大数据与海洋温盐深体渲染等多种 Cesium / Three.js 实战案例，持续更新中。
+> 面向 Cesium 与 Three.js 的三维地球案例库，覆盖三维特效、天气、粒子、水面、标绘、测量、空间分析、数据可视化、三维数据加载、大气环境、光照、大屏、D3 地理大数据、海洋温盐深体渲染与 Cesium + Three.js 工程仿真。
 
 仓库地址：<https://github.com/jianlei-wang/CESIUM-TREASURE-BOX>
 
 在线预览：<https://jianlei-wang.github.io/CESIUM-TREASURE-BOX/>
 
-## ✨ 特性
+## 特性
 
-- **313 个案例**：覆盖 17 个分类（系统 DEMO、三维特效、天气特效、粒子特效、水面效果、标记标绘、空间测量、空间分析、数据可视化、D3 地理大数据、三维数据加载、场景示例、大气环境、光照效果、界面控件、可视化大屏、ThreeJS 样例）
-- **全局搜索 / 排序**：按名称、描述关键词检索，支持最新收录排序
-- **性能监测**：内置 FPS 监视、Cesium 渲染统计与卡顿排查清单
-- **按需加载**：案例组件懒加载，Cesium 大体积脚本延迟注入，首屏轻量
-- **多源底图**：内置天地图、高德、百度、腾讯、Google、Bing、GeoVis 等多种影像/注记提供器
-- **完整案例清单**：[`CASE_LIST.md`](./CASE_LIST.md) 由脚本自动生成，并记录每篇公众号文章的产出与在线地址；已输出文章 56 篇
+- **333 个案例，18 个分类**：系统 DEMO、三维特效、天气特效、粒子特效、水面效果、标记标绘、空间测量、空间分析、数据可视化、D3 地理大数据、三维数据加载、场景示例、大气环境、光照效果、界面控件、可视化大屏、ThreeJS 样例、Cesium + ThreeJS。
+- **20 个 Cesium + Three.js 工程仿真案例**：覆盖落体、建筑破坏、滑坡、溃坝、车流、风场、路径规划、塔吊、桥梁、膜结构、林火、城市内涝、船舶、地震、挖掘机、巡检、疏散、盾构、烟羽与消防调度。案例内置确定性求解器、指标面板、参数标定与合成数据来源说明。
+- **三维场景演示漫游制作系统**：对标 Skyline Presentation 的 Step + Action 编排，支持步骤分段、定点飞行、航线录制、图层显隐、建设时序、字幕弹窗、场景效果、播放控制、工程导入导出与 1080P / 2K / 4K 视频导出。
+- **全局搜索与按需加载**：按名称、描述检索，支持最新收录排序；案例组件懒加载，Cesium 大体积脚本延迟注入，首屏保持轻量。
+- **多源底图**：内置天地图、高德、百度、腾讯、Google、Bing、GeoVis 等影像与注记提供器。
+- **工程化质量门禁**：TypeScript 类型检查、ESLint、Prettier、案例求解器单元测试、演示系统自检、Playwright 输出回归、长时浸泡测试、依赖审计、许可证检查、锁文件检查与构建体积检查。
+- **完整案例清单**：[`CASE_LIST.md`](./CASE_LIST.md) 由脚本自动生成，并记录公众号文章的产出与在线地址；当前已输出文章 56 篇。
 
-## 🆕 最近更新
+## 最近更新
 
-- **2026-10-21 · 三维场景演示漫游制作系统上线**：新增「三维场景演示漫游制作系统」案例，对标 Skyline Presentation 的 Step + Action 编排模式，支持步骤分段与动作串行、定点飞行、航线录制、图层显隐、建设时序、字幕弹窗、场景效果，配套播放 / 暂停 / 停止 / 单步 / 倍速 / 进度跳转、工程保存与 `.cesium.presentation` 导入导出，以及基于 Canvas + MediaRecorder 的 1080P / 2K / 4K 视频导出。
-- **2026-10-13 · 海洋分析-温盐深三维体上线**：新增「海洋分析-温盐深三维体」案例，以东海陆架坡折、黄海中部陆架为研究区，支持温度 / 盐度 / 密度 / 流速实时切换，月份演变、水平切片、A–B 断面、T–S 散点、等值面、流场箭头、垂向层结与全域统计；配套 `scripts/ocean-tsd` 数据管线（样本生成、NetCDF 预处理、数据校验），浏览器端只读取预处理后的轻量二进制数据。
-- **2026-10-06 · 公众号文章回填**：新增 `npm run sync-articles` 同步脚本，按案例名称回填 `CASE_LIST.md` 的文章产出状态与在线地址，当前已回填 56 篇。
-- **2026-10-06 · D3 地理大数据专题上线**：新增「D3地理大数据」功能分类，收录 13 个 D3 × Cesium 案例，覆盖数据接入与坐标映射、统计图形地球化、网络关系、时空动态、空间分析、屏幕空间增强、叙事与数字孪生、格网聚合与蜂窝表达等方向；新增 `src/lib/d3geo` 通用渲染外壳与工具库（渲染助手、数据生成、色带、hexbin/网格聚合），每个案例以声明式 `D3CaseSpec` 驱动。
-- **2026-09-29 · 工程仿真 CFD 多物理场体升级**：`volume-cfd` 案例由单场体渲染升级为三维多物理场工程工作台，新增程序化街区建筑白模工程几何层、KPI 指标卡、四组相机预设、正负压双等值面、流线 / 粒子 / 剖面箭头三种向量表达与场景背景三模式；修复参数切换后体块错位、返回列表白屏崩溃与等值面渲染异常等问题。
-- **2026-09-29 · 数据可视化扩容**：新增海量动态点 / 线 / 多边形案例，并补齐案例卡片图标。
-- **2026-09-29 · 体渲染场景化 UI**：体渲染 5 案例完成场景化 UI 重构，并修复剖切面板显隐。
+- **2026-10-21 · 三维场景演示漫游制作系统升级**：演示系统完成生产内核重构，新增草稿自动保存、项目包版本迁移、数据源绑定、图层注册、导出任务队列、失败诊断与 SDK 接口，并接入 `.cesium.presentation` 工程包与视频导出流水线。
+- **2026-10-20 · 质量门禁与回归体系**：新增 `quality`、`test:studio`、`test:output`、`test:soak` 脚本，接入 GitHub Actions 的 lint、格式、审计、许可证、锁文件、输出快照与构建体积检查。
+- **2026-10-20 · Cesium + Three.js 仿真闭合**：20 个工程案例完成物理量闭合与调度模型校准，统一提供指标读数、参数标定、数据来源说明与确定性测试。
+- **2026-10-13 · 海洋分析-温盐深三维体**：新增东海陆架坡折、黄海中部陆架研究区，支持温度 / 盐度 / 密度 / 流速切换、月份演变、水平切片、A-B 断面、T-S 散点、等值面、流场箭头与垂向层结分析；配套 `scripts/ocean-tsd` 数据管线，浏览器端只读取预处理后的轻量二进制数据。
+- **2026-10-06 · D3 地理大数据专题**：新增 13 个 D3 x Cesium 案例，覆盖坐标映射、统计图形地球化、网络关系、时空动态、空间分析、屏幕空间增强、叙事与数字孪生、格网聚合与蜂窝表达；新增 `src/lib/d3geo` 声明式渲染外壳。
 
-## 🧱 技术栈
+## 技术栈
 
 | 类别 | 技术 |
 | --- | --- |
 | 框架 | Vue 3 + TypeScript |
 | 构建 | Vite 6 |
-| 三维引擎 | Cesium 1.144、Three.js、three.quarks |
+| 三维引擎 | Cesium 1.144、Three.js 0.185、three.quarks |
+| 物理求解 | Rapier 0.12、确定性解析求解器 |
 | UI | Element Plus |
 | 空间计算 | turf、jsts、proj4、geotiff、shpjs |
 | D3 可视化 | d3、d3-geo（`src/lib/d3geo` 声明式渲染外壳） |
-| 格网编码 | h3-js、s2js、a5-js、ngeohash、open-location-code |
-| 图表导出 | echarts、html2canvas、jspdf、xlsx、docx |
+| 格网编码 | h3-js、s2js、a5-js、ngeohash、open-location-code、DGGRID / DGGAL |
+| 图表与导出 | echarts、html2canvas、jspdf、xlsx、docx、MediaRecorder |
+| 测试与质量 | Node Test、tsx、Playwright、ESLint、Prettier、vue-tsc |
+| 部署 | GitHub Pages、Docker + nginx |
 
-## 🚀 快速开始
+## 快速开始
 
-要求 Node.js ≥ 18。
+要求 Node.js 20 或更高版本。
 
 ```bash
 # 安装依赖
-npm install
+npm ci
 
-# 本地开发（自动执行 predev 同步案例清单）
+# 本地开发（自动同步案例清单并复制 Rapier 运行时）
 npm run dev
 
-# 生产构建
+# 生产构建（类型检查 + Vite 打包 + 体积检查）
 npm run build
 
 # 预览构建产物
 npm run preview
 ```
 
-> 提示：`npm run dev` / `npm run build` 前会自动执行 `npm run sync`，扫描 `src/cases` 目录并重新生成 `src/cases/manifest.ts`。新增案例请创建 `src/cases/<case-id>/index.ts`，并确保 `id` 与目录名一致。
+`dev` 与 `build` 前会自动执行 `npm run sync`，扫描 `src/cases` 并重新生成 `src/cases/manifest.ts`。新增案例请创建 `src/cases/<case-id>/index.ts`，并确保 `id` 与目录名一致。
 
-## 📦 脚本说明
+## 脚本说明
 
 | 命令 | 说明 |
 | --- | --- |
 | `npm run sync` | 扫描 `src/cases`，生成案例清单 `manifest.ts` |
 | `npm run case-list` | 生成 `CASE_LIST.md` 案例列表文档 |
-| `npm run sync-articles` | 拉取公众号专栏文章，按案例名称回填 `CASE_LIST.md` 的文章产出与在线地址 |
+| `npm run sync-articles` | 拉取公众号专栏文章，按案例名称回填文章产出与在线地址 |
 | `npm run dev` | 启动开发服务器（0.0.0.0） |
-| `npm run build` | 类型检查（vue-tsc）+ Vite 打包 |
+| `npm run build` | 类型检查、Vite 打包与构建体积检查 |
 | `npm run preview` | 预览 `dist` 产物 |
+| `npm run lint` | ESLint 检查 |
+| `npm run format` / `format:check` | Prettier 格式化 / 格式校验 |
+| `npm run audit` | 依赖安全审计 |
+| `npm run licenses` | 第三方许可证检查 |
+| `npm run lockfile:check` | 锁文件一致性检查 |
+| `npm run quality` | 依次执行 lint、格式、审计、许可证与锁文件检查 |
+| `npm run test:cases` | 20 个工程仿真求解器的确定性单元测试 |
+| `npm run test:studio` | 演示系统 schema、轨道、导出配置与数据源自检 |
+| `npm run test:output` | Playwright 输出回归与截图快照 |
+| `npm run test:soak` | 长时浸泡与重复切换测试 |
+| `npm run bundle:check` | 检查入口与异步 chunk 体积 |
+
+运行 `test:output` 前需安装 Playwright 浏览器与 ffmpeg：
+
+```bash
+npx playwright install --with-deps chromium
+sudo apt-get update && sudo apt-get install -y ffmpeg
+```
 
 海洋温盐深案例的数据管线位于 `scripts/ocean-tsd`：`generate-sample-data.mjs` 生成演示样本，`preprocess_ocean.py` 从 NetCDF 再分析数据裁剪研究区，`validate_ocean_dataset.py` 校验二进制数据。浏览器端只读取 `public/data/ocean-tsd` 下的预处理产物。
 
-## 📁 目录结构
+## 测试与质量
+
+- `src/cases/cesium-three-lib/simulations/*.test.ts`：覆盖 S01-S20 的核心守恒量、边界条件与参数标定，使用固定时间步与可复现随机数。
+- `scripts/studio-selfcheck.mjs`：检查演示工程的 schema 版本、轨道求值、导出配置、数据源绑定与图层注册。
+- `tests/output/output.spec.mjs`：在真实浏览器中加载演示工程，校验导出流程与关键界面快照。
+- `tests/soak/soak.spec.mjs`：重复加载、切换案例与长时间运行，验证资源释放与稳定性。
+- `.github/workflows/deploy.yml`：推送 `main`、`master` 或 `jianlei_wang` 时执行质量门禁、输出回归、构建与 GitHub Pages 发布。
+- `.github/workflows/output-e2e.yml`：Chromium 与 Firefox 矩阵回归。
+- `.github/workflows/soak.yml`：每周定时执行长时浸泡测试。
+
+## 目录结构
 
 ```
 .
@@ -83,52 +113,85 @@ npm run preview
 │   ├── data/          # 三维模型与业务数据（含 ocean-tsd 温盐深数据）
 │   ├── dayanta/       # 雁荡山三维切片
 │   ├── draco/         # Draco 解码器
-│   ├── geo/           # 大气/云 LUT 等着色器资源
+│   ├── geo/           # 大气 / 云 LUT 等着色器资源
 │   ├── images/        # 贴图素材
 │   ├── models/        # 三维模型素材
 │   └── videos/        # 视频素材
-├── scripts/           # 案例同步、文章回填与数据管线脚本
+├── scripts/           # 案例同步、质量门禁、文章回填与数据管线脚本
 │   └── ocean-tsd/     # 海洋温盐深数据生成、预处理与校验
 ├── src/
 │   ├── cases/         # 案例集合（每个案例一个目录 + index.ts）
+│   │   ├── cesium-three-lib/      # Cesium + Three.js 工程仿真共享底座
+│   │   └── presentation-studio-lib/ # 三维场景演示漫游制作系统
 │   ├── components/    # 公共组件
 │   ├── datav/         # 可视化大屏示例
 │   ├── lib/           # 工具库（Cesium 场景、底图提供器、d3geo、空间计算等）
 │   ├── App.vue        # 案例库主界面
 │   └── main.ts        # 入口
+├── tests/             # Playwright 输出回归、浸泡测试与夹具
+├── docker/            # 容器入口脚本
 ├── CASE_LIST.md       # 全部案例清单与文章产出状态
 ├── index.html
+├── Dockerfile
+├── nginx.conf
 └── vite.config.ts     # Vite 配置（Cesium 集成、路径与优化）
 ```
 
-## 🌐 部署
+## 运行时配置
 
-`vite.config.ts` 已设置 `base: './'`，产物可直接部署到任意静态服务器或子路径（如 GitHub Pages）。
+浏览器启动时读取 `public/runtime-config.js` 中的 `window.__CESIUM_STUDIO_CONFIG__`：
 
-### GitHub Pages（推荐：GitHub Actions 自动构建）
+```js
+window.__CESIUM_STUDIO_CONFIG__ = {
+  appTitle: 'Cesium酱の百宝箱',
+  apiBaseUrl: '',
+  cesiumIonToken: ''
+}
+```
 
-仓库已内置 `.github/workflows/deploy.yml`，配置步骤：
+部署到子路径时通过构建变量 `BASE_URL` 调整资源前缀。Docker 运行时可使用环境变量覆盖配置：
 
-1. 确保工作流文件已提交到仓库根目录 `.github/workflows/deploy.yml`
-2. 进入仓库 **Settings → Pages → Build and deployment → Source**，选择 **GitHub Actions**
-3. 推送到 `main` 分支即自动构建 `dist/` 并发布；也可在 **Actions** 页手动触发（workflow_dispatch）
+```bash
+docker build -t cesium-treasure-box .
 
-> ⚠️ 不要把项目源码目录直接作为 Pages 目录：源码版 `index.html` 引用 `/src/main.ts`，仅在 dev 模式下由 Vite 提供，线上会 404。
+docker run --rm -p 8080:80 \
+  -e APP_TITLE="Cesium酱の百宝箱" \
+  -e API_BASE_URL="" \
+  -e CESIUM_ION_TOKEN="" \
+  cesium-treasure-box
+```
+
+## 部署
+
+### GitHub Pages
+
+仓库已内置 `.github/workflows/deploy.yml`：
+
+1. 进入仓库 **Settings -> Pages -> Build and deployment -> Source**，选择 **GitHub Actions**。
+2. 推送到 `main`、`master` 或 `jianlei_wang` 分支即自动构建并发布；也可在 **Actions** 页面手动触发。
+3. 构建产物为 `dist/`，`vite.config.ts` 已设置 `base: './'`，可部署到任意静态服务器或子路径。
+
+不要把项目源码目录直接作为 Pages 目录：源码版 `index.html` 引用 `/src/main.ts`，仅在 dev 模式下由 Vite 提供。
 
 ### 手动部署
 
 ```bash
 npm run build
-npx gh-pages -d dist   # 将 dist/ 发布到 gh-pages 分支
+
+npx gh-pages -d dist
 ```
 
-然后在 **Settings → Pages → Source** 选择 **Deploy from a branch → gh-pages / (root)**。
+然后在 **Settings -> Pages -> Source** 选择 **Deploy from a branch -> gh-pages / (root)**。
 
-## 📄 许可
+## 数据与边界
+
+工程仿真案例默认使用程序化合成工况，界面中的“数据来源”会标注数据类型、坐标基准、垂直基准、单位与限制说明。这些案例用于教学演示与交互验证，不构成工程校核结论。
+
+## 许可
 
 本项目仅作学习交流用途。Cesium 相关商标与版权归属其各自所有者。
 
-## 🔗 相关链接
+## 相关链接
 
 - GitHub 仓库：<https://github.com/jianlei-wang/CESIUM-TREASURE-BOX>
 - Cesium 官网：<https://cesium.com/>

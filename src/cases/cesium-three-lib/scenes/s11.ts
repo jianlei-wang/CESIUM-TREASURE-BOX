@@ -2,12 +2,13 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
 import { addGlowPoints, addPillar, addStageGround, disposeObject, seeded } from '../helpers'
+import { createS11Model, S11_CELL, S11_GRID } from '../simulations/s11.model'
 
 function createS11(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
   addStageGround(root, 250, { disc: '#231e18', accent: kit.accent })
-  const gridSize = 14
-  const cellSize = 14
+  const gridSize = S11_GRID
+  const cellSize = S11_CELL
   const half = (gridSize * cellSize) / 2
   const cellCount = gridSize * gridSize
   const fuel = new THREE.InstancedMesh(
@@ -16,9 +17,6 @@ function createS11(kit: import('../types').SceneKit): ScenarioRuntime {
     cellCount
   )
   root.add(fuel)
-  const burn = new Float32Array(cellCount)
-  const burning = new Uint8Array(cellCount)
-  const burnt = new Uint8Array(cellCount)
   const matrix = new THREE.Matrix4()
   const color = new THREE.Color()
   const random = seeded(3355)
@@ -53,88 +51,37 @@ function createS11(kit: import('../types').SceneKit): ScenarioRuntime {
   for (let i = 0; i < flameCount; i += 1) flameState.push({ x: 0, y: 0, z: 0, life: random(), max: 0.5 + random() * 0.8 })
   for (let i = 0; i < smokeCount; i += 1) smokeState.push({ x: 0, y: 0, z: 0, life: random(), max: 2 + random() * 4, size: 3 + random() * 6 })
 
-  let simTime = 0
-  let burnedCells = 0
-  let frontSpeed = 0
-  let smokeHeight = 0
-  let frontRadius = 0
-  let windState = 6
+  const model = createS11Model({ fuel: 1, spread: 1, humidity: 35, wind: 6, smoke: 0.7, rain: false })
 
-  const ignite = (): void => {
-    burn.fill(0)
-    burning.fill(0)
-    burnt.fill(0)
-    burnedCells = 0
-    frontRadius = 0
-    simTime = 0
-    const center = Math.floor(gridSize / 2)
-    for (let dz = -1; dz <= 1; dz += 1) {
-      for (let dx = -1; dx <= 1; dx += 1) {
-        const gx = center + dx
-        const gz = center + dz
-        if (gx < 0 || gz < 0 || gx >= gridSize || gz >= gridSize) continue
-        const index = gz * gridSize + gx
-        burning[index] = 1
-        burn[index] = 0.05
-      }
-    }
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      fuel: num(p, 'fuel', 1),
+      spread: num(p, 'spread', 1),
+      humidity: num(p, 'humidity', 35),
+      wind: num(p, 'wind', 6),
+      smoke: num(p, 'smoke', 0.7),
+      rain: flag(p, 'rain', false)
+    })
+    model.fixedStep(dt)
   }
 
-  const spreadFrom = (index: number, p: ParamValues): void => {
-    const rate = num(p, 'spread', 1)
-    const humidity = num(p, 'humidity', 35)
-    const wind = num(p, 'wind', 6)
-    const rain = flag(p, 'rain', false)
-    const gx = index % gridSize
-    const gz = Math.floor(index / gridSize)
-    const windBias = 0.28 * wind
-    const chance = rate * 0.9 * (1 - humidity / 120) * (rain ? 0.16 : 1) * 0.6
-    const neighbors: [number, number, number][] = [
-      [gx + 1, gz, 1 + windBias],
-      [gx - 1, gz, 1],
-      [gx, gz + 1, 1 + windBias * 0.5],
-      [gx, gz - 1, 1]
-    ]
-    for (const [nx, nz, weight] of neighbors) {
-      if (nx < 0 || nz < 0 || nx >= gridSize || nz >= gridSize) continue
-      const next = nz * gridSize + nx
-      if (burnedCells >= cellCount) return
-      if (!burning[next] && !burnt[next] && Math.random() < chance * weight) {
-        burning[next] = 1
-        burn[next] = 0.02
-      }
-    }
-  }
-
-  ignite()
-
-  const update = (dt: number, p: ParamValues): void => {
+  const renderSync = (alpha: number, p: ParamValues): void => {
+    const dt = 1 / 60
     const wind = num(p, 'wind', 6)
     const smokeAmount = num(p, 'smoke', 0.7)
-    const fuelLoad = num(p, 'fuel', 1)
-    windState = wind
-    simTime += dt
-    const dir = 1
+    const state = model.state
     for (let i = 0; i < cellCount; i += 1) {
-      if (!burning[i]) continue
-      burn[i] += dt * (0.22 + fuelLoad * 0.2)
-      if (burn[i] >= 1) {
-        burning[i] = 0
-        burnt[i] = 1
-        burnedCells += 1
+      if (state.burnt[i]) {
         color.setHSL(0.03, 0.25, 0.12)
         fuel.setColorAt(i, color)
-        spreadFrom(i, p)
+      } else if (state.burning[i]) {
+        color.setHSL(0.58 - state.burn[i] * 0.25, 0.8, 0.18 + state.burn[i] * 0.2)
+        fuel.setColorAt(i, color)
       }
-      const gx = i % gridSize
-      const gz = Math.floor(i / gridSize)
-      const distance = Math.sqrt((gx - gridSize / 2) ** 2 + (gz - gridSize / 2) ** 2) * cellSize
-      frontRadius = Math.max(frontRadius, distance)
-      color.setHSL(0.58 - burn[i] * 0.25, 0.8, 0.18 + burn[i] * 0.2)
-      fuel.setColorAt(i, color)
     }
     if (fuel.instanceColor) fuel.instanceColor.needsUpdate = true
-
+    const burningIndices: number[] = []
+    for (let i = 0; i < cellCount; i += 1) if (state.burning[i]) burningIndices.push(i)
     const flameAttribute = flames.geometry.attributes.position as THREE.BufferAttribute
     const smokeAttribute = smoke.geometry.attributes.position as THREE.BufferAttribute
     for (let i = 0; i < flameCount; i += 1) {
@@ -142,32 +89,31 @@ function createS11(kit: import('../types').SceneKit): ScenarioRuntime {
       particle.life += dt
       if (particle.life > particle.max || particle.y < 0.5) {
         particle.life = 0
-        const index = Math.floor(Math.random() * cellCount)
+        const index = burningIndices.length > 0 ? burningIndices[Math.floor(Math.random() * burningIndices.length)] : Math.floor(Math.random() * cellCount)
         const gx = index % gridSize
         const gz = Math.floor(index / gridSize)
-        const active = burning[index] ? 1 : Math.random() < 0.08 ? 1 : 0
+        const active = state.burning[index] ? 1 : Math.random() < 0.04 ? 1 : 0
         particle.x = -half + cellSize / 2 + gx * cellSize + (Math.random() - 0.5) * 5
         particle.z = -half + cellSize / 2 + gz * cellSize + (Math.random() - 0.5) * 5
         particle.y = 0.8 + Math.random() * 1.2
         if (!active) particle.y = -100
       } else {
         particle.y += dt * (6 + Math.random() * 5)
-        particle.x += dt * wind * 0.35 * dir
+        particle.x += dt * wind * 0.35
         particle.z -= dt * wind * 0.08
       }
       flameAttribute.setXYZ(i, particle.x, particle.y, particle.z)
     }
     flameAttribute.needsUpdate = true
-    smokeHeight = 0
     for (let i = 0; i < smokeCount; i += 1) {
       const particle = smokeState[i]
       particle.life += dt
       if (particle.life > particle.max || particle.y < 0.5) {
         particle.life = 0
-        const index = Math.floor(Math.random() * cellCount)
+        const index = burningIndices.length > 0 ? burningIndices[Math.floor(Math.random() * burningIndices.length)] : Math.floor(Math.random() * cellCount)
         const gx = index % gridSize
         const gz = Math.floor(index / gridSize)
-        const active = burning[index] ? 1 : Math.random() < 0.05 ? 1 : 0
+        const active = state.burning[index] ? 1 : Math.random() < 0.03 ? 1 : 0
         particle.x = -half + cellSize / 2 + gx * cellSize + (Math.random() - 0.5) * 6
         particle.z = -half + cellSize / 2 + gz * cellSize + (Math.random() - 0.5) * 6
         particle.y = 2 + Math.random() * 3
@@ -178,26 +124,37 @@ function createS11(kit: import('../types').SceneKit): ScenarioRuntime {
         particle.z += dt * wind * 0.18
       }
       smokeAttribute.setXYZ(i, particle.x, particle.y, particle.z)
-      smokeHeight = Math.max(smokeHeight, particle.y)
     }
     smokeAttribute.needsUpdate = true
     smoke.visible = smokeAmount > 0.08
-    frontSpeed = simTime > 0 ? frontRadius / simTime : 0
+  }
+
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     action: (key) => {
-      if (key === 'ignite') ignite()
+      if (key === 'ignite') model.ignite()
     },
-    readouts: () => ({
-      已烧毁网格: `${burnedCells} / ${cellCount}`,
-      火线扩展速度: `${(frontSpeed * 3.6).toFixed(1)} km/h`,
-      烟羽高度: `${smokeHeight.toFixed(0)} m`,
-      风速: `${windState.toFixed(1)} m/s`,
-      仿真时间: `${simTime.toFixed(1)} s`
-    }),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        已烧毁网格: `${state.burnedCells} / ${cellCount}`,
+        火线扩展速度: `${(state.frontSpeed * 3.6).toFixed(1)} km/h`,
+        烟羽高度: `${state.smokeHeight.toFixed(0)} m`,
+        风速: `${model.getConfig().wind.toFixed(1)} m/s`,
+        仿真时间: `${state.time.toFixed(1)} s`
+      }
+    },
     dispose: () => disposeObject(root)
   }
 }

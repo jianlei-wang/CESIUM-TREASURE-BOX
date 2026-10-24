@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
 import { addLine, addPillar, addStageGround, disposeObject, seeded } from '../helpers'
+import { createS04Model } from '../simulations/s04.model'
 
 function createS04(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -12,11 +13,9 @@ function createS04(kit: import('../types').SceneKit): ScenarioRuntime {
   root.add(waterGroup)
   let water: THREE.Mesh | null = null
   let flowGroup: THREE.Group | null = null
-  let simTime = 0
   let normalTick = 0
-  let level = 0
-  let peakFlow = 0
   let lastSignature = ''
+  const model = createS04Model({ inflow: 120, maxDepth: 5, duration: 60, roughness: 0.04, buildings: 12 })
   const buildingColors = ['#738696', '#8da0ad', '#647685', '#a2b2bb']
 
   const geometry = new THREE.PlaneGeometry(340, 340, 44, 44)
@@ -77,30 +76,34 @@ function createS04(kit: import('../types').SceneKit): ScenarioRuntime {
     waterGroup.add(flowGroup)
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const inflow = num(p, 'inflow', 120)
-    const maxDepth = num(p, 'maxDepth', 5)
-    const duration = num(p, 'duration', 60)
-    const roughness = num(p, 'roughness', 0.04)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      inflow: num(p, 'inflow', 120),
+      maxDepth: num(p, 'maxDepth', 5),
+      duration: num(p, 'duration', 60),
+      roughness: num(p, 'roughness', 0.04),
+      buildings: Math.round(num(p, 'buildings', 12))
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const showDepth = flag(p, 'depth', true)
     const showFlow = flag(p, 'flow', true)
-    simTime += dt
-    const cycle = simTime % (duration + 4)
-    const phase = cycle / duration
-    const wave = phase < 1 ? Math.sin(Math.PI * Math.min(1, phase)) : 0
-    level = maxDepth * wave
-    peakFlow = Math.max(peakFlow, inflow * Math.min(1.4, wave * 1.35))
+    const roughness = num(p, 'roughness', 0.04)
+    const maxDepth = Math.max(1, num(p, 'maxDepth', 5))
+    const state = model.state
     if (water) {
-      water.position.y = 0.25 + level * 0.38
+      water.position.y = 0.25 + state.level
       water.visible = true
       const material = water.material as THREE.MeshStandardMaterial
-      material.opacity = showDepth ? 0.28 + Math.min(0.5, level / Math.max(1, maxDepth) * 0.45) : 0.2
-      material.color.setHSL(0.56, 0.58, 0.42 + Math.min(0.18, level / 80))
+      material.opacity = showDepth ? 0.28 + Math.min(0.5, (state.level / maxDepth) * 0.45) : 0.2
+      material.color.setHSL(0.56, 0.58, 0.42 + Math.min(0.18, state.level / 80))
       const position = geometry.attributes.position as THREE.BufferAttribute
       for (let i = 0; i < position.count; i += 1) {
         const x = basePositions[i * 3]
         const z = basePositions[i * 3 + 2]
-        const ripple = Math.sin(x * 0.09 + simTime * 1.2) * 0.22 + Math.cos(z * 0.11 - simTime * 0.9) * 0.18
+        const ripple = Math.sin(x * 0.09 + state.time * 1.2) * 0.22 + Math.cos(z * 0.11 - state.time * 0.9) * 0.18
         position.setY(i, ripple * (0.4 + roughness * 9))
       }
       position.needsUpdate = true
@@ -109,18 +112,18 @@ function createS04(kit: import('../types').SceneKit): ScenarioRuntime {
     }
     if (flowGroup) {
       flowGroup.visible = showFlow
+      const speed = 0.18 + Math.min(0.9, state.outflow / Math.max(1, maxDepth * 20))
       for (const child of flowGroup.children) {
         const line = child as THREE.Line
-        const phaseValue = (line.userData.phase as number) + simTime * 0.35
-        const radius = line.userData.radius as number
-        const angle = line.userData.angle as number
-        const x = Math.cos(angle) * radius
-        const z = Math.sin(angle) * radius
-        line.position.set(Math.sin(phaseValue) * 8, 0.65, Math.cos(phaseValue) * 8)
-        line.userData.x = x
-        line.userData.z = z
+        const phaseValue = (line.userData.phase as number) + state.time * speed
+        line.position.set(Math.sin(phaseValue) * 8, 0.65 + state.level, Math.cos(phaseValue) * 8)
       }
     }
+  }
+
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   const sync = (p: ParamValues): void => {
@@ -138,21 +141,29 @@ function createS04(kit: import('../types').SceneKit): ScenarioRuntime {
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key, p) => {
       if (key === 'reflow') {
-        simTime = 0
-        peakFlow = 0
+        model.reflow()
         buildCity(p)
       }
     },
-    readouts: () => ({
-      当前水位: `${level.toFixed(2)} m`,
-      淹没深度: `${Math.max(0, level * 0.38).toFixed(2)} m`,
-      峰值入流: `${peakFlow.toFixed(0)} m³/s`,
-      风险等级: level > 4 ? '橙色预警' : level > 2 ? '黄色关注' : '蓝色常态',
-      仿真时间: `${simTime.toFixed(0)} s`
-    }),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      const maxDepth = Math.max(1, model.getConfig().maxDepth)
+      return {
+        当前水位: `${state.level.toFixed(2)} m`,
+        淹没深度: `${Math.max(0, state.level).toFixed(2)} m`,
+        峰值入流: `${state.peakFlow.toFixed(0)} m³/s`,
+        风险等级: state.level > maxDepth * 0.8 ? '橙色预警' : state.level > maxDepth * 0.45 ? '黄色关注' : '蓝色常态',
+        仿真时间: `${state.time.toFixed(0)} s`
+      }
+    },
     dispose: () => {
       geometry.dispose()
       disposeObject(root)

@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { Cartesian3, Matrix4, Transforms, type Viewer } from 'cesium'
 import type { CameraSpec, GeoAnchor } from './types'
+import { PerformanceMonitor } from './core/PerformanceMonitor'
+import { ResourceTracker } from './core/ResourceTracker'
 
 export type FrameHandler = (dt: number) => void
 
@@ -28,6 +30,9 @@ export class GeoThreeStage {
   private frameAverage = 1 / 60
   private qualityTimer = 0
   private qualityScale = 0.7
+  private readonly monitor = new PerformanceMonitor()
+  private readonly resources = new ResourceTracker()
+  private orbit = false
 
   constructor(viewer: Viewer, container: HTMLElement, anchor: GeoAnchor) {
     this.viewer = viewer
@@ -73,6 +78,8 @@ export class GeoThreeStage {
     rimLight.position.set(180, 90, -160)
     this.scene.add(rimLight)
 
+    this.monitor.start()
+    this.resources.trackObject(this.scene)
     this.setAnchor(anchor)
     this.resize()
     this.observer = new ResizeObserver(() => this.resize())
@@ -116,6 +123,10 @@ export class GeoThreeStage {
     this.viewer.camera.setView({ destination, orientation: { heading, pitch, roll: 0 } })
   }
 
+  setAutoOrbit(enabled: boolean): void {
+    this.orbit = enabled
+  }
+
   setVisible(visible: boolean): void {
     this.renderer.domElement.style.display = visible ? 'block' : 'none'
   }
@@ -132,13 +143,24 @@ export class GeoThreeStage {
     const now = performance.now()
     const raw = Math.max(0, (now - this.lastTime) / 1000)
     this.lastTime = now
-    const elapsed = Math.min(0.35, raw)
-    if (elapsed > 0) {
-      const stepCount = Math.min(18, Math.max(1, Math.ceil(elapsed * 60)))
-      const step = elapsed / stepCount
-      for (let i = 0; i < stepCount; i += 1) this.onFrame?.(step)
-    }
+    const elapsed = Math.min(0.5, raw)
+    if (elapsed > 0) this.onFrame?.(elapsed)
     this.adaptQuality(raw)
+    this.monitor.frame(raw * 1000, {
+      calls: this.renderer.info.render.calls,
+      triangles: this.renderer.info.render.triangles,
+      geometries: this.renderer.info.memory.geometries,
+      textures: this.renderer.info.memory.textures,
+      programs: this.renderer.info.programs?.length ?? 0
+    })
+    this.monitor.setQuality(this.qualityScale)
+    if (this.orbit) {
+      const cartographic = this.viewer.camera.positionCartographic
+      this.viewer.camera.setView({
+        destination: Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, cartographic.height),
+        orientation: { heading: this.viewer.camera.heading + raw * 0.08, pitch: this.viewer.camera.pitch, roll: 0 }
+      })
+    }
 
     Matrix4.multiply(this.viewer.camera.viewMatrix, this.threeToEcef, this.viewMatrix)
     Matrix4.inverse(this.viewMatrix, this.worldMatrix)
@@ -176,6 +198,22 @@ export class GeoThreeStage {
     return this.anchor
   }
 
+  getPerformance() {
+    return this.monitor.snapshot()
+  }
+
+  getResources() {
+    return this.resources.report()
+  }
+
+  recordPhysics(ms: number): void {
+    this.monitor.physicsStep(ms)
+  }
+
+  setBacklog(milliseconds: number, droppedSeconds: number): void {
+    this.monitor.setBacklog(milliseconds, droppedSeconds)
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
@@ -184,16 +222,9 @@ export class GeoThreeStage {
     this.removePostRender()
     this.renderer.dispose()
     this.renderer.domElement.remove()
-    this.scene.traverse((child) => {
-      const mesh = child as THREE.Mesh
-      if (mesh.geometry) mesh.geometry.dispose()
-      const material = mesh.material as THREE.Material | THREE.Material[] | undefined
-      if (Array.isArray(material)) {
-        for (const item of material) item.dispose()
-      } else if (material) {
-        material.dispose()
-      }
-    })
+    this.resources.trackObject(this.scene)
+    this.resources.disposeAll()
     this.scene.clear()
+    this.monitor.dispose()
   }
 }

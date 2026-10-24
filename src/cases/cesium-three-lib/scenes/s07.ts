@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
 import { addBox, addLine, addStageGround, damp, disposeObject, surface } from '../helpers'
+import { S07_ROUTE, createS07Model } from '../simulations/s07.model'
 
 function createS07(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -32,17 +33,7 @@ function createS07(kit: import('../types').SceneKit): ScenarioRuntime {
   arms.visible = false
   character.add(arms)
 
-  const route: THREE.Vector3[] = [
-    new THREE.Vector3(-55, 0, 45),
-    new THREE.Vector3(-10, 0, 30),
-    new THREE.Vector3(18, 0, 8),
-    new THREE.Vector3(30, 0.45, 0),
-    new THREE.Vector3(36, 1.35, 0),
-    new THREE.Vector3(55, 1.35, -12),
-    new THREE.Vector3(55, 0, -55),
-    new THREE.Vector3(0, 0, -70),
-    new THREE.Vector3(-65, 0, -30)
-  ]
+  const route = S07_ROUTE.map((point) => new THREE.Vector3(point.x, point.y, point.z))
   const pathPoints: THREE.Vector3[] = []
   for (let i = 0; i < route.length - 1; i += 1) {
     const from = route[i]
@@ -50,70 +41,37 @@ function createS07(kit: import('../types').SceneKit): ScenarioRuntime {
     for (let step = 0; step < 12; step += 1) pathPoints.push(from.clone().lerp(to, step / 12).setY(from.y + (to.y - from.y) * (step / 12) + 0.08))
   }
   addLine(pathGroup, pathPoints, '#8fd6ff', 0.4)
-  let segment = 0
-  let segmentT = 0
-  let jumpY = 0
-  let jumpVelocity = 0
-  let grounded = true
-  let distance = 0
-  let simTime = 0
-  let cadence = 1.7
   let heading = 0
   let viewMode = 'third'
-  let speedState = 3
   let jumpTimer = 2.4
   let cameraRange = 52
   let cameraPitch = -24
+  const model = createS07Model({ moveSpeed: 3, run: false, jumpForce: 4.8, gravity: 12 })
 
-  const update = (dt: number, p: ParamValues): void => {
-    const speed = num(p, 'moveSpeed', 3)
-    const run = flag(p, 'run', false)
-    const jumpForce = num(p, 'jumpForce', 4.5)
-    const gravity = num(p, 'gravity', 12)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      moveSpeed: num(p, 'moveSpeed', 3),
+      run: flag(p, 'run', false),
+      jumpForce: num(p, 'jumpForce', 4.8),
+      gravity: num(p, 'gravity', 12)
+    })
+    model.fixedStep(dt)
+    jumpTimer -= dt
+  }
+
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const showPath = flag(p, 'path', true)
     viewMode = text(p, 'viewMode', 'third')
-    simTime += dt
-    const actualSpeed = speed * (run ? 1.85 : 1)
-    speedState = actualSpeed
-    const from = route[segment]
-    const to = route[(segment + 1) % route.length]
-    const segmentLength = from.distanceTo(to)
-    segmentT += (actualSpeed * dt) / Math.max(1, segmentLength)
-    distance += actualSpeed * dt
-    if (segmentT >= 1) {
-      segmentT = 0
-      segment = (segment + 1) % route.length
-    }
-    const currentFrom = route[segment]
-    const currentTo = route[(segment + 1) % route.length]
-    const position = currentFrom.clone().lerp(currentTo, segmentT)
-    jumpTimer -= dt
-    if (grounded && jumpTimer <= 0) {
-      jumpVelocity = jumpForce
-      grounded = false
-      jumpTimer = run ? 2.8 : 4.4
-    }
-    if (!grounded) {
-      jumpVelocity -= gravity * dt
-      jumpY += jumpVelocity * dt
-      if (jumpY <= 0) {
-        jumpY = 0
-        jumpVelocity = 0
-        grounded = true
-      }
-    }
-    character.position.set(position.x, position.y + jumpY, position.z)
-    const direction = currentTo.clone().sub(currentFrom)
-    const desiredHeading = Math.atan2(direction.x, direction.z)
-    let turn = desiredHeading - heading
+    const state = model.state
+    character.position.set(state.position.x, state.position.y + state.jumpY, state.position.z)
+    let turn = state.heading - heading
     turn = ((turn + Math.PI * 3) % (Math.PI * 2)) - Math.PI
-    heading += turn * Math.min(1, dt * 6)
+    heading += turn * Math.min(1, 0.016 * 6)
     character.rotation.y = heading
-    cameraRange = damp(cameraRange, viewMode === 'first' ? 16 : 52, 5, dt)
-    cameraPitch = damp(cameraPitch, viewMode === 'first' ? -6 : -24, 5, dt)
-    const stride = Math.sin(simTime * (run ? 11 : 6.5)) * (grounded ? 0.5 : 0.1)
+    cameraRange = damp(cameraRange, viewMode === 'first' ? 16 : 52, 5, 0.016)
+    cameraPitch = damp(cameraPitch, viewMode === 'first' ? -6 : -24, 5, 0.016)
+    const stride = Math.sin(state.time * (flag(p, 'run', false) ? 11 : 6.5)) * (state.grounded ? 0.5 : 0.1)
     character.position.y += Math.abs(stride) * 0.06
-    cadence = run ? 2.9 : 1.7
     arms.visible = viewMode === 'first'
     body.visible = viewMode !== 'first'
     head.visible = viewMode !== 'first'
@@ -127,28 +85,28 @@ function createS07(kit: import('../types').SceneKit): ScenarioRuntime {
 
   return {
     object: root,
-    update,
+    update: (dt, p) => {
+      fixedUpdate(dt, p)
+      renderSync(1, p)
+    },
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
     action: (key) => {
-      if (key === 'jump' && grounded) {
-        jumpVelocity = 5.2
-        grounded = false
-      }
+      if (key === 'jump') model.jump()
       if (key === 'reset') {
-        segment = 0
-        segmentT = 0
-        jumpY = 0
-        jumpVelocity = 0
-        grounded = true
-        distance = 0
+        model.reset()
         jumpTimer = 2.4
       }
     },
     readouts: () => ({
-      当前速度: `${speedState.toFixed(1)} m/s`,
-      离地高度: `${jumpY.toFixed(2)} m`,
-      地面接触: grounded ? '是' : '否',
-      步频: `${cadence.toFixed(1)} Hz`,
-      步行距离: `${distance.toFixed(0)} m`,
+      当前速度: `${model.state.speed.toFixed(1)} m/s`,
+      离地高度: `${model.state.jumpY.toFixed(2)} m`,
+      地面接触: model.state.grounded ? '是' : '否',
+      步频: `${model.state.cadence.toFixed(1)} Hz`,
+      步行距离: `${model.state.distance.toFixed(0)} m`,
       视角模式: viewMode === 'first' ? '第一人称' : '第三人称'
     }),
     dispose: () => disposeObject(root)

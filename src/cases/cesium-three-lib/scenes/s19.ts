@@ -2,27 +2,19 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
 import { addBox, addCylinder, addStageGround, disposeObject, surface } from '../helpers'
+import { createS19Model, S19_MAX_PARTICLES, type S19Stability } from '../simulations/s19.model'
 
-const MAX_PARTICLES = 900
+const MAX_PARTICLES = S19_MAX_PARTICLES
 
 function createS19(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
   addStageGround(root, 260, { disc: '#191d21', accent: kit.accent })
   const stacks = new THREE.Group()
   root.add(stacks)
-  const positions = new Float32Array(MAX_PARTICLES * 3)
-  const colors = new Float32Array(MAX_PARTICLES * 3)
-  const pX = new Float32Array(MAX_PARTICLES)
-  const pY = new Float32Array(MAX_PARTICLES)
-  const pZ = new Float32Array(MAX_PARTICLES)
-  const vX = new Float32Array(MAX_PARTICLES)
-  const vY = new Float32Array(MAX_PARTICLES)
-  const vZ = new Float32Array(MAX_PARTICLES)
-  const pAge = new Float32Array(MAX_PARTICLES)
-  const pLife = new Float32Array(MAX_PARTICLES)
+  const model = createS19Model({ sources: 3, stackHeight: 34, emission: 70, windSpeed: 8, windDir: 250, stability: 'neutral' })
   const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  geometry.setAttribute('position', new THREE.BufferAttribute(model.state.positions, 3))
+  geometry.setAttribute('color', new THREE.BufferAttribute(model.state.colors, 3))
   const particleMaterial = new THREE.PointsMaterial({
     size: 3.6,
     vertexColors: true,
@@ -35,18 +27,8 @@ function createS19(kit: import('../types').SceneKit): ScenarioRuntime {
   const plume = new THREE.Points(geometry, particleMaterial)
   plume.frustumCulled = false
   root.add(plume)
-  const color = new THREE.Color()
-  let cursor = 0
-  let simTime = 0
-  let emitted = 0
   let sourceCount = 3
   let stackHeight = 34
-  let windSpeed = 8
-  let windDir = 250
-  let stability = 'neutral'
-  let maxConcentration = 0
-  let plumeLength = 0
-  let emitAccumulator = 0
   const stackMaterial = surface('#b6c2cc', { roughness: 0.8, metalness: 0.25 })
   const capMaterial = surface('#ff9d5c', { emissive: '#d96a2a', emissiveIntensity: 0.8, transparent: true, opacity: 0.6 })
 
@@ -61,88 +43,31 @@ function createS19(kit: import('../types').SceneKit): ScenarioRuntime {
     }
   }
 
-  const spawn = (x: number, y: number, z: number): void => {
-    const index = cursor
-    cursor = (cursor + 1) % MAX_PARTICLES
-    pX[index] = x + (Math.random() - 0.5) * 4
-    pY[index] = y + Math.random() * 3
-    pZ[index] = z + (Math.random() - 0.5) * 4
-    vX[index] = (Math.random() - 0.5) * 0.8
-    vY[index] = 0.8 + Math.random() * 1.1
-    vZ[index] = (Math.random() - 0.5) * 0.8
-    pAge[index] = 0.0001
-    pLife[index] = 10 + Math.random() * 8
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      sources: Math.round(num(p, 'sources', 3)),
+      stackHeight: num(p, 'stackHeight', 34),
+      emission: num(p, 'emission', 70),
+      windSpeed: num(p, 'windSpeed', 8),
+      windDir: num(p, 'windDir', 250),
+      stability: String(p['stability'] ?? 'neutral') as S19Stability
+    })
+    model.fixedStep(dt)
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    windSpeed = num(p, 'windSpeed', 6)
-    windDir = num(p, 'windDir', 70)
-    stability = String(p['stability'] ?? 'neutral')
-    const emission = num(p, 'emission', 40)
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const showGrid = flag(p, 'grid', true)
-    stackHeight = num(p, 'stackHeight', 34)
-    const mixFactor = stability === 'stable' ? 0.18 : stability === 'unstable' ? 1.35 : 0.6
-    const rad = (windDir * Math.PI) / 180
-    const wx = Math.cos(rad) * windSpeed
-    const wz = Math.sin(rad) * windSpeed
-    simTime += dt
-    emitAccumulator += emission * dt * 2
-    let spawnCount = 0
-    while (emitAccumulator >= 1 && spawnCount < 32) {
-      emitAccumulator -= 1
-      const source = Math.floor(Math.random() * sourceCount)
-      spawn((source - (sourceCount - 1) / 2) * 22, stackHeight, 0)
-      emitted += 1
-      spawnCount += 1
-    }
-    emitAccumulator = Math.min(emitAccumulator, 32)
-    for (let i = 0; i < MAX_PARTICLES; i += 1) {
-      if (pAge[i] <= 0) {
-        positions[i * 3 + 1] = -100
-        colors[i * 3] = 0
-        colors[i * 3 + 1] = 0
-        colors[i * 3 + 2] = 0
-        continue
-      }
-      pAge[i] += dt
-      if (pAge[i] > pLife[i]) {
-        pAge[i] = 0
-        positions[i * 3 + 1] = -100
-        continue
-      }
-      const swirl = Math.sin(pY[i] * 0.07 + simTime * 1.6 + pX[i] * 0.025) * mixFactor * 0.9
-      const cross = Math.cos(pZ[i] * 0.06 + simTime * 1.25 + pY[i] * 0.03) * mixFactor * 0.7
-      vX[i] += ((wx - vX[i]) * 0.55 + swirl) * dt
-      vZ[i] += ((wz - vZ[i]) * 0.55 + cross) * dt
-      vY[i] += (mixFactor * 0.7 - 0.35) * dt
-      pX[i] += vX[i] * dt
-      pY[i] += vY[i] * dt
-      pZ[i] += vZ[i] * dt
-      if (pY[i] < 1) {
-        pY[i] = 1
-        vY[i] *= 0.3
-      }
-      const t = pAge[i] / pLife[i]
-      positions[i * 3] = pX[i]
-      positions[i * 3 + 1] = pY[i]
-      positions[i * 3 + 2] = pZ[i]
-      color.setHSL(0.04 + t * 0.54, 0.72, 0.58 - t * 0.16)
-      colors[i * 3] = color.r
-      colors[i * 3 + 1] = color.g
-      colors[i * 3 + 2] = color.b
-    }
     geometry.attributes.position.needsUpdate = true
     geometry.attributes.color.needsUpdate = true
-    let centerCount = 0
-    for (let i = 0; i < MAX_PARTICLES; i += 1) {
-      if (pAge[i] > 0 && Math.abs(pX[i]) < 60) centerCount += 1
-    }
-    maxConcentration = Math.max(maxConcentration, centerCount / 40)
-    plumeLength = windSpeed * 16 * (stability === 'stable' ? 0.7 : 1)
     particleMaterial.visible = showGrid
     particleMaterial.opacity = showGrid ? 0.82 : 0.6
     plume.visible = true
-    stackHeight = num(p, 'stackHeight', 34)
+    void p
+  }
+
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   const sync = (p: ParamValues): void => {
@@ -152,7 +77,7 @@ function createS19(kit: import('../types').SceneKit): ScenarioRuntime {
       sourceCount = count
       stackHeight = height
       buildStacks(count, height)
-      for (let i = 0; i < MAX_PARTICLES; i += 1) pAge[i] = 0
+      model.clear()
     }
   }
 
@@ -161,21 +86,26 @@ function createS19(kit: import('../types').SceneKit): ScenarioRuntime {
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key) => {
-      if (key === 'clear') {
-        for (let i = 0; i < MAX_PARTICLES; i += 1) pAge[i] = 0
-        maxConcentration = 0
+      if (key === 'clear') model.clear()
+    },
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        烟羽长度: `${state.plumeLength.toFixed(0)} m`,
+        峰值浓度指数: `${state.maxConcentration.toFixed(1)}`,
+        边界层高度: `${state.boundaryLayer} m`,
+        累计排放: `${state.emitted} 个粒子`,
+        风向: `${model.getConfig().windDir.toFixed(0)}°`,
+        仿真时间: `${state.time.toFixed(1)} s`
       }
     },
-    readouts: () => ({
-      烟羽长度: `${plumeLength.toFixed(0)} m`,
-      峰值浓度指数: `${maxConcentration.toFixed(1)}`,
-      边界层高度: `${(stability === 'stable' ? 320 : stability === 'unstable' ? 1500 : 900)} m`,
-      累计排放: `${emitted} 个粒子`,
-      风向: `${windDir.toFixed(0)}°`,
-      仿真时间: `${simTime.toFixed(1)} s`
-    }),
     dispose: () => disposeObject(root)
   }
 }

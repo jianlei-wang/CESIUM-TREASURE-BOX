@@ -3,9 +3,12 @@ import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { Viewer } from 'cesium'
 import { createMapScene, destroyScene, loadBingImagery } from '../../lib/cesium-scene'
 import { GeoThreeStage } from './stage'
-import type { ParamValue, ParamValues, ScenarioRuntime } from './types'
+import type { CalibrationRow, ParamValue, ParamValues, ScenarioRuntime, SimulationMode } from './types'
 import { defaultValues } from './types'
 import { SCENARIO_MAP } from './scenarios'
+import { SimulationClock } from './core/SimulationClock'
+import { SIMULATION_MODES } from './simulations/contract'
+import type { PerformanceSnapshot } from './core/PerformanceMonitor'
 
 const props = defineProps<{ scenario: string }>()
 
@@ -17,6 +20,12 @@ const readouts = ref<Record<string, number | string>>({})
 const paused = ref(false)
 const status = ref('初始化中…')
 const infoOpen = ref(false)
+const mode = ref<SimulationMode>('interactive')
+const diagnostics = ref<Record<string, number | string>>({})
+const calibration = ref<CalibrationRow[]>([])
+const performanceStats = ref<PerformanceSnapshot | null>(null)
+const clock = new SimulationClock({ fixedDt: 1 / 60, maxSubSteps: 8 })
+let statsTimer = 0
 
 let viewer: Viewer | null = null
 let stage: GeoThreeStage | null = null
@@ -46,7 +55,26 @@ function onInput(key: string, type: string, event: Event): void {
 
 function togglePause(): void {
   paused.value = !paused.value
+  clock.paused = paused.value
   status.value = paused.value ? '已暂停' : '运行中'
+}
+
+function stepOnce(): void {
+  if (!runtime) return
+  clock.stepOnce()
+  if (runtime.fixedUpdate) runtime.fixedUpdate(clock.fixedDt, smoothedValues)
+  else runtime.update(clock.fixedDt, smoothedValues)
+  runtime.renderSync?.(1, smoothedValues)
+  readouts.value = runtime.readouts()
+}
+
+function applyMode(next: SimulationMode): void {
+  mode.value = next
+  stage?.setAutoOrbit(next === 'cinema')
+  runtime?.setMode?.(next)
+  status.value = SIMULATION_MODES.find((item) => item.value === next)?.hint ?? status.value
+  diagnostics.value = runtime?.diagnostics?.() ?? {}
+  calibration.value = runtime?.calibration?.() ?? []
 }
 
 function runAction(key: string): void {
@@ -59,6 +87,7 @@ function resetParams(): void {
 
 function resetCamera(): void {
   stage?.setView(meta.camera, 1.1)
+  stage?.setAutoOrbit(mode.value === 'cinema')
 }
 
 function advanceSmoothing(dt: number): void {
@@ -94,17 +123,35 @@ onMounted(() => {
   runtime.sync?.({ ...values })
   let accumulator = 0
   stage.onFrame = (dt) => {
+    const started = performance.now()
     if (!paused.value) {
       advanceSmoothing(dt)
-      runtime?.update(dt, smoothedValues)
+      const advance = clock.advance(dt)
+      for (let index = 0; index < advance.steps; index += 1) {
+        if (runtime?.fixedUpdate) runtime.fixedUpdate(clock.fixedDt, smoothedValues)
+        else runtime?.update(clock.fixedDt, smoothedValues)
+      }
+      runtime?.renderSync?.(advance.alpha, smoothedValues)
+      stage?.setBacklog(advance.backlog * 1000, clock.dropped)
     }
+    stage?.recordPhysics(performance.now() - started)
     accumulator += dt
+    statsTimer += dt
     if (accumulator >= 0.2) {
       accumulator = 0
       readouts.value = runtime?.readouts() ?? {}
+      diagnostics.value = runtime?.diagnostics?.() ?? {}
+      calibration.value = runtime?.calibration?.() ?? []
+    }
+    if (statsTimer >= 0.5) {
+      statsTimer = 0
+      performanceStats.value = stage?.getPerformance() ?? null
     }
   }
   readouts.value = runtime.readouts()
+  runtime.setMode?.(mode.value)
+  diagnostics.value = runtime.diagnostics?.() ?? {}
+  calibration.value = runtime.calibration?.() ?? []
   status.value = '运行中'
 })
 
@@ -112,6 +159,7 @@ onBeforeUnmount(() => {
   if (syncTimer !== null) window.clearTimeout(syncTimer)
   runtime?.dispose()
   runtime = null
+  clock.reset()
   stage?.dispose()
   stage = null
   if (viewer) destroyScene(viewer)
@@ -131,7 +179,7 @@ watch(
 </script>
 
 <template>
-  <div v-if="meta" class="ct-shell" :style="{ '--ct-accent': meta.accent }">
+  <div v-if="meta" class="ct-shell" :class="{ cinema: mode === 'cinema' }" :style="{ '--ct-accent': meta.accent }">
     <div ref="host" class="scene-canvas"></div>
 
     <div class="scene-head">
@@ -216,9 +264,25 @@ watch(
         </div>
       </div>
 
+      <div class="section-title">演示模式</div>
+      <div class="mode-grid">
+        <button
+          v-for="item in SIMULATION_MODES"
+          :key="item.value"
+          class="mode-button"
+          :class="{ active: mode === item.value }"
+          :title="item.hint"
+          @click="applyMode(item.value)"
+        >
+          {{ item.label }}
+        </button>
+      </div>
+      <div class="mode-hint">{{ SIMULATION_MODES.find((item) => item.value === mode)?.hint }}</div>
+
       <div class="section-title">播放与视角</div>
       <div class="button-row">
         <button class="action-button primary" @click="togglePause">{{ paused ? '继续' : '暂停' }}</button>
+        <button class="action-button accent" :disabled="!paused" @click="stepOnce">单步</button>
         <button class="action-button accent" @click="resetCamera">重置视角</button>
       </div>
       <div class="button-row">
@@ -227,6 +291,33 @@ watch(
 
       <div class="status-line">状态：{{ status }} · 相机与三维层逐帧同步</div>
       <div class="hint">{{ meta.hint }}</div>
+    </div>
+
+    <div v-if="mode === 'analysis'" class="analysis-panel">
+      <div class="analysis-title">求解器诊断</div>
+      <div v-for="(value, key) in diagnostics" :key="key" class="analysis-row">
+        <span>{{ key }}</span><span>{{ value }}</span>
+      </div>
+    </div>
+
+    <div v-if="mode === 'calibration'" class="analysis-panel calibration-panel">
+      <div class="analysis-title">校核对照</div>
+      <div v-for="row in calibration" :key="row.metric" class="cal-row" :class="{ fail: !row.pass }">
+        <span class="cal-metric">{{ row.metric }}</span>
+        <span>{{ row.simulated.toFixed(2) }}</span>
+        <span>{{ row.reference.toFixed(2) }}</span>
+        <span>{{ row.error.toFixed(2) }}{{ row.unit }}</span>
+      </div>
+    </div>
+
+    <div v-if="performanceStats" class="perf-hud">
+      <span>FPS {{ performanceStats.fps.toFixed(0) }}</span>
+      <span>P95 {{ performanceStats.frameP95.toFixed(1) }}ms</span>
+      <span>物理 {{ performanceStats.physicsP95.toFixed(1) }}ms</span>
+      <span>DC {{ performanceStats.drawCalls }}</span>
+      <span>三角 {{ (performanceStats.triangles / 1000).toFixed(0) }}k</span>
+      <span>画质 {{ (performanceStats.qualityScale * 100).toFixed(0) }}%</span>
+      <span>积压 {{ performanceStats.backlogMs.toFixed(0) }}ms</span>
     </div>
 
     <div v-if="meta.legend?.length" class="legend">
@@ -708,6 +799,125 @@ watch(
   gap: 5px;
   margin: 0;
   padding-left: 16px;
+}
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.mode-button {
+  min-height: 26px;
+  border: 1px solid rgba(137, 210, 233, 0.25);
+  border-radius: 5px;
+  background: rgba(21, 48, 78, 0.55);
+  color: #b9d2e2;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.mode-button.active {
+  border-color: var(--ct-accent);
+  background: color-mix(in srgb, var(--ct-accent) 24%, transparent);
+  color: #f2fbff;
+}
+
+.mode-hint {
+  margin-top: 2px;
+  font-size: 9px;
+  line-height: 1.5;
+  color: #7f9bad;
+}
+
+.analysis-panel {
+  position: absolute;
+  left: 16px;
+  bottom: 18px;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 238px;
+  max-height: 34%;
+  overflow-y: auto;
+  padding: 9px 10px;
+  border: 1px solid rgba(137, 210, 233, 0.26);
+  border-radius: 7px;
+  background: rgba(6, 18, 31, 0.82);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.analysis-title {
+  margin-bottom: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ct-accent);
+}
+
+.analysis-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  color: #b9d2e2;
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration-panel {
+  width: 294px;
+}
+
+.cal-row {
+  display: grid;
+  grid-template-columns: 1.5fr 0.8fr 0.8fr 1fr;
+  gap: 4px;
+  font-size: 9px;
+  color: #b9d2e2;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-row.fail {
+  color: #ff9d8a;
+}
+
+.cal-metric {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.perf-hud {
+  position: absolute;
+  bottom: 10px;
+  left: 16px;
+  z-index: 11;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100% - 340px);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(4, 12, 20, 0.55);
+  color: #87a6b8;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.ct-shell.cinema .control-panel {
+  opacity: 0.24;
+  transition: opacity 0.3s ease;
+}
+
+.ct-shell.cinema .control-panel:hover {
+  opacity: 1;
+}
+
+.ct-shell.cinema .perf-hud,
+.ct-shell.cinema .metric-strip {
+  opacity: 0.45;
 }
 
 @media (max-width: 1100px) {

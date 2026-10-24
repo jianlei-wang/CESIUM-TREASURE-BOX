@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
 import { addBox, addCylinder, addPillar, addStageGround, disposeObject, seeded, surface } from '../helpers'
+import { createS12Model, S12_MAX_PARTICLES, type S12Kind } from '../simulations/s12.model'
 
 function createS12(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -15,18 +16,8 @@ function createS12(kit: import('../types').SceneKit): ScenarioRuntime {
   addCylinder(root, 0.35, 0.5, 12, [85, 6, 55], surface('#a5b2bb', { metalness: 0.6 }), 12)
   addBox(root, [3, 0.2, 3], [85, 12.2, 55], surface('#e0bd62'))
 
-  const maxParticles = 1500
+  const maxParticles = S12_MAX_PARTICLES
   const positions = new Float32Array(maxParticles * 3)
-  const states: { x: number; y: number; z: number; speed: number; drift: number }[] = []
-  for (let i = 0; i < maxParticles; i += 1) {
-    const x = (random() - 0.5) * 260
-    const y = random() * 160
-    const z = (random() - 0.5) * 260
-    positions[i * 3] = x
-    positions[i * 3 + 1] = y
-    positions[i * 3 + 2] = z
-    states.push({ x, y, z, speed: 0, drift: random() * Math.PI * 2 })
-  }
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   const material = new THREE.PointsMaterial({ color: '#9bd8f0', size: 1.5, transparent: true, opacity: 0.75, depthWrite: false })
@@ -47,80 +38,55 @@ function createS12(kit: import('../types').SceneKit): ScenarioRuntime {
   puddleRing.rotation.x = -Math.PI / 2
   puddleRing.position.y = 0.06
   root.add(puddleRing)
-  let simTime = 0
-  let accumulated = 0
-  let intensityState = 45
-  let tempState = 4
-  let visibility = 24
-  let lastKind = 'rain'
+  let lastKind: S12Kind = 'rain'
+  const model = createS12Model({ kind: 'rain', intensity: 45, wind: 4, gravity: 9.81, growth: 0.6, temperature: 4 })
 
-  const resetParticles = (kind: string): void => {
-    const position = geometry.attributes.position as THREE.BufferAttribute
-    for (let i = 0; i < maxParticles; i += 1) {
-      const state = states[i]
-      state.x = (Math.random() - 0.5) * 260
-      state.y = Math.random() * 170
-      state.z = (Math.random() - 0.5) * 260
-      state.speed = kind === 'snow' ? 3 + Math.random() * 4 : kind === 'hail' ? 28 + Math.random() * 16 : 18 + Math.random() * 12
-      position.setXYZ(i, state.x, state.y, state.z)
-    }
-    position.needsUpdate = true
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      kind: text(p, 'kind', 'rain') as S12Kind,
+      intensity: num(p, 'intensity', 45),
+      wind: num(p, 'wind', 4),
+      gravity: num(p, 'gravity', 9.81),
+      growth: num(p, 'growth', 0.6),
+      temperature: num(p, 'temperature', 4)
+    })
+    model.fixedStep(dt)
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const kind = text(p, 'kind', 'rain')
-    const intensity = num(p, 'intensity', 45)
-    const wind = num(p, 'wind', 4)
-    const gravity = num(p, 'gravity', 9.81)
-    const growth = num(p, 'growth', 0.6)
-    const temperature = num(p, 'temperature', 4)
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const accumulation = flag(p, 'accumulation', true)
-    intensityState = intensity
-    tempState = temperature
-    simTime += dt
-    const activeCount = Math.max(80, Math.min(maxParticles, Math.floor((maxParticles * intensity) / 100)))
+    const state = model.state
     const position = geometry.attributes.position as THREE.BufferAttribute
-    const speedScale = kind === 'snow' ? 0.16 : kind === 'hail' ? 1.3 : 0.8
-    geometry.setDrawRange(0, activeCount)
-    for (let i = 0; i < maxParticles; i += 1) {
-      const state = states[i]
-      const visible = i < activeCount
-      state.y -= (state.speed * speedScale + gravity * 0.3) * dt
-      if (kind === 'snow') {
-        state.x += Math.sin(simTime * 0.8 + state.drift) * dt * 4 + wind * dt
-        state.z += Math.cos(simTime * 0.6 + state.drift) * dt * 3
-      } else {
-        state.x += wind * dt * (kind === 'hail' ? 0.7 : 1)
-        state.z += dt * 0.8
-      }
-      if (state.y < 0.3) {
-        state.y = 150 + Math.random() * 30
-        state.x = (Math.random() - 0.5) * 260
-        state.z = (Math.random() - 0.5) * 260
-      }
-      if (visible) position.setXYZ(i, state.x, state.y, state.z)
+    geometry.setDrawRange(0, state.activeCount)
+    for (let i = 0; i < state.activeCount; i += 1) {
+      const particle = state.particles[i]
+      position.setXYZ(i, particle.x, particle.y, particle.z)
     }
     position.needsUpdate = true
-    material.color.set(kind === 'snow' ? '#e8f4ff' : kind === 'hail' ? '#b9ecff' : '#89c9e8')
-    material.size = kind === 'snow' ? 1.9 : kind === 'hail' ? 2.5 : 1.2
-    accumulated += (intensity / 3600) * dt * 8
-    const depth = Math.min(2.4, accumulated * 0.04 * (0.3 + growth))
-    puddle.scale.setScalar(Math.max(0.2, Math.min(1.2, 0.35 + depth * 0.25 + growth * 0.4)))
+    material.color.set(state.kind === 'snow' ? '#e8f4ff' : state.kind === 'hail' ? '#b9ecff' : '#89c9e8')
+    material.size = state.kind === 'snow' ? 1.9 : state.kind === 'hail' ? 2.5 : 1.2
+    const depth = state.pondingDepth
+    puddle.scale.setScalar(Math.max(0.2, Math.min(1.2, 0.35 + depth * 18 + num(p, 'growth', 0.6) * 0.35)))
     puddle.visible = accumulation
     puddleRing.visible = accumulation
     const puddleMaterial = puddle.material as THREE.MeshPhysicalMaterial
-    puddleMaterial.color.set(temperature < 0 ? '#bfe6f3' : '#3b8fc4')
-    puddleMaterial.opacity = temperature < 0 ? 0.52 : 0.36
-    visibility = Math.max(2, 30 - intensity * 0.22 - (kind === 'snow' ? 8 : kind === 'hail' ? 4 : 0))
+    puddleMaterial.color.set(state.temperature < 0 ? '#bfe6f3' : '#3b8fc4')
+    puddleMaterial.opacity = state.temperature < 0 ? 0.52 : 0.36
   }
 
-  resetParticles('rain')
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
+  }
+
+
 
   const sync = (p: ParamValues): void => {
     const kind = text(p, 'kind', 'rain')
     if (kind !== lastKind) {
-      lastKind = kind
-      resetParticles(kind)
+      lastKind = kind as S12Kind
+      model.configure({ kind: kind as S12Kind })
+      model.resetParticles()
     }
   }
 
@@ -128,20 +94,27 @@ function createS12(kit: import('../types').SceneKit): ScenarioRuntime {
     sync,
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     action: (key, p) => {
       if (key === 'reset') {
-        simTime = 0
-        accumulated = 0
-        resetParticles(text(p, 'kind', 'rain'))
+        model.configure({ kind: text(p, 'kind', 'rain') as S12Kind })
+        model.resetParticles()
       }
     },
-    readouts: () => ({
-      降水强度: `${intensityState.toFixed(0)} mm/h`,
-      累计降水: `${accumulated.toFixed(2)} mm`,
-      积水深度: `${Math.min(2.4, accumulated * 0.04).toFixed(2)} m`,
-      能见度: `${visibility.toFixed(0)} m`,
-      气温: `${tempState.toFixed(0)} °C`
-    }),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        降水强度: `${model.getConfig().intensity.toFixed(0)} mm/h`,
+        累计降水: `${state.accumulatedMm.toFixed(2)} mm`,
+        积水深度: `${state.pondingDepth.toFixed(3)} m`,
+        能见度: `${state.visibility.toFixed(0)} m`,
+        气温: `${state.temperature.toFixed(0)} °C`
+      }
+    },
     dispose: () => disposeObject(root)
   }
 }

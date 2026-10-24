@@ -1,18 +1,8 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { num } from '../types'
-import { addStageGround, basic, disposeObject, seeded, surface } from '../helpers'
-
-interface Block {
-  mesh: THREE.Mesh
-  home: THREE.Vector3
-  velocity: THREE.Vector3
-  spin: THREE.Vector3
-  size: number
-  delay: number
-  active: boolean
-  settled: boolean
-}
+import { addStageGround, basic, disposeObject, surface } from '../helpers'
+import { createS02Model } from '../simulations/s02.model'
 
 interface DustPuff {
   x: number
@@ -32,7 +22,7 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
   addStageGround(root, 230, { disc: '#1b2026', accent: kit.accent })
   const building = new THREE.Group()
   root.add(building)
-  const blocks: Block[] = []
+  const meshes = new Map<number, THREE.Mesh>()
   const colors = ['#9aa8b5', '#b9c4cd', '#8595a3', '#c9d2d9']
   const dustGeometry = new THREE.BufferGeometry()
   const dustPositions = new Float32Array(DUST_COUNT * 3)
@@ -58,54 +48,29 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
   dustRing.visible = false
   root.add(dustRing)
   let ringAge = 99
-  let triggered = false
-  let countdown = 1.2
-  let simTime = 0
-  let peakImpulse = 0
   let lastSignature = ''
+  const model = createS02Model({ floors: 12, columns: 5, impulse: 5, delay: 0, gravity: 20, damping: 0.02 })
 
   const build = (p: ParamValues): void => {
-    for (const block of blocks) disposeObject(block.mesh)
-    blocks.length = 0
+    for (const mesh of meshes.values()) disposeObject(mesh)
+    meshes.clear()
     building.clear()
-    const floors = Math.round(num(p, 'floors', 6))
-    const columns = Math.round(num(p, 'columns', 3))
-    const blockSize = 7
-    const gap = 0.35
-    const random = seeded(3141)
-    for (let floor = 0; floor < floors; floor += 1) {
-      for (let cx = 0; cx < columns; cx += 1) {
-        for (let cz = 0; cz < columns; cz += 1) {
-          const x = (cx - (columns - 1) / 2) * (blockSize + gap)
-          const z = (cz - (columns - 1) / 2) * (blockSize + gap)
-          const y = floor * (blockSize * 0.62 + gap) + blockSize * 0.31
-          const material = surface(colors[(floor + cx + cz) % colors.length], {
-            roughness: 0.82,
-            metalness: 0.06,
-            emissive: floor < 2 ? '#3a1c0c' : undefined,
-            emissiveIntensity: 0.25
-          })
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(blockSize, blockSize * 0.62, blockSize), material)
-          mesh.position.set(x, y, z)
-          mesh.rotation.y = (random() - 0.5) * 0.035
-          building.add(mesh)
-          blocks.push({
-            mesh,
-            home: mesh.position.clone(),
-            velocity: new THREE.Vector3(),
-            spin: new THREE.Vector3(),
-            size: blockSize,
-            delay: 0,
-            active: false,
-            settled: false
-          })
-        }
-      }
+    model.configure({
+      floors: Math.round(num(p, 'floors', 12)),
+      columns: Math.round(num(p, 'columns', 5)),
+      impulse: num(p, 'impulse', 5),
+      delay: num(p, 'delay', 0),
+      gravity: num(p, 'gravity', 20),
+      damping: num(p, 'damping', 0.02)
+    })
+    model.rebuild()
+    for (const block of model.state.blocks) {
+      const material = surface(colors[block.id % colors.length], { roughness: 0.82, metalness: 0.06 })
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(block.size, block.size * 0.62, block.size), material)
+      mesh.position.set(block.position[0], block.position[1], block.position[2])
+      building.add(mesh)
+      meshes.set(block.id, mesh)
     }
-    triggered = false
-    countdown = num(p, 'delay', 1.2)
-    simTime = 0
-    peakImpulse = 0
     ringAge = 99
     dustRing.visible = false
     dustRing.material.opacity = 0
@@ -118,52 +83,51 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
     dustGeometry.attributes.position.needsUpdate = true
   }
 
-  const blast = (p: ParamValues): void => {
-    if (triggered) return
-    triggered = true
-    const impulse = num(p, 'impulse', 30)
-    peakImpulse = impulse
-    ringAge = 0
-    dustRing.visible = true
-    for (const block of blocks) {
-      const fromCenter = new THREE.Vector3(block.mesh.position.x, 0, block.mesh.position.z)
-      const distance = Math.max(6, fromCenter.length())
-      const direction = fromCenter.normalize()
-      const tangent = new THREE.Vector3(-direction.z, 0, direction.x)
-      const heightFactor = 0.35 + block.mesh.position.y / 40
-      const strength = impulse * (0.45 + 18 / distance) * (0.45 + heightFactor * 0.55)
-      block.velocity.set(direction.x * strength, strength * (0.38 + Math.random() * 0.14), direction.z * strength)
-      block.velocity.addScaledVector(tangent, (Math.random() - 0.5) * strength * 0.35)
-      block.spin.set((Math.random() - 0.5) * 1.8, (Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.8)
-      block.delay = 0.08 + distance * 0.012 + block.mesh.position.y * 0.006 + Math.random() * 0.08
-      block.active = false
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      floors: Math.round(num(p, 'floors', 12)),
+      columns: Math.round(num(p, 'columns', 5)),
+      impulse: num(p, 'impulse', 5),
+      delay: num(p, 'delay', 0),
+      gravity: num(p, 'gravity', 20),
+      damping: num(p, 'damping', 0.02)
+    })
+    const wasTriggered = model.state.triggered
+    model.fixedStep(dt)
+    if (!wasTriggered && model.state.triggered) {
+      ringAge = 0
+      dustRing.visible = true
     }
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const gravity = num(p, 'gravity', 9.81)
-    const damping = num(p, 'damping', 0.12)
-    simTime += dt
-    if (!triggered) {
-      countdown -= dt
-      if (countdown <= 0) blast(p)
+  const renderSync = (alpha: number, _p: ParamValues): void => {
+    const dt = 1 / 60
+    for (const block of model.state.blocks) {
+      const mesh = meshes.get(block.id)
+      if (!mesh) continue
+      mesh.position.set(
+        block.position[0] + block.velocity[0] * alpha * dt,
+        block.position[1] + block.velocity[1] * alpha * dt,
+        block.position[2] + block.velocity[2] * alpha * dt
+      )
+      mesh.rotation.set(block.rotation[0], block.rotation[1], block.rotation[2])
     }
-    if (triggered) {
+    if (model.state.triggered && model.state.time < 6) {
       ringAge += dt
       dustRing.visible = ringAge < 2.2
       dustRing.scale.setScalar(7 + ringAge * 42)
       dustRing.material.opacity = Math.max(0, 0.52 * (1 - ringAge / 2.2))
       dustEmit += dt * 220
-      while (dustEmit >= 1 && blocks.length > 0) {
+      while (dustEmit >= 1 && model.state.blocks.length > 0) {
         dustEmit -= 1
-        const source = blocks[Math.floor(Math.random() * blocks.length)]
+        const source = model.state.blocks[Math.floor(Math.random() * model.state.blocks.length)]
         const puff = dustState[dustCursor % DUST_COUNT]
         dustCursor += 1
         const angle = Math.random() * Math.PI * 2
         const speed = 4 + Math.random() * 12
-        puff.x = source.mesh.position.x * 0.92 + (Math.random() - 0.5) * 8
-        puff.y = Math.max(1, source.mesh.position.y * 0.85) + Math.random() * 5
-        puff.z = source.mesh.position.z * 0.92 + (Math.random() - 0.5) * 8
+        puff.x = source.position[0] * 0.92 + (Math.random() - 0.5) * 8
+        puff.y = Math.max(1, source.position[1] * 0.85) + Math.random() * 5
+        puff.z = source.position[2] * 0.92 + (Math.random() - 0.5) * 8
         puff.vx = Math.cos(angle) * speed
         puff.vz = Math.sin(angle) * speed
         puff.vy = 1.6 + Math.random() * 4.2
@@ -195,68 +159,48 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
       dustPositions[i * 3 + 2] = puff.z
     }
     dustGeometry.attributes.position.needsUpdate = true
-
-    for (const block of blocks) {
-      if (triggered && !block.active && !block.settled) {
-        block.delay -= dt
-        if (block.delay <= 0) block.active = true
-      }
-      if (!block.active || block.settled) continue
-      block.velocity.y -= gravity * dt
-      const ground = block.size * 0.31
-      block.mesh.position.addScaledVector(block.velocity, dt)
-      block.mesh.rotation.x += block.spin.x * dt
-      block.mesh.rotation.y += block.spin.y * dt
-      block.mesh.rotation.z += block.spin.z * dt
-      if (block.mesh.position.y < ground) {
-        block.mesh.position.y = ground
-        if (Math.abs(block.velocity.y) > 1.3) {
-          block.velocity.y = Math.abs(block.velocity.y) * 0.18
-        } else {
-          block.velocity.y = 0
-        }
-        const friction = Math.min(0.92, (0.65 + damping * 9) * dt)
-        block.velocity.x *= 1 - friction
-        block.velocity.z *= 1 - friction
-        block.spin.multiplyScalar(Math.max(0, 1 - dt * 3.2))
-        if (block.velocity.length() < 0.32 && block.spin.length() < 0.45) {
-          block.velocity.set(0, 0, 0)
-          block.spin.set(0, 0, 0)
-          block.settled = true
-        }
-      }
-    }
   }
 
   const sync = (p: ParamValues): void => {
-    const signature = `${Math.round(num(p, 'floors', 6))}|${Math.round(num(p, 'columns', 3))}`
+    const signature = `${Math.round(num(p, 'floors', 12))}|${Math.round(num(p, 'columns', 5))}`
     if (signature !== lastSignature) {
       lastSignature = signature
       build(p)
     }
   }
 
-  build({ floors: 12, columns: 5, delay: 0 } as ParamValues)
+  build({ floors: 12, columns: 5, impulse: 5, delay: 0, gravity: 20, damping: 0.02 } as ParamValues)
   lastSignature = '12|5'
 
   return {
     object: root,
-    update,
+    update: (dt, p) => {
+      fixedUpdate(dt, p)
+      renderSync(1, p)
+    },
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key, p) => {
-      if (key === 'blast') blast(p)
+      if (key === 'blast') {
+        model.configure({ impulse: num(p, 'impulse', 5) })
+        model.blast()
+      }
       if (key === 'rebuild') build(p)
     },
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
     readouts: () => {
-      const active = blocks.filter((item) => item.active && !item.settled).length
-      const settled = blocks.filter((item) => item.settled).length
-      const intact = blocks.length ? Math.max(0, 100 - Math.round((active + settled) * 100 / blocks.length)) : 100
+      const active = model.state.blocks.filter((item) => item.active && !item.settled).length
+      const settled = model.state.blocks.filter((item) => item.settled).length
+      const intact = model.state.blocks.length ? Math.max(0, 100 - Math.round((active + settled) * 100 / model.state.blocks.length)) : 100
       return {
         结构完整率: `${intact}%`,
         活跃碎块: active,
         停稳碎块: settled,
-        起爆冲量: peakImpulse,
-        仿真时间: `${simTime.toFixed(1)} s`
+        起爆冲量: model.state.peakImpulse,
+        仿真时间: `${model.state.time.toFixed(1)} s`
       }
     },
     dispose: () => disposeObject(root)

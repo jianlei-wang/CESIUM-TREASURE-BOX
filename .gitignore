@@ -177,3 +177,6 @@ terrain_clip_144.html
 *.lz
 *.lzma
 *.iso
+
+# Generated physics runtime
+public/vendor/

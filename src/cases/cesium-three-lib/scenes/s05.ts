@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
-import { addBox, addLine, addStageGround, addCylinder, disposeObject, seeded, surface, toRad, updateLine } from '../helpers'
+import { addBox, addLine, addStageGround, addCylinder, disposeObject, seeded, surface, updateLine } from '../helpers'
+import { createS05Model } from '../simulations/s05.model'
 
 interface Vehicle {
   group: THREE.Group
@@ -45,12 +46,9 @@ function createS05(kit: import('../types').SceneKit): ScenarioRuntime {
   const traffic: Vehicle[] = []
   const trailPoints: THREE.Vector3[] = []
   const trail = addLine(root, [new THREE.Vector3(0, 0.8, 0)], '#ffd27a', 0.65)
-  let simTime = 0
-  let distance = 0
-  let speed = 0
-  let targetT = 0
   let lastTraffic = -1
   let slopeState = 3
+  const model = createS05Model({ targetSpeed: 18, friction: 0.7, slope: 3, traffic: 3, mode: 'auto' })
 
   const buildRoad = (): void => {
     for (const child of [...roadGroup.children]) disposeObject(child)
@@ -128,36 +126,39 @@ function createS05(kit: import('../types').SceneKit): ScenarioRuntime {
     item.group.rotation.y = (mirror ? -1 : 1) * Math.atan2(tangent.x, tangent.z) + (mirror ? Math.PI : 0)
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const target = num(p, 'targetSpeed', 18)
-    const friction = num(p, 'friction', 0.7)
-    const slope = num(p, 'slope', 3)
-    const mode = text(p, 'mode', 'auto')
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    slopeState = num(p, 'slope', 3)
+    model.configure({
+      targetSpeed: num(p, 'targetSpeed', 18),
+      friction: num(p, 'friction', 0.7),
+      slope: slopeState,
+      traffic: Math.round(num(p, 'traffic', 3)),
+      mode: text(p, 'mode', 'auto') === 'manual' ? 'manual' : 'auto'
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const showTrail = flag(p, 'trail', true)
-    simTime += dt
-    slopeState = slope
-    const grade = -Math.sin(toRad(slope)) * 2.6
-    speed += (target - speed) * Math.min(1, dt * 1.2 * friction) + grade * dt
-    speed = Math.max(1, speed)
-    distance += speed * dt
-    targetT = (targetT + (speed * dt) / length) % 1
-    if (mode === 'manual') {
-      car.group.position.y = 0.08 + Math.abs(Math.sin(simTime * 3.4)) * 0.03
-    }
-    const swayLane = mode === 'manual' ? Math.sin(simTime * 1.2) * 4.6 : 0
-    const point = curve.getPointAt(targetT)
-    const tangent = curve.getTangentAt(targetT)
+    const drivingMode = text(p, 'mode', 'auto')
+    const t = model.trackProgress()
+    const point = curve.getPointAt(t)
+    const tangent = curve.getTangentAt(t)
     const normal = new THREE.Vector3(-tangent.z, 0, tangent.x)
+    const swayLane = drivingMode === 'manual' ? Math.sin(model.state.time * 1.2) * 4.6 : 0
     car.group.position.copy(point).addScaledVector(normal, swayLane)
-    car.group.position.y = 0.08
-    const heading = (Math.atan2(tangent.x, tangent.z) * 180) / Math.PI
+    car.group.position.y = 0.08 + (drivingMode === 'manual' ? Math.abs(Math.sin(model.state.time * 3.4)) * 0.03 : 0)
     car.group.rotation.y = Math.atan2(tangent.x, tangent.z)
     car.group.rotation.z = -swayLane * 0.012
-    for (const wheel of car.wheels) wheel.rotation.y += dt * speed * 2
-    for (const item of traffic) {
-      item.t = (item.t + (item.speed * dt) / length) % 1
-      placeVehicle(item, item.t, item.lane, item.speed > 0)
-      for (const wheel of item.wheels) wheel.rotation.y += dt * item.speed * 2
+    for (const wheel of car.wheels) wheel.rotation.y += 0.016 * model.state.speed * 2
+    for (let index = 0; index < traffic.length; index += 1) {
+      const vehicle = model.state.vehicles[index]
+      if (!vehicle) continue
+      const item = traffic[index]
+      item.t = (vehicle.s / 640) % 1
+      item.speed = vehicle.speed
+      placeVehicle(item, item.t, vehicle.lane, true)
+      for (const wheel of item.wheels) wheel.rotation.y += 0.016 * vehicle.speed * 2
     }
     if (showTrail) {
       trailPoints.push(new THREE.Vector3(point.x, 0.3, point.z))
@@ -165,7 +166,7 @@ function createS05(kit: import('../types').SceneKit): ScenarioRuntime {
       updateLine(trail, trailPoints)
     }
     trail.visible = showTrail
-    car.group.userData.heading = heading
+    car.group.userData.heading = (Math.atan2(tangent.x, tangent.z) * 180) / Math.PI
   }
 
   const sync = (p: ParamValues): void => {
@@ -173,6 +174,7 @@ function createS05(kit: import('../types').SceneKit): ScenarioRuntime {
     if (count !== lastTraffic) {
       lastTraffic = count
       rebuildTraffic(count)
+      model.configure({ traffic: count })
     }
   }
 
@@ -181,22 +183,28 @@ function createS05(kit: import('../types').SceneKit): ScenarioRuntime {
 
   return {
     object: root,
-    update,
+    update: (dt, p) => {
+      fixedUpdate(dt, p)
+      renderSync(1, p)
+    },
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key) => {
       if (key === 'restart') {
-        targetT = 0
-        speed = 0
-        distance = 0
+        model.reset()
         trailPoints.length = 0
       }
     },
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
     readouts: () => ({
-      当前车速: `${speed.toFixed(1)} m/s`,
-      累计里程: `${distance.toFixed(0)} m`,
+      当前车速: `${model.state.speed.toFixed(1)} m/s`,
+      累计里程: `${model.state.distance.toFixed(0)} m`,
       道路纵坡: `${slopeState.toFixed(1)}°`,
       跟车数量: traffic.length,
-      仿真时间: `${simTime.toFixed(1)} s`
+      仿真时间: `${model.state.time.toFixed(1)} s`
     }),
     dispose: () => disposeObject(root)
   }

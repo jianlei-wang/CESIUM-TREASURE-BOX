@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
 import { addBox, addCylinder, addSphere, addStageGround, disposeObject, surface } from '../helpers'
+import { createS18Model } from '../simulations/s18.model'
 
 function createS18(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -36,15 +37,10 @@ function createS18(kit: import('../types').SceneKit): ScenarioRuntime {
   rings.add(ringMesh)
   const matrix = new THREE.Matrix4()
   const scale = new THREE.Matrix4()
-  let tbmZ = 36
-  let ringCount = 4
-  let rpmState = 0
-  let pressure = 0
-  let thrustState = 0
   let diameterState = 6
   let spacingState = 6
-  let simTime = 0
   let lastSignature = ''
+  const model = createS18Model({ advance: 0.45, rpm: 3.2, thrust: 6000, diameter: 6, spacing: 6, support: 60, water: true })
 
   const rebuild = (diameter: number, spacing: number, showRings: boolean): void => {
     const radius = diameter / 2
@@ -55,7 +51,7 @@ function createS18(kit: import('../types').SceneKit): ScenarioRuntime {
     spacingState = spacing
     diameterState = diameter
     for (let i = 0; i < 40; i += 1) {
-      if (i < ringCount) {
+      if (i < model.state.rings) {
         matrix.copy(scale).setPosition(0, 3, i * spacing + spacing)
       } else {
         matrix.makeScale(0, 0, 0)
@@ -65,26 +61,27 @@ function createS18(kit: import('../types').SceneKit): ScenarioRuntime {
     ringMesh.instanceMatrix.needsUpdate = true
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const advance = num(p, 'advance', 0.45)
-    const rpm = num(p, 'rpm', 3.2)
-    const supportDensity = num(p, 'support', 60)
-    const water = flag(p, 'water', true)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      advance: num(p, 'advance', 0.45),
+      rpm: num(p, 'rpm', 3.2),
+      thrust: num(p, 'thrust', 6000),
+      diameter: num(p, 'diameter', 6),
+      spacing: num(p, 'spacing', 6),
+      support: num(p, 'support', 60),
+      water: flag(p, 'water', true)
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const showRings = flag(p, 'rings', true)
-    rpmState = rpm
-    thrustState = num(p, 'thrust', 6000)
-    simTime += dt
-    tbmZ = Math.min(230, tbmZ + advance * dt)
-    tbm.position.set(0, 0, tbmZ)
-    cutter.rotation.z += rpm * dt * 0.9
+    const supportDensity = num(p, 'support', 60)
+    const state = model.state
+    tbm.position.set(0, 0, 36 + state.distance)
+    cutter.rotation.z = state.cutterAngle
     for (let i = 0; i < 40; i += 1) {
-      if (i * spacingState + spacingState < tbmZ - 6 && i >= ringCount && ringCount < 40) {
-        ringCount = i + 1
-      }
-    }
-    const visibleRings = ringCount
-    for (let i = 0; i < 40; i += 1) {
-      if (i < visibleRings) {
+      if (i < state.rings) {
         matrix.makeScale(diameterState / 6.2, diameterState / 6.2, 1)
         matrix.setPosition(0, 3, i * spacingState + spacingState)
       } else {
@@ -93,9 +90,13 @@ function createS18(kit: import('../types').SceneKit): ScenarioRuntime {
       ringMesh.setMatrixAt(i, matrix)
     }
     ringMesh.instanceMatrix.needsUpdate = true
-    pressure = water ? (0.08 + (tbmZ / 230) * 0.34) * (1 - supportDensity / 220) : 0.02
     ringMaterial.color.setHSL(0.09, 0.45, 0.32 + (supportDensity / 100) * 0.38)
     ringMesh.visible = showRings
+  }
+
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   const sync = (p: ParamValues): void => {
@@ -112,28 +113,35 @@ function createS18(kit: import('../types').SceneKit): ScenarioRuntime {
   }
 
   rebuild(6, 6, true)
-  tbm.position.set(0, 0, tbmZ)
+  tbm.position.set(0, 0, 36)
   lastSignature = '6-6'
 
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key) => {
       if (key === 'reset') {
-        tbmZ = 0
-        ringCount = 0
-        tbm.position.set(0, 0, 0)
+        model.reset()
+        tbm.position.set(0, 0, 36)
       }
     },
-    readouts: () => ({
-      掘进里程: `${tbmZ.toFixed(1)} m`,
-      管片环数: `${ringCount} 环`,
-      刀盘转速: `${rpmState.toFixed(1)} rpm`,
-      掌子面水压: `${pressure.toFixed(2)} MPa`,
-      总推力: `${thrustState.toFixed(0)} kN`,
-      仿真时间: `${simTime.toFixed(1)} s`
-    }),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        掘进里程: `${state.distance.toFixed(1)} m`,
+        管片环数: `${state.rings} 环`,
+        刀盘转速: `${model.getConfig().rpm.toFixed(1)} rpm`,
+        掌子面水压: `${state.facePressure.toFixed(2)} MPa`,
+        总推力: `${model.getConfig().thrust.toFixed(0)} kN`,
+        仿真时间: `${state.time.toFixed(1)} s`
+      }
+    },
     dispose: () => disposeObject(root)
   }
 }

@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
-import { addBox, addCylinder, addSphere, addStageGround, disposeObject, surface, toRad } from '../helpers'
+import { addBox, addCylinder, addSphere, addStageGround, disposeObject, surface } from '../helpers'
+import { createS13Model } from '../simulations/s13.model'
 
 function createS13(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -40,27 +41,9 @@ function createS13(kit: import('../types').SceneKit): ScenarioRuntime {
       return state / 4294967296
     }
   })()
-  let simTime = 0
   let normalTick = 0
-  let waveAmplitude = 0
-  let roll = 0
-  let pitch = 0
-  let buoyancy = 0
   let lastBuoys = -1
-
-  const waveAt = (x: number, z: number, height: number, period: number, direction: number): number => {
-    const dir = toRad(direction)
-    const dx = Math.sin(dir)
-    const dz = -Math.cos(dir)
-    const k = 0.035
-    const omega = (Math.PI * 2) / Math.max(1, period)
-    const phase = dx * x + dz * z
-    return (
-      height * 0.62 * Math.sin(phase * k - omega * simTime) +
-      height * 0.26 * Math.sin(phase * k * 1.9 + (x - z) * 0.02 - omega * 1.35 * simTime) +
-      height * 0.14 * Math.cos(z * 0.06 + omega * 1.8 * simTime)
-    )
-  }
+  const model = createS13Model({ waveHeight: 1.6, period: 8, direction: 35, wind: 8, draft: 1.2, buoys: 6 })
 
   const rebuildBuoys = (count: number): void => {
     for (const item of buoys) disposeObject(item.group)
@@ -77,43 +60,50 @@ function createS13(kit: import('../types').SceneKit): ScenarioRuntime {
     }
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const height = num(p, 'waveHeight', 1.6)
-    const period = num(p, 'period', 8)
-    const direction = num(p, 'direction', 35)
-    const wind = num(p, 'wind', 8)
-    const draft = num(p, 'draft', 1.2)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      waveHeight: num(p, 'waveHeight', 1.6),
+      period: num(p, 'period', 8),
+      direction: num(p, 'direction', 35),
+      wind: num(p, 'wind', 8),
+      draft: num(p, 'draft', 1.2),
+      buoys: Math.round(num(p, 'buoys', 6))
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const showWire = flag(p, 'wire', false)
-    simTime += dt
     const position = geometry.attributes.position as THREE.BufferAttribute
-    waveAmplitude = 0
+    const state = model.state
     for (let i = 0; i < position.count; i += 1) {
       const x = base[i * 3]
       const z = base[i * 3 + 2]
-      const y = waveAt(x, z, height, period, direction) + Math.sin(x * 0.32 + simTime * 2.6) * wind * 0.015
+      const y = model.waveAt(x, z) + Math.sin(x * 0.32 + state.time * 2.6) * num(p, 'wind', 8) * 0.015
       position.setY(i, y)
-      waveAmplitude = Math.max(waveAmplitude, Math.abs(y))
     }
     position.needsUpdate = true
     normalTick += 1
     if (normalTick % 2 === 0) geometry.computeVertexNormals()
-    const shipWave = waveAt(0, 0, height, period, direction)
-    ship.position.set(0, shipWave - draft, 0)
-    roll = Math.sin(simTime * 1.2) * height * 0.12 + Math.sin(simTime * 2.1) * wind * 0.012
-    pitch = Math.cos(simTime * 0.9) * height * 0.08
-    ship.rotation.z = roll
-    ship.rotation.x = pitch
-    buoyancy = Math.max(0, height * 0.7 - draft * 0.4)
+    const draft = num(p, 'draft', 1.2)
+    ship.position.set(0, state.heave - draft, 0)
+    ship.rotation.z = state.roll
+    ship.rotation.x = state.pitch
     for (const item of buoys) {
-      const bob = waveAt(item.x, item.z, height, period, direction)
-      item.group.position.set(item.x, bob - 1, item.z)
-      item.group.rotation.z = Math.sin(simTime * 1.3 + item.phase) * height * 0.24
-      item.group.rotation.x = Math.cos(simTime * 1.05 + item.phase) * height * 0.16
+      item.group.position.set(item.x, model.waveAt(item.x, item.z) - 1, item.z)
+      const [slopeX, slopeZ] = model.waveSlope(item.x, item.z)
+      item.group.rotation.z = Math.atan(slopeX) * 0.8 + Math.sin(state.time * 1.3 + item.phase) * 0.04
+      item.group.rotation.x = -Math.atan(slopeZ) * 0.8 + Math.cos(state.time * 1.05 + item.phase) * 0.03
     }
     const waterMaterial = water.material as THREE.MeshPhysicalMaterial
-    waterMaterial.opacity = 0.66 + Math.min(0.22, height * 0.03)
+    waterMaterial.opacity = 0.66 + Math.min(0.22, num(p, 'waveHeight', 1.6) * 0.03)
     water.visible = true
     waterMaterial.wireframe = showWire
+  }
+
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   const sync = (p: ParamValues): void => {
@@ -130,17 +120,25 @@ function createS13(kit: import('../types').SceneKit): ScenarioRuntime {
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key) => {
-      if (key === 'calm') simTime = 0
+      if (key === 'calm') model.reset()
     },
-    readouts: () => ({
-      有效波高: `${(waveAmplitude * 2).toFixed(2)} m`,
-      横摇角: `${((roll * 180) / Math.PI).toFixed(1)}°`,
-      纵摇角: `${((pitch * 180) / Math.PI).toFixed(1)}°`,
-      浮力储备: `${(buoyancy * 100).toFixed(0)}%`,
-      仿真时间: `${simTime.toFixed(1)} s`
-    }),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        有效波高: `${(state.waveAmplitude * 2).toFixed(2)} m`,
+        横摇角: `${((state.roll * 180) / Math.PI).toFixed(1)}°`,
+        纵摇角: `${((state.pitch * 180) / Math.PI).toFixed(1)}°`,
+        浮力储备: `${(state.buoyancy * 100).toFixed(0)}%`,
+        仿真时间: `${state.time.toFixed(1)} s`
+      }
+    },
     dispose: () => disposeObject(root)
   }
 }

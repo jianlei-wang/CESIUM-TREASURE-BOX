@@ -1,13 +1,11 @@
 import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
-import { addBox, addLine, addStageGround, disposeObject, seeded, surface, toRad, updateLine } from '../helpers'
+import { addBox, addLine, addStageGround, disposeObject, surface, toRad, updateLine } from '../helpers'
+import { createS03Model, S03_GROUND } from '../simulations/s03.model'
 
-interface Boulder {
+interface BoulderVisual {
   mesh: THREE.Mesh
-  radius: number
-  velocity: THREE.Vector3
-  intercepted: boolean
   trail: THREE.Line
   points: THREE.Vector3[]
   clock: number
@@ -21,20 +19,13 @@ function createS03(kit: import('../types').SceneKit): ScenarioRuntime {
   root.add(terrain)
   root.add(dynamic)
 
-  const boulders: Boulder[] = []
+  const boulders: BoulderVisual[] = []
+  const model = createS03Model({ slope: 28, gravity: 9.81, friction: 0.45, wet: false, count: 18, radius: 1.8, barrier: 0.7 })
   let barrier: THREE.Mesh | null = null
-  let simulated = 0
-  let maxSpeed = 0
-  let runout = -999
-  let intercepted = 0
-  let released = 0
   let lastSignature = ''
   const colors = ['#8f8a78', '#a39a80', '#776f5d', '#b0a88f']
 
-  const groundY = (x: number, slope: number): number => {
-    if (x > 20) return 0
-    return Math.max(0, (20 - x) * Math.tan(toRad(slope)) * 0.55)
-  }
+  const groundY = (x: number, slope: number): number => S03_GROUND(x, slope)
 
   const buildTerrain = (p: ParamValues): void => {
     for (const child of [...terrain.children]) disposeObject(child)
@@ -93,88 +84,70 @@ function createS03(kit: import('../types').SceneKit): ScenarioRuntime {
   }
 
   const release = (p: ParamValues): void => {
-    for (const item of boulders) disposeObject(item.mesh)
+    for (const item of boulders) {
+      disposeObject(item.mesh)
+      disposeObject(item.trail)
+    }
     dynamic.clear()
     boulders.length = 0
-    const count = Math.round(num(p, 'count', 18))
-    const radius = num(p, 'radius', 1.8)
-    const slope = num(p, 'slope', 28)
-    const random = seeded(7717)
-    maxSpeed = 0
-    runout = -999
-    intercepted = 0
-    released = count
-    simulated = 0
-    for (let i = 0; i < count; i += 1) {
-      const r = radius * (0.7 + random() * 0.7)
-      const x = -150 - random() * 26
-      const z = (random() - 0.5) * 60
-      const y = groundY(x, slope) + r
-      const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), surface(colors[i % colors.length], { roughness: 0.92, flatShading: true }))
-      mesh.position.set(x, y, z)
-      mesh.rotation.set(random() * 2, random() * 2, random() * 2)
+    model.configure({
+      slope: num(p, 'slope', 28),
+      gravity: num(p, 'gravity', 9.81),
+      friction: num(p, 'friction', 0.45),
+      wet: flag(p, 'wet', false),
+      count: Math.round(num(p, 'count', 18)),
+      radius: num(p, 'radius', 1.8),
+      barrier: num(p, 'barrier', 0.7)
+    })
+    model.release()
+    for (const boulder of model.state.boulders) {
+      const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(boulder.radius, 0), surface(colors[boulder.id % colors.length], { roughness: 0.92, flatShading: true }))
+      mesh.position.set(boulder.x, boulder.y, boulder.z)
+      mesh.rotation.set(boulder.id * 1.7, boulder.id * 0.9, boulder.id * 2.1)
       dynamic.add(mesh)
       const trail = addLine(dynamic, [mesh.position.clone()], '#ff9d6b', 0.55)
-      boulders.push({
-        mesh,
-        radius: r,
-        velocity: new THREE.Vector3(1 + random() * 2, 0, (random() - 0.5) * 0.6),
-        intercepted: false,
-        trail,
-        points: [mesh.position.clone()],
-        clock: 0
-      })
+      boulders.push({ mesh, trail, points: [mesh.position.clone()], clock: 0 })
+    }
+  }
+
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      slope: num(p, 'slope', 28),
+      gravity: num(p, 'gravity', 9.81),
+      friction: num(p, 'friction', 0.45),
+      wet: flag(p, 'wet', false),
+      count: Math.round(num(p, 'count', 18)),
+      radius: num(p, 'radius', 1.8),
+      barrier: num(p, 'barrier', 0.7)
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (alpha: number, p: ParamValues): void => {
+    const dt = 1 / 60
+    const showTrail = flag(p, 'trail', true)
+    for (const boulder of model.state.boulders) {
+      const visual = boulders[boulder.id]
+      if (!visual) continue
+      visual.mesh.position.set(boulder.x + boulder.vx * alpha * dt, boulder.y, boulder.z + boulder.vz * alpha * dt)
+      visual.mesh.rotation.z -= (boulder.vx * dt) / Math.max(0.4, boulder.radius)
+      visual.mesh.rotation.x -= (boulder.vz * dt) / Math.max(0.4, boulder.radius)
+      if (showTrail) {
+        visual.clock += dt
+        if (visual.clock > 0.045) {
+          visual.clock = 0
+          visual.points.push(visual.mesh.position.clone())
+          if (visual.points.length > 140) visual.points.shift()
+          updateLine(visual.trail, visual.points)
+        }
+      }
+      visual.trail.visible = showTrail
     }
   }
 
   const update = (dt: number, p: ParamValues): void => {
-    const slope = num(p, 'slope', 28)
-    const gravity = num(p, 'gravity', 9.81)
-    const friction = num(p, 'friction', 0.45)
-    const dryWet = flag(p, 'wet', false)
-    const barrierValue = num(p, 'barrier', 0.7)
-    const showTrail = flag(p, 'trail', true)
-    simulated += dt
-    const angle = toRad(slope)
-    for (const item of boulders) {
-      const x = item.mesh.position.x
-      const onSlope = x < 20
-      if (onSlope) {
-        const drive = gravity * Math.sin(angle) - friction * gravity * Math.cos(angle) * (dryWet ? 0.62 : 1)
-        item.velocity.x += drive * dt
-        item.velocity.x = Math.max(0, item.velocity.x)
-      } else {
-        item.velocity.x *= 1 - Math.min(0.9, friction * dt * 5)
-      }
-      item.velocity.y = 0
-      item.mesh.position.x += item.velocity.x * dt
-      item.mesh.position.z += item.velocity.z * dt
-      item.mesh.position.y = groundY(item.mesh.position.x, slope) + item.radius
-      item.mesh.rotation.z -= (item.velocity.x * dt) / Math.max(0.4, item.radius)
-      item.mesh.rotation.x -= (item.velocity.z * dt) / Math.max(0.4, item.radius)
-      const barrierTop = 1 + barrierValue * 10
-      if (!item.intercepted && item.mesh.position.x > 6 && item.mesh.position.x < 12 && item.mesh.position.y < barrierTop) {
-        if (barrierValue > 0.3) {
-          item.intercepted = true
-          item.velocity.x *= -0.22
-          item.velocity.z *= 0.42
-          intercepted += 1
-          item.mesh.position.x = 5.6
-        }
-      }
-      maxSpeed = Math.max(maxSpeed, item.velocity.length())
-      runout = Math.max(runout, item.mesh.position.x)
-      if (showTrail) {
-        item.clock += dt
-        if (item.clock > 0.045) {
-          item.clock = 0
-          item.points.push(item.mesh.position.clone())
-          if (item.points.length > 140) item.points.shift()
-          updateLine(item.trail, item.points)
-        }
-      }
-      item.trail.visible = showTrail
-    }
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   const sync = (p: ParamValues): void => {
@@ -198,17 +171,25 @@ function createS03(kit: import('../types').SceneKit): ScenarioRuntime {
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key, p) => {
       if (key === 'release') release(p)
     },
-    readouts: () => ({
-      释放岩块: released,
-      最大速度: `${maxSpeed.toFixed(1)} m/s`,
-      拦截率: `${released ? Math.round((intercepted / released) * 100) : 0}%`,
-      最远滚距: `${Math.max(0, runout + 150).toFixed(0)} m`,
-      仿真时间: `${simulated.toFixed(1)} s`
-    }),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        释放岩块: state.released,
+        最大速度: `${state.maxSpeed.toFixed(1)} m/s`,
+        拦截率: `${state.released ? Math.round((state.intercepted / state.released) * 100) : 0}%`,
+        最远滚距: `${Math.max(0, state.runout + 150).toFixed(0)} m`,
+        仿真时间: `${state.time.toFixed(1)} s`
+      }
+    },
     dispose: () => disposeObject(root)
   }
 }

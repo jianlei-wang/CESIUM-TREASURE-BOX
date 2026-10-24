@@ -2,19 +2,7 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num, text } from '../types'
 import { addStageGround, addLine, disposeObject, seeded, surface, updateLine } from '../helpers'
-
-interface DroppedBody {
-  mesh: THREE.Mesh
-  velocity: THREE.Vector3
-  radius: number
-  bounces: number
-  trail: THREE.Line
-  positions: THREE.Vector3[]
-  trailClock: number
-  delay: number
-  age: number
-  restitutionScale: number
-}
+import { createS01Model } from '../simulations/s01.model'
 
 function makeMesh(kind: string, radius: number, color: string): THREE.Mesh {
   const material = surface(color, { roughness: 0.42, metalness: kind === 'ball' ? 0.65 : 0.15 })
@@ -35,124 +23,119 @@ function createS01(kit: import('../types').SceneKit): ScenarioRuntime {
   const dynamic = new THREE.Group()
   root.add(dynamic)
   const colors = ['#ffb347', '#7fd0e6', '#f2726f', '#9be37a', '#d6a8ff']
-  const bodies: DroppedBody[] = []
-  let simTime = 0
-  let bounces = 0
-  let impactPeak = 0
-  let peakHeight = 0
+  const meshes = new Map<number, THREE.Mesh>()
+  const trails = new Map<number, { line: THREE.Line; points: THREE.Vector3[]; clock: number }>()
   let lastSignature = ''
+  const model = createS01Model({
+    kind: 'ball',
+    count: 8,
+    height: 80,
+    radius: 3,
+    gravity: 9.81,
+    restitution: 0.45,
+    spin: 1
+  })
+
+  const paramsOf = (p: ParamValues) => ({
+    kind: text(p, 'kind', 'ball') as 'ball' | 'crate' | 'barrel',
+    count: Math.round(num(p, 'count', 8)),
+    height: num(p, 'height', 80),
+    radius: num(p, 'radius', 3),
+    gravity: num(p, 'gravity', 9.81),
+    restitution: num(p, 'restitution', 0.45),
+    spin: num(p, 'spin', 1)
+  })
 
   const spawn = (p: ParamValues): void => {
-    for (const body of bodies) disposeObject(body.mesh)
-    bodies.length = 0
+    for (const mesh of meshes.values()) disposeObject(mesh)
+    for (const trail of trails.values()) disposeObject(trail.line)
+    meshes.clear()
+    trails.clear()
     dynamic.clear()
-    const kind = text(p, 'kind', 'ball')
-    const count = Math.round(num(p, 'count', 8))
-    const height = num(p, 'height', 80)
-    const radius = num(p, 'radius', 3)
+    const config = paramsOf(p)
+    model.reset()
+    model.configure(config)
+    const kind = config.kind
     const random = seeded(9021)
-    simTime = 0
-    bounces = 0
-    impactPeak = 0
-    peakHeight = height
-    for (let i = 0; i < count; i += 1) {
-      const spread = 46
-      const mesh = makeMesh(kind, radius, colors[i % colors.length])
-      const entryRadius = kind === 'crate' ? radius * 1.2 : radius
-      mesh.position.set((random() - 0.5) * spread, height + (random() - 0.5) * 8, (random() - 0.5) * spread)
+    for (const body of model.state.bodies) {
+      const mesh = makeMesh(kind, config.radius, colors[body.id % colors.length])
+      mesh.position.set(body.position[0], body.position[1], body.position[2])
       mesh.rotation.set(random() * Math.PI, random() * Math.PI, random() * Math.PI)
       dynamic.add(mesh)
-      const trail = addLine(dynamic, [mesh.position.clone()], '#ffcf80', 0.55)
-      bodies.push({
-        mesh,
-        velocity: new THREE.Vector3((random() - 0.5) * 2.4, 0, (random() - 0.5) * 2.4),
-        radius: entryRadius,
-        bounces: 0,
-        trail,
-        positions: [mesh.position.clone()],
-        trailClock: 0,
-        delay: i * 0.14 + random() * 0.12,
-        age: 0,
-        restitutionScale: 0.86 + random() * 0.28
-      })
+      meshes.set(body.id, mesh)
+      const line = addLine(dynamic, [mesh.position.clone()], '#ffcf80', 0.55)
+      trails.set(body.id, { line, points: [mesh.position.clone()], clock: 0 })
     }
+    lastSignature = `${kind}|${config.count}|${Math.round(config.radius * 10)}`
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const gravity = num(p, 'gravity', 9.81)
-    const restitution = num(p, 'restitution', 0.45)
-    const spin = num(p, 'spin', 1)
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure(paramsOf(p))
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (_alpha: number, p: ParamValues): void => {
     const showTrail = flag(p, 'trail', true)
-    simTime += dt
-    for (const body of bodies) {
-      body.age += dt
-      body.trail.visible = showTrail && body.age > body.delay
-      if (body.age < body.delay) continue
-      body.velocity.y -= gravity * dt
-      body.mesh.position.addScaledVector(body.velocity, dt)
-      if (body.mesh.position.y < body.radius) {
-        body.mesh.position.y = body.radius
-        const impact = Math.abs(body.velocity.y)
-        impactPeak = Math.max(impactPeak, impact)
-        if (impact > 1.1) {
-          body.velocity.y = impact * restitution * body.restitutionScale
-          body.bounces += 1
-          bounces += 1
-          body.velocity.x += (Math.random() - 0.5) * 0.6
-          body.velocity.z += (Math.random() - 0.5) * 0.6
-        } else {
-          body.velocity.y = 0
-          body.velocity.x *= 1 - Math.min(0.9, dt * 3.2)
-          body.velocity.z *= 1 - Math.min(0.9, dt * 3.2)
-          if (Math.abs(body.velocity.x) < 0.05) body.velocity.x = 0
-          if (Math.abs(body.velocity.z) < 0.05) body.velocity.z = 0
-        }
+    const spin = num(p, 'spin', 1)
+    for (const body of model.state.bodies) {
+      const mesh = meshes.get(body.id)
+      const trail = trails.get(body.id)
+      if (!mesh) continue
+      mesh.position.set(body.position[0], body.position[1], body.position[2])
+      if (body.active) {
+        mesh.rotation.x += body.velocity[2] * 0.016 * 0.28 * spin
+        mesh.rotation.z -= body.velocity[0] * 0.016 * 0.28 * spin
       }
-      peakHeight = Math.max(peakHeight, body.mesh.position.y)
-      body.mesh.rotation.x += body.velocity.z * dt * 0.28 * spin
-      body.mesh.rotation.z -= body.velocity.x * dt * 0.28 * spin
-      body.trailClock += dt
-      if (showTrail && body.trailClock > 0.04) {
-        body.trailClock = 0
-        body.positions.push(body.mesh.position.clone())
-        if (body.positions.length > 90) body.positions.shift()
-        updateLine(body.trail, body.positions)
+      if (!trail) continue
+      trail.line.visible = showTrail && body.active
+      if (showTrail && body.active) {
+        trail.clock += 1 / 60
+        if (trail.clock > 0.04) {
+          trail.clock = 0
+          trail.points.push(mesh.position.clone())
+          if (trail.points.length > 90) trail.points.shift()
+          updateLine(trail.line, trail.points)
+        }
       }
     }
   }
 
   const sync = (p: ParamValues): void => {
     const signature = `${text(p, 'kind', 'ball')}|${Math.round(num(p, 'count', 8))}|${Math.round(num(p, 'radius', 3) * 10)}`
-    if (signature !== lastSignature) {
-      lastSignature = signature
-      spawn(p)
-    }
+    if (signature !== lastSignature) spawn(p)
   }
 
-  const p0 = { kind: 'ball', count: 8, height: 80, radius: 3 } as ParamValues
-  spawn(p0)
-  lastSignature = 'ball|8|30'
+  spawn({ kind: 'ball', count: 8, height: 80, radius: 3, gravity: 9.81, restitution: 0.45, spin: 1 } as ParamValues)
 
   return {
     object: root,
-    update,
+    update: (dt, p) => {
+      fixedUpdate(dt, p)
+      renderSync(1, p)
+    },
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key, p) => {
       if (key === 'drop') spawn(p)
       if (key === 'clear') {
-        for (const body of bodies) disposeObject(body.mesh)
-        bodies.length = 0
+        for (const mesh of meshes.values()) disposeObject(mesh)
+        for (const trail of trails.values()) disposeObject(trail.line)
+        meshes.clear()
+        trails.clear()
         dynamic.clear()
-        bounces = 0
-        impactPeak = 0
+        model.reset()
       }
     },
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
     readouts: () => ({
-      仿真时间: `${simTime.toFixed(1)} s`,
-      累计弹跳: bounces,
-      最大冲击速度: `${impactPeak.toFixed(1)} m/s`,
-      观测最高点: `${peakHeight.toFixed(1)} m`,
-      动态体数量: bodies.length
+      仿真时间: `${model.state.time.toFixed(1)} s`,
+      累计弹跳: model.state.bounces,
+      最大冲击速度: `${model.state.impactPeak.toFixed(1)} m/s`,
+      观测最高点: `${model.state.peakHeight.toFixed(1)} m`,
+      动态体数量: model.state.bodies.filter((body) => body.active).length
     }),
     dispose: () => disposeObject(root)
   }

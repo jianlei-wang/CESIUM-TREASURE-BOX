@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { ParamValues, ScenarioMeta, ScenarioRuntime } from '../types'
 import { flag, num } from '../types'
 import { addBox, addCylinder, addLine, addSphere, addStageGround, damp, disposeObject, seeded, surface } from '../helpers'
+import { createS06Model, type S06Obstacle } from '../simulations/s06.model'
 
 interface Building {
   x: number
@@ -9,6 +10,8 @@ interface Building {
   halfWidth: number
   height: number
 }
+
+const clampLocal = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
 
 function createS06(kit: import('../types').SceneKit): ScenarioRuntime {
   const root = new THREE.Group()
@@ -20,16 +23,8 @@ function createS06(kit: import('../types').SceneKit): ScenarioRuntime {
   const buildings: Building[] = []
   let path: THREE.Group | null = null
   let lastSignature = ''
-  let angle = 0
-  let altitudeState = 70
-  let battery = 100
-  let nearest = 999
-  let speedState = 14
-  let simTime = 0
-  let avoidX = 0
-  let avoidZ = 0
-  let avoidY = 0
   let bank = 0
+  const model = createS06Model({ altitude: 70, speed: 14, sensor: 35, wind: 2, avoidance: true, obstacles: [] })
 
   const body = addBox(drone, [3.2, 0.7, 3.2], [0, 0, 0], surface('#dbe9f2', { metalness: 0.6, roughness: 0.26 }))
   body.name = 'drone-body'
@@ -67,6 +62,8 @@ function createS06(kit: import('../types').SceneKit): ScenarioRuntime {
       addBox(city, [width * 0.6, 0.4, width * 0.6], [x, height + 0.2, z], surface('#7fd0e6', { emissive: '#2f90ad', emissiveIntensity: 0.8 }))
       buildings.push({ x, z, halfWidth: width / 2, height })
     }
+    const obstacles: S06Obstacle[] = buildings.map((building) => ({ x: building.x, z: building.z, halfWidth: building.halfWidth, height: building.height }))
+    model.configure({ obstacles })
   }
 
   const rebuildPath = (p: ParamValues): void => {
@@ -87,49 +84,36 @@ function createS06(kit: import('../types').SceneKit): ScenarioRuntime {
     root.add(group)
   }
 
-  const update = (dt: number, p: ParamValues): void => {
-    const altitude = num(p, 'altitude', 70)
-    const speed = num(p, 'speed', 14)
-    const sensor = num(p, 'sensor', 35)
-    const wind = num(p, 'wind', 2)
-    const avoidance = flag(p, 'avoidance', true)
-    speedState = speed
+  const fixedUpdate = (dt: number, p: ParamValues): void => {
+    model.configure({
+      altitude: num(p, 'altitude', 70),
+      speed: num(p, 'speed', 14),
+      sensor: num(p, 'sensor', 35),
+      wind: num(p, 'wind', 2),
+      avoidance: flag(p, 'avoidance', true)
+    })
+    model.fixedStep(dt)
+  }
+
+  const renderSync = (alpha: number, p: ParamValues): void => {
+    const dt = 1 / 60
     const showPath = flag(p, 'path', true)
-    altitudeState += (altitude - altitudeState) * Math.min(1, dt * 1.5)
-    simTime += dt
-    angle += (speed * dt) / 105
-    const x = Math.cos(angle) * 105
-    const z = Math.sin(angle) * 105
-    const y = altitudeState + Math.sin(simTime * 0.8) * 0.8
-    let closest = 999
-    let pushX = 0
-    let pushZ = 0
-    let liftY = 0
-    for (const building of buildings) {
-      const dx = x - building.x
-      const dz = z - building.z
-      const horizontal = Math.sqrt(dx * dx + dz * dz)
-      closest = Math.min(closest, horizontal)
-      if (avoidance && horizontal < building.halfWidth + sensor && y < building.height + 12) {
-        const push = (building.halfWidth + sensor - horizontal) / Math.max(1, sensor)
-        pushX += (dx / Math.max(1, horizontal)) * push * 18
-        pushZ += (dz / Math.max(1, horizontal)) * push * 18
-        liftY = Math.max(liftY, building.height + 12 - y)
-      }
-    }
-    avoidX = damp(avoidX, pushX, 3.2, dt)
-    avoidZ = damp(avoidZ, pushZ, 3.2, dt)
-    avoidY = damp(avoidY, liftY, 2.4, dt)
-    nearest = closest
-    const windDrift = Math.sin(simTime * 1.3 + angle) * wind * 0.35
-    const yawRate = speed / 105
-    bank = damp(bank, -yawRate * 5.5 + avoidX * 0.012, 3, dt)
-    drone.position.set(x + avoidX + windDrift, y + avoidY, z + avoidZ)
-    drone.rotation.y = -angle
+    const state = model.state
+    const x = state.position[0] + state.velocity[0] * alpha * dt
+    const y = state.position[1] + state.velocity[1] * alpha * dt
+    const z = state.position[2] + state.velocity[2] * alpha * dt
+    const targetBank = clampLocal(-state.velocity[2] * 0.012, -0.35, 0.35)
+    bank = damp(bank, targetBank, 3, dt)
+    drone.position.set(x, y, z)
+    drone.rotation.y = -state.angle
     drone.rotation.z = bank
-    for (let i = 0; i < rotors.length; i += 1) rotors[i].rotation.y += dt * (25 + i * 1.5) * Math.min(2, speed / 8 + 0.6)
-    battery = Math.max(0, battery - dt * (0.07 + speed * 0.0035))
+    for (let i = 0; i < rotors.length; i += 1) rotors[i].rotation.y += dt * (25 + i * 1.5) * Math.min(2, Math.hypot(state.velocity[0], state.velocity[2]) / 8 + 0.6)
     if (path) path.visible = showPath
+  }
+
+  const update = (dt: number, p: ParamValues): void => {
+    fixedUpdate(dt, p)
+    renderSync(1, p)
   }
 
   const sync = (p: ParamValues): void => {
@@ -148,21 +132,28 @@ function createS06(kit: import('../types').SceneKit): ScenarioRuntime {
   return {
     object: root,
     update,
+    fixedUpdate,
+    renderSync,
+    setMode: (mode) => model.setMode(mode),
     sync,
     action: (key, p) => {
       if (key === 'charge') {
-        battery = 100
-        angle = 0
+        model.recharge()
         rebuildPath(p)
       }
     },
-    readouts: () => ({
-      飞行高度: `${drone.position.y.toFixed(1)} m`,
-      当前速度: `${speedState.toFixed(1)} m/s`,
-      最近障碍: `${nearest.toFixed(1)} m`,
-      剩余电量: `${battery.toFixed(0)}%`,
-      仿真时间: `${simTime.toFixed(1)} s`
-    }),
+    diagnostics: () => model.diagnostics(),
+    calibration: () => model.calibration(),
+    readouts: () => {
+      const state = model.state
+      return {
+        飞行高度: `${state.position[1].toFixed(1)} m`,
+        当前速度: `${Math.hypot(state.velocity[0], state.velocity[2]).toFixed(1)} m/s`,
+        最近障碍: `${state.nearest.toFixed(1)} m`,
+        剩余电量: `${state.battery.toFixed(0)}%`,
+        仿真时间: `${state.time.toFixed(1)} s`
+      }
+    },
     dispose: () => disposeObject(root)
   }
 }

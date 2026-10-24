@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Presentation Studio output harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #02060c;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import { drawExportOverlay } from '/src/cases/presentation-studio-lib/core/export-overlay.ts'
+      import { exportFrameSequence, exportRealtime } from '/src/cases/presentation-studio-lib/core/export-pipeline.ts'
+      import { detectRecorderFormat } from '/src/cases/presentation-studio-lib/core/video.ts'
+
+      const CAMERA = { longitude: 108.9642, latitude: 34.2183, height: 420, heading: 18, pitch: -24, roll: 0, fov: 52 }
+
+      function runtimeAt(seconds) {
+        const pulse = 0.6 + 0.4 * Math.sin(seconds * Math.PI)
+        return {
+          time: seconds,
+          stepIndex: 0,
+          step: null,
+          stepLocal: seconds,
+          stepDuration: 2,
+          actionIndex: 0,
+          action: null,
+          actionProgress: 0,
+          camera: CAMERA,
+          layers: { imagery: 1, terrain: 1, dayanta: 1, landmarks: pulse, beacons: 1, route: 0 },
+          effects: { shadows: 1, lighting: 1, fog: 0.2, atmosphere: 0.8, contour: 0, slope: 0 },
+          timeProgress: { dayanta: seconds / 2, landmarks: 0.5, beacons: 0.25 },
+          route: null,
+          routeCursor: null,
+          subtitles: [
+            {
+              alpha: 1,
+              param: {
+                title: 'OUTPUT CHECK',
+                text: 'Frame alignment, safe area and deterministic overlay composition.',
+                position: 'right',
+                fontSize: 34,
+                color: '#f4fbff',
+                accent: '#55d4ff',
+                background: 'glass',
+                align: 'left',
+                maxWidth: 760,
+                callout: null,
+                fade: 0.2
+              }
+            }
+          ],
+          popups: [
+            {
+              alpha: 0.94,
+              param: {
+                title: 'DIAGNOSTICS',
+                content: 'Duration 1.0s · 6 frames · profile locked',
+                targetId: null,
+                placement: 'center',
+                accent: '#ffc76b',
+                width: 380
+              }
+            }
+          ],
+          chapter: { index: 2, total: 4, name: 'GOLDEN FRAME', type: 'slide', progress: 0.42, alpha: 0.92 }
+        }
+      }
+
+      function drawScene(canvas, seconds) {
+        const ctx = canvas.getContext('2d', { alpha: false })
+        const width = canvas.width
+        const height = canvas.height
+        const drift = (seconds * 90) % width
+        const sky = ctx.createLinearGradient(0, 0, 0, height)
+        sky.addColorStop(0, '#071b33')
+        sky.addColorStop(0.55, '#0c3550')
+        sky.addColorStop(1, '#041018')
+        ctx.fillStyle = sky
+        ctx.fillRect(0, 0, width, height)
+        ctx.fillStyle = 'rgba(55, 190, 220, 0.22)'
+        ctx.beginPath()
+        ctx.arc(width * 0.72, height * 0.3, Math.min(width, height) * 0.2, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = 'rgba(7, 18, 30, 0.92)'
+        ctx.fillRect(0, height * 0.72, width, height * 0.28)
+        ctx.fillStyle = 'rgba(255, 199, 107, 0.55)'
+        ctx.fillRect(drift - 60, height * 0.68, 120, 4)
+        ctx.fillStyle = 'rgba(85, 212, 255, 0.35)'
+        for (let index = 0; index < 6; index += 1) {
+          const x = ((index * 137 + seconds * 40) % (width + 80)) - 40
+          ctx.fillRect(x, height * 0.78 + index * 7, 64, 2)
+        }
+        return ctx
+      }
+
+      function projector(width, height) {
+        return (longitude, latitude, elevation) => ({
+          x: width * (0.5 + (longitude - CAMERA.longitude) * 0.08),
+          y: height * (0.5 - (latitude - CAMERA.latitude) * 0.08 - elevation / 4000),
+          visible: true
+        })
+      }
+
+      function overlayCanvas(width, height, seconds) {
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = drawScene(canvas, seconds)
+        drawExportOverlay(ctx, width, height, runtimeAt(seconds), projector(width, height))
+        return canvas
+      }
+
+      function blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '')
+          reader.onerror = () => reject(reader.error ?? new Error('无法读取导出文件'))
+          reader.readAsDataURL(blob)
+        })
+      }
+
+      function sourceCanvas() {
+        const canvas = document.createElement('canvas')
+        canvas.width = 640
+        canvas.height = 360
+        return canvas
+      }
+
+      async function renderFrames(options = {}) {
+        const totalSeconds = options.totalSeconds ?? 1
+        const fps = options.fps ?? 6
+        const source = sourceCanvas()
+        const result = await exportFrameSequence({
+          profile: {
+            ...options.profile,
+            width: options.width ?? 480,
+            height: options.height ?? 270,
+            fps,
+            fit: 'contain',
+            background: '#040a12'
+          },
+          totalSeconds,
+          signal: new AbortController().signal,
+          evaluate: runtimeAt,
+          apply: (runtime) => drawScene(source, runtime.time),
+          requestRender: () => {},
+          waitUntilVisible: async () => {},
+          sourceCanvas: () => source,
+          drawOverlay: (ctx, width, height, runtime) =>
+            drawExportOverlay(ctx, width, height, runtime, projector(width, height)),
+          onProgress: () => {}
+        })
+        return {
+          base64: await blobToBase64(result.blob),
+          extension: result.extension,
+          mime: result.mime,
+          diagnostics: result.diagnostics
+        }
+      }
+
+      async function recordClip(seconds = 1) {
+        const source = sourceCanvas()
+        const result = await exportRealtime({
+          profile: {
+            width: 480,
+            height: 270,
+            fps: 30,
+            fit: 'contain',
+            background: '#040a12',
+            id: 'e2e',
+            name: 'E2E',
+            mode: 'realtime',
+            format: 'video'
+          },
+          totalSeconds: seconds,
+          signal: new AbortController().signal,
+          evaluate: runtimeAt,
+          apply: (runtime) => drawScene(source, runtime.time),
+          requestRender: () => {},
+          waitUntilVisible: async () => {},
+          sourceCanvas: () => source,
+          drawOverlay: (ctx, width, height, runtime) =>
+            drawExportOverlay(ctx, width, height, runtime, projector(width, height)),
+          onProgress: () => {}
+        })
+        return {
+          base64: await blobToBase64(result.blob),
+          extension: result.extension,
+          mime: result.mime,
+          diagnostics: result.diagnostics
+        }
+      }
+
+      window.__outputHarness = {
+        runtimeAt,
+        mediaSupported: () => Boolean(detectRecorderFormat()),
+        renderOverlay(width, height, seconds) {
+          const canvas = overlayCanvas(width, height, seconds)
+          canvas.id = 'overlay-canvas'
+          document.body.replaceChildren(canvas)
+          return { width, height }
+        },
+        renderFrames,
+        recordClip
+      }
+      window.__outputHarness.ready = true
+    </script>
+  </body>
+</html>

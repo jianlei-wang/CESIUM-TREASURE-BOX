@@ -7,6 +7,7 @@ interface ResourceRef {
 
 export class ResourceTracker {
   private resources = new Map<string, ResourceRef>()
+  private seenObjects = new WeakSet<object>()
 
   private register(key: string, dispose: () => void): void {
     const existing = this.resources.get(key)
@@ -54,6 +55,12 @@ export class ResourceTracker {
       if (Array.isArray(material)) for (const item of material) this.trackMaterial(item)
       else if (material) this.trackMaterial(material)
     })
+  }
+
+  trackObjectOnce(object: THREE.Object3D): void {
+    if (this.seenObjects.has(object)) return
+    this.seenObjects.add(object)
+    this.trackObject(object)
   }
 
   releaseObject(object: THREE.Object3D): void {

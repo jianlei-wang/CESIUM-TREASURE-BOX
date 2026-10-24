@@ -458,7 +458,8 @@ export function createProject(name = '未命名演示', initial: InitialState = 
       effects: { ...initial.effects },
       time: { ...initial.time }
     },
-    steps: [createStep(1)]
+    steps: [createStep(1)],
+    customLayers: []
   }
 }
 

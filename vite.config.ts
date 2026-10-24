@@ -82,8 +82,10 @@ const cesiumDevGlobal: Plugin = {
   }
 }
 
+const deploymentBase = process.env.BASE_URL?.trim() || './'
+
 export default defineConfig({
-  base: './',
+  base: deploymentBase,
   plugins: [vue(), cesium(), cesiumHtmlOptimize, cesiumDevGlobal],
   resolve: {
     alias: {

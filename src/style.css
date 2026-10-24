@@ -86,6 +86,9 @@ button { border: 0; cursor: pointer; }
 .case-page.is-system .case-heading { display: none; }
 .case-page.is-system .case-stage { padding: 0; border: 0; border-radius: 0; background: #08111f; box-shadow: none; }
 .case-page.is-system .case-loading { border-radius: 0; background: rgba(6, 14, 26, .78); }
+.case-page.is-player-mode .case-content { width: 100%; margin: 0; padding: 0; }
+.case-page.is-player-mode .case-stage { padding: 0; border: 0; border-radius: 0; background: #08111f; box-shadow: none; }
+.player-boot { position: fixed; inset: 0; z-index: 300; display: grid; place-content: center; justify-items: center; gap: 14px; background: #06101c; color: #9fb6c9; font-size: 13px; }
 .content-header { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 28px; }
 .breadcrumb { gap: 9px; color: #9aa8ba; font-size: 11px; margin-bottom: 11px; }
 .breadcrumb i { font-style: normal; color: #c3ccd8; }

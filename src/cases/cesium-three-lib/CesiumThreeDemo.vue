@@ -9,6 +9,8 @@ import { SCENARIO_MAP } from './scenarios'
 import { SimulationClock } from './core/SimulationClock'
 import { SIMULATION_MODES } from './simulations/contract'
 import type { PerformanceSnapshot } from './core/PerformanceMonitor'
+import { QUALITY_PRESETS, type QualityPreset } from './core/QualityGovernor'
+import { getProvenance } from './data/provenance'
 
 const props = defineProps<{ scenario: string }>()
 
@@ -21,6 +23,8 @@ const paused = ref(false)
 const status = ref('初始化中…')
 const infoOpen = ref(false)
 const mode = ref<SimulationMode>('interactive')
+const qualityPreset = ref<QualityPreset>('auto')
+const provenance = meta ? getProvenance(meta.id) : null
 const diagnostics = ref<Record<string, number | string>>({})
 const calibration = ref<CalibrationRow[]>([])
 const performanceStats = ref<PerformanceSnapshot | null>(null)
@@ -31,6 +35,7 @@ let viewer: Viewer | null = null
 let stage: GeoThreeStage | null = null
 let runtime: ScenarioRuntime | null = null
 let syncTimer: number | null = null
+let sceneReady = false
 
 function asNumber(value: ParamValue | undefined): number {
   return typeof value === 'number' ? value : 0
@@ -90,6 +95,11 @@ function resetCamera(): void {
   stage?.setAutoOrbit(mode.value === 'cinema')
 }
 
+function applyQuality(next: string): void {
+  qualityPreset.value = next as QualityPreset
+  stage?.setQualityPreset(qualityPreset.value)
+}
+
 function advanceSmoothing(dt: number): void {
   const blend = 1 - Math.exp(-7 * dt)
   for (const key of Object.keys(values)) {
@@ -113,18 +123,20 @@ onMounted(() => {
     layer.contrast = 1.1
   })
   stage = new GeoThreeStage(viewer, host.value, meta.anchor)
+  stage.setQualityPreset(qualityPreset.value)
   stage.setView(meta.camera)
   runtime = meta.create({
     root: stage.root,
     accent: meta.accent,
-    focus: (target, camera) => stage?.focus(target, camera)
+    focus: (target, camera) => stage?.focus(target, camera),
+    setOcclusionProxies: (proxies) => stage?.setOcclusionProxies(proxies)
   })
   if (runtime.object !== stage.root) stage.root.add(runtime.object)
   runtime.sync?.({ ...values })
   let accumulator = 0
   stage.onFrame = (dt) => {
     const started = performance.now()
-    if (!paused.value) {
+    if (!paused.value && sceneReady) {
       advanceSmoothing(dt)
       const advance = clock.advance(dt)
       for (let index = 0; index < advance.steps; index += 1) {
@@ -148,14 +160,28 @@ onMounted(() => {
       performanceStats.value = stage?.getPerformance() ?? null
     }
   }
-  readouts.value = runtime.readouts()
-  runtime.setMode?.(mode.value)
-  diagnostics.value = runtime.diagnostics?.() ?? {}
-  calibration.value = runtime.calibration?.() ?? []
-  status.value = '运行中'
+  const begin = (): void => {
+    if (!runtime) return
+    readouts.value = runtime.readouts()
+    runtime.setMode?.(mode.value)
+    diagnostics.value = runtime.diagnostics?.() ?? {}
+    calibration.value = runtime.calibration?.() ?? []
+    sceneReady = true
+    status.value = '运行中'
+  }
+  if (runtime.load) {
+    status.value = '加载数据…'
+    runtime.load().then(begin).catch((error: unknown) => {
+      status.value = `数据加载失败：${String(error)}`
+      begin()
+    })
+  } else {
+    begin()
+  }
 })
 
 onBeforeUnmount(() => {
+  sceneReady = false
   if (syncTimer !== null) window.clearTimeout(syncTimer)
   runtime?.dispose()
   runtime = null
@@ -279,6 +305,14 @@ watch(
       </div>
       <div class="mode-hint">{{ SIMULATION_MODES.find((item) => item.value === mode)?.hint }}</div>
 
+      <div class="section-title">画质与性能</div>
+      <div class="param-row">
+        <div class="param-head"><span class="param-label">画质档位</span></div>
+        <select class="ct-select" :value="qualityPreset" @change="applyQuality(($event.target as HTMLSelectElement).value)">
+          <option v-for="item in QUALITY_PRESETS" :key="item.value" :value="item.value">{{ item.label }}</option>
+        </select>
+      </div>
+
       <div class="section-title">播放与视角</div>
       <div class="button-row">
         <button class="action-button primary" @click="togglePause">{{ paused ? '继续' : '暂停' }}</button>
@@ -341,6 +375,12 @@ watch(
           </ul>
           <p class="info-label">交互提示</p>
           <p class="info-text">{{ meta.hint }}</p>
+          <template v-if="provenance">
+            <p class="info-label">数据与尺度</p>
+            <p class="info-text">数据类型：{{ provenance.mode }} · {{ provenance.source }}</p>
+            <p class="info-text">坐标：{{ provenance.crs }}；垂直基准：{{ provenance.verticalDatum }}</p>
+            <p class="info-text">单位：{{ provenance.units }}。{{ provenance.note }}</p>
+          </template>
         </div>
       </div>
     </div>

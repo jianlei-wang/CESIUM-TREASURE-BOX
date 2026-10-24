@@ -1,5 +1,6 @@
 import type * as THREE from 'three'
 import type { CalibrationRow, SimulationMode } from './simulations/contract'
+import type { OcclusionProxy } from './core/OcclusionProxy'
 
 export type ParamValue = number | string | boolean
 export type ParamValues = Record<string, ParamValue>
@@ -89,10 +90,12 @@ export interface SceneKit {
   root: THREE.Group
   accent: string
   focus: (target: THREE.Vector3, camera: Partial<CameraSpec>) => void
+  setOcclusionProxies?: (proxies: OcclusionProxy[]) => void
 }
 
 export interface ScenarioRuntime {
   object: THREE.Object3D
+  load?: () => Promise<void>
   update: (dt: number, params: ParamValues) => void
   fixedUpdate?: (dt: number, params: ParamValues) => void
   renderSync?: (alpha: number, params: ParamValues) => void

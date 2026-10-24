@@ -1,5 +1,6 @@
 import {
   type ActionTiming,
+  type EasingCurve,
   type CameraPose,
   type ChapterView,
   type EasingType,
@@ -14,14 +15,23 @@ import {
   type PresentationStep,
   type RecordRouteAction,
   type RouteData,
-  type RouteSample,
   type RuntimeState,
   type StepTiming,
   type SubtitleView,
-  type TimeSnapshot,
   type Timeline
 } from './types'
 import { LANDMARK_MAP } from './defaults'
+import { sampleCurve } from './easing'
+
+export const TIMELINE_FPS = 30
+
+export function frameFromSeconds(seconds: number, fps = TIMELINE_FPS): number {
+  return Math.max(0, Math.round(seconds * fps))
+}
+
+export function secondsFromFrame(frame: number, fps = TIMELINE_FPS): number {
+  return Math.max(0, frame) / Math.max(1, fps)
+}
 
 export function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
@@ -33,6 +43,11 @@ export function applyEasing(t: number, easing: EasingType): number {
   if (easing === 'linear') return x
   if (easing === 'smooth') return x * x * (3 - 2 * x)
   return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2
+}
+
+export function applyActionEasing(action: { easing?: EasingType; curve?: EasingCurve }, t: number): number {
+  if (action.curve) return sampleCurve(action.curve, t)
+  return applyEasing(t, action.easing ?? 'smooth')
 }
 
 function shortestAngle(from: number, to: number): number {
@@ -129,7 +144,7 @@ export function routePoseAt(action: RecordRouteAction, p: number, from: CameraPo
   }
   const usable = Math.max(0.01, duration - blend)
   const t = clamp((elapsed - blend) / usable, 0, 1)
-  const eased = applyEasing(t, action.easing)
+  const eased = applyActionEasing(action, t)
   return routeSamplePose(route, eased) ?? { ...from }
 }
 
@@ -144,14 +159,15 @@ export function buildTimeline(project: PresentationProject): Timeline {
       const cameraAction = action.actionType === 'flyTo' || action.actionType === 'recordRoute'
       const speed = cameraAction ? clamp(step.speedRate, 0.25, 4) : 1
       const duration = clamp(action.duration / speed, 0.2, 600)
+      const start = typeof action.start === 'number' && Number.isFinite(action.start) ? clamp(action.start, 0, 600) : actionCursor
       actions.push({
         action,
         index: actionIndex,
-        start: actionCursor,
+        start,
         duration,
-        end: actionCursor + duration
+        end: start + duration
       })
-      actionCursor += duration
+      actionCursor = Math.max(actionCursor, start + duration)
     })
     const activeDuration = Math.max(clamp(step.duration, 0.5, 600), actionCursor)
     const stayTime = clamp(step.stayTime, 0, 60)
@@ -232,7 +248,7 @@ function applyAction(
   const p = clamp(progress, 0, 1)
   switch (action.actionType) {
     case 'flyTo': {
-      const eased = applyEasing(p, action.easing)
+      const eased = applyActionEasing(action, p)
       const from = runtime.camera
       const target = action.camera
       const pose = lerpPose(from, target, eased)
@@ -260,7 +276,7 @@ function applyAction(
       if (p < 0.08) {
         value = previous + (from - previous) * applyEasing(p / 0.08, 'smooth')
       } else {
-        value = from + (to - from) * applyEasing((p - 0.08) / 0.92, action.easing)
+        value = from + (to - from) * applyActionEasing(action, (p - 0.08) / 0.92)
       }
       runtime.timeProgress[action.target] = clamp(value, 0, 1)
       break
@@ -359,6 +375,19 @@ export function evaluateTimeline(timeline: Timeline, time: number, initial: Init
   }
 
   return runtime
+}
+
+export function totalFrames(timeline: Timeline, fps = TIMELINE_FPS): number {
+  return Math.max(1, Math.ceil(timeline.total * fps))
+}
+
+/**
+ * 以整数帧为语义时钟求值。同一 timeline + frame + initial 必须得到一致状态，
+ * 预览、寻址与逐帧导出全部通过该入口，不得传入 performance.now()。
+ */
+export function evaluateFrame(timeline: Timeline, frame: number, initial: InitialState, fps = TIMELINE_FPS): RuntimeState {
+  const safeFrame = Math.max(0, Math.floor(Number.isFinite(frame) ? frame : 0))
+  return evaluateTimeline(timeline, secondsFromFrame(safeFrame, fps), initial)
 }
 
 export function previewTimeForSelection(timeline: Timeline, stepId: string, actionId: string): number {

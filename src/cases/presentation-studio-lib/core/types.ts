@@ -14,6 +14,13 @@ export type ActionType =
   | 'sceneEffect'
 
 export type EasingType = 'linear' | 'smooth' | 'cinematic'
+
+export interface EasingCurve {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
 export type TransitionType = 'none' | 'fade' | 'dip' | 'slide'
 export type SubtitlePosition = 'fullscreen' | 'top' | 'bottom' | 'left' | 'right' | 'callout'
 export type SubtitleBackground = 'none' | 'dark' | 'glass' | 'gradient'
@@ -100,6 +107,11 @@ interface ActionBase {
   enable: boolean
   duration: number
   note: string
+  /** 动作在步骤内的起始秒数；省略时紧接上一动作。 */
+  start?: number
+  /** 锁定轨道位置与时长，避免误拖拽。 */
+  locked?: boolean
+  curve?: EasingCurve
 }
 
 export interface FlyToAction extends ActionBase {
@@ -171,6 +183,18 @@ export interface PresentationStep {
   actions: PresentationAction[]
 }
 
+export type CustomLayerKind = '3dtiles' | 'geojson'
+
+export interface CustomLayer {
+  id: string
+  name: string
+  kind: CustomLayerKind
+  uri: string
+  visible: boolean
+  locked?: boolean
+  opacity?: number
+}
+
 export interface PresentationProject {
   format: typeof PROJECT_FORMAT
   version: typeof PROJECT_VERSION
@@ -181,6 +205,8 @@ export interface PresentationProject {
   updateTime: string
   initial: InitialState
   steps: PresentationStep[]
+  customLayers: CustomLayer[]
+  extensions?: Record<string, unknown>
 }
 
 export interface LandmarkDefinition {
@@ -294,12 +320,15 @@ export interface RecordingState {
 export interface ExportSettings {
   resolution: '1080p' | '2k' | '4k'
   fps: 30 | 60
+  mode?: 'realtime' | 'deterministic'
+  format?: 'video' | 'frames'
+  fit?: 'contain' | 'cover' | 'stretch'
 }
 
 export interface ExportState {
   active: boolean
   progress: number
-  phase: 'preparing' | 'recording' | 'finalizing' | 'done' | 'error'
+  phase: 'preparing' | 'recording' | 'finalizing' | 'done' | 'error' | 'cancelled'
   message: string
   mime: string
   extension: string

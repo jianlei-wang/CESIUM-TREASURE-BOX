@@ -12,9 +12,8 @@ import {
   ColorMaterialProperty,
   ConstantPositionProperty,
   ConstantProperty,
-  Credit,
-  createWorldTerrainAsync,
   EllipsoidTerrainProvider,
+  GeoJsonDataSource,
   HorizontalOrigin,
   Ion,
   JulianDate,
@@ -22,52 +21,47 @@ import {
   LabelStyle,
   Material,
   NearFarScalar,
-  OpenStreetMapImageryProvider,
   PerspectiveFrustum,
   PointPrimitiveCollection,
   PolylineGlowMaterialProperty,
   SceneTransforms,
   ShadowMode,
   TileMapServiceImageryProvider,
-  UrlTemplateImageryProvider,
   VerticalOrigin,
   Viewer,
   type ImageryLayer,
   type TerrainProvider
 } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
-import { LANDMARKS } from './defaults'
+import { recordDiagnostic } from './diagnostics'
+import { DataSourceRegistry, createImageryProvider, createTerrainProvider } from './data-sources'
+import { DAYANTA_SCENE_TEMPLATE, type SceneTemplate } from './scene-template'
 import { clamp } from './timeline'
-import type { CameraPose, LayerId, RuntimeState } from './types'
+import { runtimeConfig } from '../../../runtime-config'
+import type { CameraPose, CustomLayer, LayerId, RuntimeState } from './types'
+
+const MIN_CAMERA_CLEARANCE = 4
+const MAX_CAMERA_HEIGHT = 3000000
 
 const CESIUM_ION_TOKEN =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmNGI3MTJlZi1kNGFmLTQ1OWQtYmJiMC0yMDViNjM0ZDdjYzMiLCJpZCI6Mzg2MzU3LCJpYXQiOjE3NzAwODA5MDJ9.-ggs9Xfr6ptMLXTs0MS7xdieNVFr7TMV7yyd-yjxyHw'
 
-const BING_SUBDOMAINS = ['0', '1', '2', '3']
-const BING_CREDIT = new Credit('© Microsoft Bing Maps')
+export type CustomLayerStatus = 'empty' | 'loading' | 'ready' | 'error'
 
-function toQuadKey(x: number, y: number, level: number): string {
-  let key = ''
-  for (let bit = level; bit > 0; bit -= 1) {
-    let digit = 0
-    const mask = 1 << (bit - 1)
-    if ((x & mask) !== 0) digit += 1
-    if ((y & mask) !== 0) digit += 2
-    key += String(digit)
-  }
-  return key
+export interface CustomLayerState {
+  id: string
+  status: CustomLayerStatus
+  message?: string
 }
 
-function bingProvider(): UrlTemplateImageryProvider {
-  return new UrlTemplateImageryProvider({
-    url: 'https://ecn.t{s}.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=1',
-    subdomains: BING_SUBDOMAINS,
-    maximumLevel: 19,
-    credit: BING_CREDIT,
-    customTags: {
-      quadkey: (_provider: unknown, x: number, y: number, level: number) => toQuadKey(x, y, level)
-    }
-  })
+export interface SceneReadiness {
+  viewerReady: boolean
+  metadataReady: boolean
+  visualReady: boolean
+  exportReady: boolean
+  pendingAssets: number
+  missingAssets: string[]
+  warnings: string[]
 }
 
 const ANALYSIS_SHADER = `
@@ -122,6 +116,14 @@ export interface ScreenPoint {
 
 type PointItem = ReturnType<PointPrimitiveCollection['add']>
 type LabelItem = ReturnType<LabelCollection['add']>
+
+interface CustomLayerHandle {
+  kind: CustomLayer['kind']
+  uri: string
+  tileset?: Cesium3DTileset
+  dataSource?: GeoJsonDataSource
+  dispose: () => void
+}
 
 interface LandmarkVisual {
   point: PointItem
@@ -178,9 +180,239 @@ export class PresentationScene {
   private destroyRequested = false
   private lastRuntime: RuntimeState | null = null
   private callbacks: SceneCallbacks
+  private readonly template: SceneTemplate
+  private readonly dataSources: DataSourceRegistry
+  private readiness: SceneReadiness = {
+    viewerReady: false,
+    metadataReady: false,
+    visualReady: false,
+    exportReady: false,
+    pendingAssets: 0,
+    missingAssets: [],
+    warnings: []
+  }
+  private assetTasks = new Set<Promise<unknown>>()
+  private generation = 0
+  private extraTilesets = new Map<string, Cesium3DTileset>()
+  private customLayerHandles = new Map<string, CustomLayerHandle>()
+  private customLayerEpoch = 0
+  private customLayerStates = new Map<string, CustomLayerState>()
+  private groundHeightCache = new Map<string, number>()
 
-  constructor(private readonly container: HTMLElement, callbacks: SceneCallbacks = {}) {
+  constructor(
+    private readonly container: HTMLElement,
+    callbacks: SceneCallbacks = {},
+    template: SceneTemplate = DAYANTA_SCENE_TEMPLATE,
+    dataSources: DataSourceRegistry = new DataSourceRegistry()
+  ) {
     this.callbacks = callbacks
+    this.template = template
+    this.dataSources = dataSources
+  }
+
+  getReadiness(): SceneReadiness {
+    return { ...this.readiness, missingAssets: [...this.readiness.missingAssets], warnings: [...this.readiness.warnings] }
+  }
+
+  getDataSourceStates() {
+    return this.dataSources.snapshot()
+  }
+
+  getCustomLayerStates(): CustomLayerState[] {
+    return [...this.customLayerStates.values()].map((state) => ({ ...state }))
+  }
+
+  private markMissing(asset: string, reason: string): void {
+    if (!this.readiness.missingAssets.includes(asset)) this.readiness.missingAssets.push(asset)
+    this.readiness.warnings.push(`${asset}：${reason}`)
+    this.callbacks.onWarning?.(`资源未就绪：${asset}（${reason}）`)
+  }
+
+  private clearMissing(asset: string): void {
+    this.readiness.missingAssets = this.readiness.missingAssets.filter((item) => item !== asset)
+    const prefix = `${asset}：`
+    this.readiness.warnings = this.readiness.warnings.filter((item) => !item.startsWith(prefix))
+  }
+
+  private updateReadiness(): void {
+    this.readiness.pendingAssets = this.assetTasks.size
+    this.readiness.exportReady =
+      this.readiness.viewerReady &&
+      this.readiness.metadataReady &&
+      this.readiness.visualReady &&
+      this.readiness.pendingAssets === 0
+  }
+
+  private trackAsset(id: string, task: Promise<unknown>, required: boolean): Promise<void> {
+    const tracked = task
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        if (required) this.markMissing(id, message)
+        else this.readiness.warnings.push(`${id}：${message}`)
+      })
+      .finally(() => {
+        this.assetTasks.delete(tracked)
+        this.updateReadiness()
+      })
+    this.assetTasks.add(tracked)
+    this.updateReadiness()
+    return tracked.then(() => undefined)
+  }
+
+  async waitUntilVisible(timeoutMs = 20000): Promise<SceneReadiness> {
+    if (!this.assetTasks.size) {
+      this.readiness.visualReady = true
+      this.updateReadiness()
+      return this.getReadiness()
+    }
+    await Promise.race([
+      Promise.allSettled([...this.assetTasks]),
+      new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs))
+    ])
+    if (this.assetTasks.size) {
+      this.readiness.warnings.push('等待资源就绪超时，导出将继续，但可能缺少部分资源')
+    }
+    this.readiness.visualReady = true
+    this.updateReadiness()
+    return this.getReadiness()
+  }
+
+  async addTilesetAsset(uri: string, options: { maximumScreenSpaceError?: number } = {}): Promise<() => void> {
+    if (!this.viewer || this.viewer.isDestroyed()) throw new Error('场景尚未就绪')
+    const generation = this.generation
+    const url = new URL(uri, document.baseURI).toString()
+    const tileset = await Cesium3DTileset.fromUrl(url, {
+      maximumScreenSpaceError: options.maximumScreenSpaceError ?? 8,
+      skipLevelOfDetail: true,
+      preferLeaves: true
+    })
+    if (this.destroyRequested || generation !== this.generation || !this.viewer || this.viewer.isDestroyed()) {
+      tileset.destroy()
+      throw new Error('场景已销毁，资源加载被取消')
+    }
+    this.viewer.scene.primitives.add(tileset)
+    const id = `tileset_${this.extraTilesets.size + 1}`
+    this.extraTilesets.set(id, tileset)
+    return () => {
+      this.extraTilesets.delete(id)
+      if (this.viewer && !this.viewer.isDestroyed()) this.viewer.scene.primitives.remove(tileset)
+      else if (!tileset.isDestroyed()) tileset.destroy()
+    }
+  }
+
+  private disposeCustomHandle(handle: CustomLayerHandle): void {
+    try {
+      handle.dispose()
+    } catch {
+      /* 单个自定义图层释放失败不阻塞其余资源回收 */
+    }
+  }
+
+  private applyCustomVisibility(handle: CustomLayerHandle, layer: CustomLayer): void {
+    const visible = layer.visible !== false
+    const opacity = clamp(Number(layer.opacity ?? 1), 0, 1)
+    if (handle.tileset) {
+      handle.tileset.show = visible && opacity > 0.01
+      if (opacity >= 0.995) handle.tileset.style = undefined
+      else if (opacity > 0.01) {
+        handle.tileset.style = new Cesium3DTileStyle({ color: `rgba(255, 255, 255, ${opacity})` })
+      }
+    }
+    if (handle.dataSource) handle.dataSource.show = visible && opacity > 0.01
+  }
+
+  private async createCustomHandle(layer: CustomLayer): Promise<CustomLayerHandle> {
+    if (!this.viewer || this.viewer.isDestroyed()) throw new Error('场景尚未就绪')
+    const url = new URL(layer.uri, document.baseURI).toString()
+    const generation = this.generation
+    if (layer.kind === 'geojson') {
+      const dataSource = await GeoJsonDataSource.load(url, { clampToGround: true })
+      if (this.destroyRequested || generation !== this.generation || !this.viewer || this.viewer.isDestroyed()) {
+        throw new Error('场景已销毁，资源加载被取消')
+      }
+      await this.viewer.dataSources.add(dataSource)
+      return {
+        kind: layer.kind,
+        uri: layer.uri,
+        dataSource,
+        dispose: () => {
+          if (this.viewer && !this.viewer.isDestroyed()) this.viewer.dataSources.remove(dataSource, true)
+        }
+      }
+    }
+    const tileset = await Cesium3DTileset.fromUrl(url, {
+      maximumScreenSpaceError: 8,
+      skipLevelOfDetail: true,
+      preferLeaves: true
+    })
+    if (this.destroyRequested || generation !== this.generation || !this.viewer || this.viewer.isDestroyed()) {
+      tileset.destroy()
+      throw new Error('场景已销毁，资源加载被取消')
+    }
+    this.viewer.scene.primitives.add(tileset)
+    return {
+      kind: layer.kind,
+      uri: layer.uri,
+      tileset,
+      dispose: () => {
+        if (this.viewer && !this.viewer.isDestroyed()) this.viewer.scene.primitives.remove(tileset)
+        else if (!tileset.isDestroyed()) tileset.destroy()
+      }
+    }
+  }
+
+  /** 增量同步自定义图层：先回收已删除项，再按 URI 复用未变更项。 */
+  async syncCustomLayers(layers: CustomLayer[]): Promise<void> {
+    if (!this.viewer || this.viewer.isDestroyed()) return
+    const epoch = ++this.customLayerEpoch
+    const desired = new Set(layers.map((layer) => layer.id))
+    for (const [id, handle] of [...this.customLayerHandles]) {
+      if (!desired.has(id)) {
+        this.disposeCustomHandle(handle)
+        this.customLayerHandles.delete(id)
+      }
+    }
+    for (const id of [...this.customLayerStates.keys()]) {
+      if (!desired.has(id)) this.customLayerStates.delete(id)
+    }
+    for (const layer of layers) {
+      const assetLabel = `图层 ${layer.name}`
+      if (!layer.uri.trim()) {
+        this.customLayerStates.set(layer.id, { id: layer.id, status: 'empty', message: '尚未设置资源地址' })
+        continue
+      }
+      const existing = this.customLayerHandles.get(layer.id)
+      if (existing && existing.uri === layer.uri && existing.kind === layer.kind) {
+        this.applyCustomVisibility(existing, layer)
+        this.customLayerStates.set(layer.id, { id: layer.id, status: 'ready' })
+        this.clearMissing(assetLabel)
+        continue
+      }
+      if (existing) {
+        this.disposeCustomHandle(existing)
+        this.customLayerHandles.delete(layer.id)
+      }
+      if (epoch !== this.customLayerEpoch || this.destroyRequested) continue
+      this.customLayerStates.set(layer.id, { id: layer.id, status: 'loading' })
+      try {
+        const handle = await this.createCustomHandle(layer)
+        if (epoch !== this.customLayerEpoch || this.destroyRequested) {
+          this.disposeCustomHandle(handle)
+          continue
+        }
+        this.applyCustomVisibility(handle, layer)
+        this.customLayerHandles.set(layer.id, handle)
+        this.customLayerStates.set(layer.id, { id: layer.id, status: 'ready' })
+        this.clearMissing(assetLabel)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        recordDiagnostic('resource', 'custom-layer-failed', 'error', { layer: layer.id, kind: layer.kind, message })
+        if (epoch === this.customLayerEpoch) {
+          this.customLayerStates.set(layer.id, { id: layer.id, status: 'error', message })
+          this.markMissing(assetLabel, message)
+        }
+      }
+    }
   }
 
   get canvas(): HTMLCanvasElement | null {
@@ -196,7 +428,9 @@ export class PresentationScene {
   }
 
   async init(): Promise<void> {
-    Ion.defaultAccessToken = CESIUM_ION_TOKEN
+    this.generation += 1
+    const generation = this.generation
+    Ion.defaultAccessToken = runtimeConfig.cesiumIonToken || CESIUM_ION_TOKEN
     this.callbacks.onStatus?.('正在建立三维场景', 'Cesium Viewer · 1.144')
     const hiddenCredit = document.createElement('div')
     hiddenCredit.style.display = 'none'
@@ -217,7 +451,11 @@ export class PresentationScene {
       creditContainer: hiddenCredit
     })
     const viewer = this.viewer
-    ;(window as unknown as Record<string, unknown>).__psViewer = viewer
+    if (import.meta.env.DEV && this.template.debugGlobal) {
+      ;(window as unknown as Record<string, unknown>).__psViewer = viewer
+    }
+    this.readiness.viewerReady = true
+    this.updateReadiness()
     viewer.clock.currentTime = JulianDate.fromIso8601('2026-06-21T04:00:00Z')
     viewer.clock.shouldAnimate = false
     viewer.scene.backgroundColor = Color.fromCssColorString('#040a12')
@@ -238,50 +476,68 @@ export class PresentationScene {
     this.callbacks.onStatus?.('加载卫星影像', 'Bing Maps · 失败自动切换 OSM')
     this.addImagery()
 
-    this.callbacks.onStatus?.('加载城市地标', '六处曲江地标 · 光柱与航线')
-    this.addLandmarkLayers()
-    this.addBeaconLayer()
-    this.addRouteLayers()
-
-    this.callbacks.onStatus?.('加载大雁塔 3D Tiles', '本地模型 · 建筑生长裁剪面')
-    const tilesetTask = this.loadTileset()
-    const terrainTask = this.loadTerrain()
-    await Promise.race([tilesetTask, new Promise((resolve) => setTimeout(resolve, 12000))])
-    if (!this.hasTileset) {
-      void tilesetTask.then(() => {
-        if (!this.destroyRequested && this.lastRuntime) this.applyRuntime(this.lastRuntime)
-      })
+    if (this.template.landmarks.length) {
+      this.callbacks.onStatus?.('加载城市地标', `${this.template.landmarks.length} 处地标 · 光柱与航线`)
+      this.addLandmarkLayers()
+      this.addBeaconLayer()
     }
-    void terrainTask.then(() => {
-      if (!this.destroyRequested && this.lastRuntime) this.applyRuntime(this.lastRuntime)
-    })
-    if (this.destroyRequested) return
-    this.callbacks.onStatus?.('场景就绪', '演示工程已可播放')
+    this.addRouteLayers()
+    this.readiness.metadataReady = true
+    this.updateReadiness()
+
+    const tasks: Promise<void>[] = []
+    if (this.template.tileset) {
+      this.callbacks.onStatus?.('加载场景 3D Tiles', `${this.template.tileset.name} · 本地模型`)
+      tasks.push(this.trackAsset(this.template.tileset.id, this.loadTileset(generation), this.template.tileset.required))
+    } else {
+      this.readiness.visualReady = true
+    }
+    tasks.push(this.trackAsset(this.template.terrainSourceId, this.loadTerrain(generation), false))
+    await Promise.race([
+      Promise.allSettled(tasks),
+      new Promise<void>((resolve) => window.setTimeout(resolve, 12000))
+    ])
+    if (generation !== this.generation || this.destroyRequested) return
+    if (!this.assetTasks.size) {
+      this.readiness.visualReady = true
+      this.updateReadiness()
+    }
+    if (this.readiness.exportReady) {
+      this.callbacks.onStatus?.('场景就绪', '演示工程已可播放，导出资源已就绪')
+    } else {
+      this.callbacks.onStatus?.('场景可用', '部分资源仍在加载，导出将等待资源就绪')
+    }
   }
 
   private addImagery(): void {
     if (!this.viewer) return
     void this.addBaseImagery()
+    const primary = this.dataSources.get(this.template.imagerySourceId)
+    const fallback = (primary && this.dataSources.fallbackOf(primary.id)) ?? this.dataSources.get('imagery_osm')
     try {
-      this.imageryLayer = this.viewer.imageryLayers.addImageryProvider(bingProvider())
+      if (!primary) throw new Error('未配置影像服务')
+      this.imageryLayer = this.viewer.imageryLayers.addImageryProvider(createImageryProvider(primary))
+      this.dataSources.mark(primary.id, 'healthy')
       let failures = 0
       this.imageryLayer.errorEvent.addEventListener(() => {
         failures += 1
-        if (failures >= 4) {
-          this.callbacks.onWarning?.('Bing 影像加载异常，已切换 OpenStreetMap')
-          if (this.imageryLayer && this.viewer && !this.viewer.isDestroyed()) {
-            this.viewer.imageryLayers.remove(this.imageryLayer, true)
-            this.imageryLayer = this.viewer.imageryLayers.addImageryProvider(
-              new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })
-            )
-          }
+        this.dataSources.mark(primary.id, 'degraded', '影像瓦片请求失败')
+        if (failures >= 4 && fallback && this.imageryLayer && this.viewer && !this.viewer.isDestroyed()) {
+          this.callbacks.onWarning?.(`${primary.name} 加载异常，已切换 ${fallback.name}`)
+          this.viewer.imageryLayers.remove(this.imageryLayer, true)
+          this.imageryLayer = this.viewer.imageryLayers.addImageryProvider(createImageryProvider(fallback))
+          this.dataSources.mark(fallback.id, 'healthy')
         }
       })
-    } catch {
-      this.callbacks.onWarning?.('影像服务初始化失败，使用 OpenStreetMap')
-      this.imageryLayer = this.viewer.imageryLayers.addImageryProvider(
-        new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })
-      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      recordDiagnostic('resource', 'imagery-failed', 'error', { source: primary?.id ?? 'imagery', message })
+      this.dataSources.mark(primary?.id ?? 'imagery', 'failed', message)
+      this.callbacks.onWarning?.(`影像服务初始化失败，使用 ${fallback?.name ?? '纯色球体'}`)
+      if (fallback && this.viewer && !this.viewer.isDestroyed()) {
+        this.imageryLayer = this.viewer.imageryLayers.addImageryProvider(createImageryProvider(fallback))
+        this.dataSources.mark(fallback.id, 'healthy')
+      }
     }
   }
 
@@ -301,31 +557,38 @@ export class PresentationScene {
     }
   }
 
-  private async loadTerrain(): Promise<void> {
+  private async loadTerrain(generation: number): Promise<void> {
+    const definition = this.dataSources.get(this.template.terrainSourceId)
+    if (!definition || definition.provider === 'ellipsoid') return
     try {
-      const provider = await createWorldTerrainAsync({ requestVertexNormals: true })
-      if (this.destroyRequested) return
+      const provider = await createTerrainProvider(definition)
+      if (this.destroyRequested || generation !== this.generation) return
       this.terrainProvider = provider
+      this.dataSources.mark(definition.id, 'healthy')
       if (this.terrainEnabled && this.viewer && !this.viewer.isDestroyed()) {
         this.viewer.terrainProvider = provider
-        this.callbacks.onStatus?.('真实地形已加载', 'Cesium World Terrain')
+        this.callbacks.onStatus?.('真实地形已加载', definition.name)
       }
-    } catch {
-      this.callbacks.onWarning?.('真实地形加载失败，使用椭球地形')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      recordDiagnostic('resource', 'terrain-failed', 'error', { source: definition.id, message })
+      this.dataSources.mark(definition.id, 'failed', message)
+      const fallback = this.dataSources.fallbackOf(definition.id)
+      this.callbacks.onWarning?.(`真实地形加载失败，使用 ${fallback?.name ?? '椭球地形'}`)
       this.terrainProvider = undefined
     }
   }
 
-  private async loadTileset(): Promise<void> {
-    if (!this.viewer) return
+  private async loadTileset(generation: number): Promise<void> {
+    if (!this.viewer || !this.template.tileset) return
     try {
-      const url = new URL('dayanta/tileset.json', document.baseURI).toString()
+      const url = new URL(this.template.tileset.uri, document.baseURI).toString()
       const tileset = await Cesium3DTileset.fromUrl(url, {
-        maximumScreenSpaceError: 8,
+        maximumScreenSpaceError: this.template.tileset.maximumScreenSpaceError,
         skipLevelOfDetail: true,
         preferLeaves: true
       })
-      if (this.destroyRequested || !this.viewer || this.viewer.isDestroyed()) {
+      if (this.destroyRequested || generation !== this.generation || !this.viewer || this.viewer.isDestroyed()) {
         tileset.destroy()
         return
       }
@@ -334,9 +597,15 @@ export class PresentationScene {
       this.tileset = tileset
       this.prepareClipping(tileset)
       if (this.lastRuntime) this.applyRuntime(this.lastRuntime)
-      this.callbacks.onStatus?.('大雁塔模型已加载', '3D Tiles · 本地资源')
+      this.callbacks.onStatus?.(`${this.template.tileset.name} 已加载`, '3D Tiles · 本地资源')
+      this.readiness.visualReady = true
+      this.updateReadiness()
     } catch (error) {
-      this.callbacks.onWarning?.(`3D Tiles 加载失败：${error instanceof Error ? error.message : String(error)}`)
+      const message = error instanceof Error ? error.message : String(error)
+      recordDiagnostic('resource', 'tileset-failed', 'error', { source: this.template.tileset.id, message })
+      this.markMissing(this.template.tileset.id, `3D Tiles 加载失败：${message}`)
+      this.readiness.visualReady = true
+      this.updateReadiness()
     }
   }
 
@@ -366,7 +635,7 @@ export class PresentationScene {
     this.labelCollection = new LabelCollection()
     this.viewer.scene.primitives.add(this.pointCollection)
     this.viewer.scene.primitives.add(this.labelCollection)
-    for (const item of LANDMARKS) {
+    for (const item of this.template.landmarks) {
       const color = Color.fromCssColorString(item.color)
       const position = Cartesian3.fromDegrees(item.longitude, item.latitude, item.height + 4)
       const point = this.pointCollection.add({
@@ -401,7 +670,7 @@ export class PresentationScene {
 
   private addBeaconLayer(): void {
     if (!this.viewer) return
-    for (const item of LANDMARKS) {
+    for (const item of this.template.landmarks) {
       const color = Color.fromCssColorString(item.color)
       const pillarMaterial = new ColorMaterialProperty(color.withAlpha(0.16))
       const ringMaterial = new ColorMaterialProperty(color.withAlpha(0.2))
@@ -518,21 +787,46 @@ export class PresentationScene {
 
   setPose(pose: CameraPose, force = false): void {
     if (!this.viewer || this.viewer.isDestroyed()) return
-    if (!force && this.lastPose && this.poseClose(this.lastPose, pose)) return
+    const safeHeight = this.safeCameraHeight(pose.longitude, pose.latitude, pose.height)
+    const effective: CameraPose = { ...pose, height: safeHeight }
+    if (!force && this.lastPose && this.poseClose(this.lastPose, effective)) return
     const camera = this.viewer.camera
     camera.setView({
-      destination: Cartesian3.fromDegrees(pose.longitude, pose.latitude, pose.height),
+      destination: Cartesian3.fromDegrees(effective.longitude, effective.latitude, effective.height),
       orientation: {
-        heading: (pose.heading * Math.PI) / 180,
-        pitch: (pose.pitch * Math.PI) / 180,
-        roll: (pose.roll * Math.PI) / 180
+        heading: (effective.heading * Math.PI) / 180,
+        pitch: (effective.pitch * Math.PI) / 180,
+        roll: (effective.roll * Math.PI) / 180
       }
     })
     const frustum = camera.frustum
     if (frustum instanceof PerspectiveFrustum) {
-      frustum.fov = (clamp(pose.fov, 15, 110) * Math.PI) / 180
+      frustum.fov = (clamp(effective.fov, 15, 110) * Math.PI) / 180
     }
-    this.lastPose = { ...pose }
+    this.lastPose = effective
+  }
+
+  private safeCameraHeight(longitude: number, latitude: number, height: number): number {
+    const ceiling = Math.min(MAX_CAMERA_HEIGHT, Math.max(-500, height))
+    const ground = this.groundHeightAt(longitude, latitude)
+    if (ground === null) return ceiling
+    return Math.max(ceiling, ground + MIN_CAMERA_CLEARANCE)
+  }
+
+  private groundHeightAt(longitude: number, latitude: number): number | null {
+    if (!this.viewer || this.viewer.isDestroyed()) return null
+    const key = `${longitude.toFixed(5)}:${latitude.toFixed(5)}`
+    const cached = this.groundHeightCache.get(key)
+    if (cached !== undefined) return cached
+    try {
+      const sampled = this.viewer.scene.globe.getHeight(Cartographic.fromDegrees(longitude, latitude))
+      if (typeof sampled !== 'number' || !Number.isFinite(sampled)) return null
+      if (this.groundHeightCache.size > 512) this.groundHeightCache.clear()
+      this.groundHeightCache.set(key, sampled)
+      return sampled
+    } catch {
+      return null
+    }
   }
 
   private poseClose(left: CameraPose, right: CameraPose): boolean {
@@ -580,6 +874,8 @@ export class PresentationScene {
     if (!this.viewer || this.viewer.isDestroyed()) return
     if (enabled === this.terrainEnabled) return
     this.terrainEnabled = enabled
+    this.groundHeightCache.clear()
+    this.lastPose = null
     this.viewer.terrainProvider = enabled && this.terrainProvider ? this.terrainProvider : this.ellipsoidTerrain
   }
 
@@ -814,7 +1110,29 @@ export class PresentationScene {
 
   destroy(): void {
     this.destroyRequested = true
+    this.generation += 1
+    this.assetTasks.clear()
     this.lastRuntime = null
+    const exposed = (window as unknown as Record<string, unknown>).__psViewer
+    if (exposed && this.viewer && exposed === this.viewer) {
+      delete (window as unknown as Record<string, unknown>).__psViewer
+    }
+    for (const tileset of this.extraTilesets.values()) {
+      if (!tileset.isDestroyed()) {
+        if (this.viewer && !this.viewer.isDestroyed()) this.viewer.scene.primitives.remove(tileset)
+        else tileset.destroy()
+      }
+    }
+    this.extraTilesets.clear()
+    this.readiness = {
+      viewerReady: false,
+      metadataReady: false,
+      visualReady: false,
+      exportReady: false,
+      pendingAssets: 0,
+      missingAssets: [],
+      warnings: []
+    }
     if (this.viewer && !this.viewer.isDestroyed()) {
       this.viewer.scene.globe.material = undefined
     }

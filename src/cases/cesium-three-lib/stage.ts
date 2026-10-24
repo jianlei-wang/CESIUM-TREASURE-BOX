@@ -3,6 +3,9 @@ import { Cartesian3, Matrix4, Transforms, type Viewer } from 'cesium'
 import type { CameraSpec, GeoAnchor } from './types'
 import { PerformanceMonitor } from './core/PerformanceMonitor'
 import { ResourceTracker } from './core/ResourceTracker'
+import { QualityGovernor, type QualityPreset } from './core/QualityGovernor'
+import { GpuTimer } from './core/GpuTimer'
+import { OcclusionProxySet, type OcclusionProxy } from './core/OcclusionProxy'
 
 export type FrameHandler = (dt: number) => void
 
@@ -27,11 +30,11 @@ export class GeoThreeStage {
   private readonly anchor: GeoAnchor
   private lastTime = performance.now()
   private disposed = false
-  private frameAverage = 1 / 60
-  private qualityTimer = 0
-  private qualityScale = 0.7
+  private readonly quality = new QualityGovernor('auto')
   private readonly monitor = new PerformanceMonitor()
   private readonly resources = new ResourceTracker()
+  private readonly occlusion = new OcclusionProxySet()
+  private readonly gpuTimer: GpuTimer
   private orbit = false
 
   constructor(viewer: Viewer, container: HTMLElement, anchor: GeoAnchor) {
@@ -39,7 +42,7 @@ export class GeoThreeStage {
     this.container = container
     this.anchor = anchor
 
-    viewer.resolutionScale = this.qualityScale
+    viewer.resolutionScale = this.quality.scale
     viewer.scene.postProcessStages.fxaa.enabled = false
     viewer.scene.globe.maximumScreenSpaceError = 4
     viewer.scene.globe.showGroundAtmosphere = false
@@ -52,6 +55,7 @@ export class GeoThreeStage {
     this.renderer.setClearColor(0x000000, 0)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.autoClear = true
+    this.gpuTimer = new GpuTimer(this.renderer.getContext())
     const canvas = this.renderer.domElement
     Object.assign(canvas.style, {
       position: 'absolute',
@@ -79,7 +83,6 @@ export class GeoThreeStage {
     this.scene.add(rimLight)
 
     this.monitor.start()
-    this.resources.trackObject(this.scene)
     this.setAnchor(anchor)
     this.resize()
     this.observer = new ResizeObserver(() => this.resize())
@@ -127,6 +130,25 @@ export class GeoThreeStage {
     this.orbit = enabled
   }
 
+  setQualityPreset(preset: QualityPreset): void {
+    const scale = this.quality.setPreset(preset)
+    this.applyQualityScale(scale)
+    this.monitor.setQuality(scale)
+  }
+
+  getQualityPreset(): QualityPreset {
+    return this.quality.qualityPreset
+  }
+
+  setOcclusionProxies(proxies: OcclusionProxy[]): void {
+    this.occlusion.clear()
+    for (const proxy of proxies) this.occlusion.add(proxy)
+  }
+
+  testOcclusion(origin: [number, number, number], target: [number, number, number]): boolean {
+    return this.occlusion.occluded(origin, target)
+  }
+
   setVisible(visible: boolean): void {
     this.renderer.domElement.style.display = visible ? 'block' : 'none'
   }
@@ -145,7 +167,8 @@ export class GeoThreeStage {
     this.lastTime = now
     const elapsed = Math.min(0.5, raw)
     if (elapsed > 0) this.onFrame?.(elapsed)
-    this.adaptQuality(raw)
+    this.applyQualityScale(this.quality.sample(raw))
+    this.monitor.gpuFrame(this.gpuTimer.poll())
     this.monitor.frame(raw * 1000, {
       calls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
@@ -153,7 +176,7 @@ export class GeoThreeStage {
       textures: this.renderer.info.memory.textures,
       programs: this.renderer.info.programs?.length ?? 0
     })
-    this.monitor.setQuality(this.qualityScale)
+    this.monitor.setQuality(this.quality.scale)
     if (this.orbit) {
       const cartographic = this.viewer.camera.positionCartographic
       this.viewer.camera.setView({
@@ -173,22 +196,13 @@ export class GeoThreeStage {
     this.camera.projectionMatrix.fromArray(this.matrixArray)
     this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert()
 
+    this.gpuTimer.begin()
     this.renderer.render(this.scene, this.camera)
+    this.gpuTimer.end()
   }
 
-  private adaptQuality(realDt: number): void {
-    if (realDt <= 0 || realDt > 2) return
-    this.frameAverage = this.frameAverage * 0.9 + realDt * 0.1
-    this.qualityTimer += realDt
-    if (this.qualityTimer < 0.9) return
-    this.qualityTimer = 0
-    let scale = this.qualityScale
-    if (this.frameAverage > 1 / 15) scale -= 0.15
-    else if (this.frameAverage > 1 / 30) scale -= 0.1
-    else if (this.frameAverage < 1 / 58 && scale < 1) scale += 0.05
-    scale = Math.min(1, Math.max(0.45, scale))
-    if (Math.abs(scale - this.qualityScale) < 0.001) return
-    this.qualityScale = scale
+  private applyQualityScale(scale: number): void {
+    if (Math.abs(scale - this.viewer.resolutionScale) < 0.001) return
     this.viewer.resolutionScale = scale
     const pixelRatio = Math.min(1.5, window.devicePixelRatio || 1) * (scale < 0.7 ? 0.9 : 1)
     this.renderer.setPixelRatio(pixelRatio)
@@ -199,6 +213,8 @@ export class GeoThreeStage {
   }
 
   getPerformance() {
+    this.resources.trackObjectOnce(this.root)
+    this.monitor.setResources(this.resources.report())
     return this.monitor.snapshot()
   }
 
@@ -220,9 +236,10 @@ export class GeoThreeStage {
     this.onFrame = null
     this.observer.disconnect()
     this.removePostRender()
+    this.gpuTimer.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
-    this.resources.trackObject(this.scene)
+    this.resources.trackObjectOnce(this.root)
     this.resources.disposeAll()
     this.scene.clear()
     this.monitor.dispose()

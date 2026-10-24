@@ -1,0 +1,53 @@
+name: Output E2E
+
+on:
+  push:
+    branches: [main, master, jianlei_wang]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: output-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run quality
+
+  output:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm run test:output
+        env:
+          E2E_BROWSERS: ${{ matrix.browser }}
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: output-e2e-${{ matrix.browser }}-results
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7

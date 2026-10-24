@@ -178,5 +178,10 @@ terrain_clip_144.html
 *.lzma
 *.iso
 
+# Playwright output
+test-results/
+playwright-report/
+blob-report/
+
 # Generated physics runtime
 public/vendor/

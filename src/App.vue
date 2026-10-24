@@ -92,6 +92,7 @@ const settingsOpen = ref(false)
 const aboutOpen = ref(false)
 const perfDocOpen = ref(false)
 const skillsOpen = ref(false)
+const playerMode = ref(new URLSearchParams(window.location.search).get('player') === '1')
 const fullCaseDemo = shallowRef<CaseMeta | null>(null)
 const fullCaseComponent = shallowRef<import('vue').Component | null>(null)
 const caseReady = ref(false)
@@ -291,6 +292,10 @@ function stopPerformanceObservers() {
 onMounted(() => {
   bindCesiumPrefetch()
   fetchGithubStats()
+  if (playerMode.value) {
+    const demo = demos.find((item) => item.id === 'presentation-editor')
+    if (demo) void openCase(demo)
+  }
 })
 
 watch(fullCaseDemo, (demo) => {
@@ -314,8 +319,8 @@ onUnmounted(() => {
     <PerfChecklistDoc v-if="perfDocOpen" @close="perfDocOpen = false" />
     <SkillsPanel v-if="skillsOpen" @close="skillsOpen = false" />
 
-    <section v-if="fullCaseDemo" class="case-page" :class="{ 'is-system': fullCaseDemo.category === 'system' }">
-      <header class="topbar case-topbar">
+    <section v-if="fullCaseDemo" class="case-page" :class="{ 'is-system': fullCaseDemo.category === 'system', 'is-player-mode': playerMode }">
+      <header v-if="!playerMode" class="topbar case-topbar">
         <div class="brand-area">
            <div class="brand-mark"><img :src="systemLogo" alt="Cesium酱の百宝箱 Logo" /></div>
           <div>
@@ -339,7 +344,7 @@ onUnmounted(() => {
         </button>
       </header>
       <main class="case-content">
-        <div class="case-heading">
+        <div v-if="!playerMode" class="case-heading">
           <div>
             <p class="eyebrow">FULL CASE / {{ fullCaseDemo.tag }}</p>
             <h1>{{ fullCaseDemo.title }}</h1>
@@ -350,7 +355,7 @@ onUnmounted(() => {
         <div class="case-stage">
           <component :is="fullCaseComponent" v-if="fullCaseComponent" @vue:mounted="caseReady = true" />
           <div v-else class="case-coming-soon">该案例正在开发中</div>
-          <div v-if="!caseReady" class="case-loading">
+          <div v-if="!caseReady && !playerMode" class="case-loading">
             <span class="case-loading-spinner"></span>
             <p>案例加载中，请稍候…</p>
           </div>
@@ -358,7 +363,7 @@ onUnmounted(() => {
       </main>
     </section>
 
-  <div v-else class="app-shell">
+  <div v-else-if="!playerMode" class="app-shell">
     <header class="topbar">
       <div class="brand-area">
         <button class="mobile-menu-button" aria-label="打开导航" @click="mobileMenuOpen = true">
@@ -473,6 +478,11 @@ onUnmounted(() => {
     </div>
 
   </div>
+
+    <div v-if="playerMode && !fullCaseDemo" class="player-boot">
+      <span class="case-loading-spinner"></span>
+      <p>正在加载只读播放器…</p>
+    </div>
 
     <Teleport to="body">
       <div v-if="helpOpen" class="modal-mask" @click.self="helpOpen = false">

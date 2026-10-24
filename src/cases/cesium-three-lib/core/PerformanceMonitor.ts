@@ -17,6 +17,10 @@ export interface PerformanceSnapshot {
   geometries: number
   textures: number
   qualityScale: number
+  gpuMs: number
+  resourceGeometries: number
+  resourceMaterials: number
+  resourceTextures: number
   backlogMs: number
   droppedSeconds: number
   heapMb: number
@@ -31,6 +35,10 @@ export class PerformanceMonitor {
   private lastFrame = 0
   private observer: PerformanceObserver | null = null
   private qualityScale = 1
+  private gpuMs = 0
+  private resourceGeometries = 0
+  private resourceMaterials = 0
+  private resourceTextures = 0
   private backlogMs = 0
   private droppedSeconds = 0
   private renderer: RendererStats = {}
@@ -67,6 +75,16 @@ export class PerformanceMonitor {
     this.qualityScale = scale
   }
 
+  gpuFrame(ms: number): void {
+    if (Number.isFinite(ms) && ms >= 0) this.gpuMs = ms
+  }
+
+  setResources(counts: { geometries: number; materials: number; textures: number }): void {
+    this.resourceGeometries = counts.geometries
+    this.resourceMaterials = counts.materials
+    this.resourceTextures = counts.textures
+  }
+
   setBacklog(milliseconds: number, droppedSeconds: number): void {
     this.backlogMs = milliseconds
     this.droppedSeconds = droppedSeconds
@@ -92,6 +110,10 @@ export class PerformanceMonitor {
       geometries: this.renderer.geometries ?? 0,
       textures: this.renderer.textures ?? 0,
       qualityScale: this.qualityScale,
+      gpuMs: this.gpuMs,
+      resourceGeometries: this.resourceGeometries,
+      resourceMaterials: this.resourceMaterials,
+      resourceTextures: this.resourceTextures,
       backlogMs: this.backlogMs,
       droppedSeconds: this.droppedSeconds,
       heapMb: memory ? memory.usedJSHeapSize / 1048576 : 0

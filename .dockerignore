@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+dist
+.monkeycode
+.monkeycode-tmp-files
+*.log
+.DS_Store
+**/node_modules
+**/.env

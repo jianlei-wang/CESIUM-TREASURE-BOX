@@ -20,17 +20,57 @@ import {
   createId,
   nowIso
 } from './core/defaults'
-import { buildTimeline, clamp, evaluateTimeline, globalTimeForStep, previewTimeForSelection } from './core/timeline'
+import {
+  buildTimeline,
+  clamp,
+  evaluateFrame,
+  evaluateTimeline,
+  globalTimeForStep,
+  previewTimeForSelection,
+  TIMELINE_FPS
+} from './core/timeline'
+import {
+  buildTrackLanes,
+  snapFrame,
+  trackFrameRange,
+  trackSnapPoints,
+  trimmedFrames,
+  type TrackClip
+} from './core/tracks'
+import { CURVE_PRESETS, curveForAction, curvePath, type CurvePreset } from './core/easing'
 import { drawExportOverlay } from './core/export-overlay'
-import { createBlankInitial, deepClone, formatClock, formatDate, hasPlayableActions, parseProjectFile, serializeProject } from './core/normalize'
+import { createBlankInitial, deepClone, formatClock, formatDate, hasPlayableActions } from './core/normalize'
+import { recordDiagnostic } from './core/diagnostics'
+import { hasStudioPlugins, runBeforeExportHooks, runProjectOpenHooks, runProjectSaveHooks } from './core/sdk'
+import { parseProjectDocument, runtimeToDocument, serializeDocument } from './core/schema'
 import { finalizeRoute } from './core/recorder'
-import { PresentationScene } from './core/scene'
-import { downloadBlob, downloadText, readStore, writeStore, type StudioStore } from './core/storage'
-import { CompositeExporter, detectRecorderFormat, resolutionOf } from './core/video'
+import { PresentationScene, type CustomLayerState } from './core/scene'
+import {
+  downloadBlob,
+  downloadText,
+  readStore,
+  readStoreSafe,
+  storageDiagnostics,
+  writeStoreSafe,
+  type SaveResult,
+  type StudioStore
+} from './core/storage'
+import { detectRecorderFormat } from './core/video'
+import { profileFor } from './core/export-profile'
+import { exportFrameSequence, exportRealtime, type ExportProgress } from './core/export-pipeline'
+import {
+  packStudioPackage,
+  packPlayerPackage,
+  unpackStudioPackage,
+  packageFileName,
+  type PackageAsset
+} from './core/project-package'
 import type {
   ActionType,
   CameraPose,
+  CustomLayer,
   DialogState,
+  EasingCurve,
   ExportSettings,
   ExportState,
   PlaybackMode,
@@ -44,9 +84,22 @@ import type {
   ToastItem
 } from './core/types'
 
-const STAGE_HELP = '空格 播放/暂停 · ←/→ 单帧 · Home 回到开头 · H 隐藏界面 · F 全屏 · Ctrl+S 保存'
+const STAGE_HELP = '空格 播放/暂停 · ←/→ 单帧 · L 循环 · Home 回到开头 · H 隐藏界面 · F 全屏 · Ctrl+S 保存'
 
-function loadInitialStore(): { store: StudioStore; signature: string; snapshot: PresentationProject; restored: boolean } {
+const playerParams = new URLSearchParams(window.location.search)
+const isPlayerMode = ref(playerParams.get('player') === '1')
+const playerProjectUrl = playerParams.get('project') ?? ''
+const playerAssetBase = playerParams.get('assetBase') ?? ''
+const playerLoadError = ref('')
+const playerObjectUrls: string[] = []
+
+function loadInitialStore(): {
+  store: StudioStore
+  signature: string
+  snapshot: PresentationProject
+  restored: boolean
+  fromStorage: boolean
+} {
   const saved = readStore()
   if (saved) {
     const index = saved.projects.findIndex((item) => item.id === saved.currentId)
@@ -58,14 +111,15 @@ function loadInitialStore(): { store: StudioStore; signature: string; snapshot: 
       saved.projects[index] = deepClone(saved.draft.project)
       restored = true
     }
-    return { store: saved, signature, snapshot, restored }
+    return { store: saved, signature, snapshot, restored, fromStorage: true }
   }
   const sample = createSampleProject()
   return {
     store: { version: 1, currentId: sample.id, projects: [sample], draft: null },
     signature: JSON.stringify(sample),
     snapshot: deepClone(sample),
-    restored: false
+    restored: false,
+    fromStorage: false
   }
 }
 
@@ -73,10 +127,23 @@ const bootState = loadInitialStore()
 const store = ref<StudioStore>(bootState.store)
 const savedSignature = ref(bootState.signature)
 const savedSnapshot = ref<PresentationProject | null>(bootState.snapshot)
+type SaveStatus = 'clean' | 'dirty' | 'saving' | 'saved' | 'failed'
+const saveStatus = ref<SaveStatus>(bootState.restored ? 'dirty' : 'clean')
+const saveError = ref('')
+const storageNotice = ref('')
+const HISTORY_LIMIT = 40
+const undoStack = ref<string[]>([])
+const redoStack = ref<string[]>([])
+const canUndo = computed(() => undoStack.value.length > 0)
+const canRedo = computed(() => redoStack.value.length > 0)
+let historyBaseline = ''
+let historyTimer: number | undefined
+let historyApplying = false
 
 const project = computed<PresentationProject>(() => {
   return store.value.projects.find((item) => item.id === store.value.currentId) ?? store.value.projects[0]!
 })
+historyBaseline = JSON.stringify(project.value)
 const timeline = computed(() => buildTimeline(project.value))
 const total = computed(() => timeline.value.total)
 const runtime = shallowRef<RuntimeState>(evaluateTimeline(timeline.value, 0, project.value.initial))
@@ -100,17 +167,63 @@ const timeAction = computed(() => (selectedAction.value?.actionType === 'timeAni
 const subtitleAction = computed(() => (selectedAction.value?.actionType === 'subtitle' ? selectedAction.value : null))
 const popupAction = computed(() => (selectedAction.value?.actionType === 'popup' ? selectedAction.value : null))
 const effectAction = computed(() => (selectedAction.value?.actionType === 'sceneEffect' ? selectedAction.value : null))
+const easingAction = computed(() => {
+  const action = selectedAction.value
+  if (!action) return null
+  return action.actionType === 'flyTo' || action.actionType === 'recordRoute' || action.actionType === 'timeAnimation'
+    ? action
+    : null
+})
+const activeCurve = computed<EasingCurve | null>(() => (easingAction.value ? curveForAction(easingAction.value) : null))
+const activeCurvePath = computed(() => (activeCurve.value ? curvePath(activeCurve.value) : ''))
+const activeCurveCustom = computed(() => Boolean(easingAction.value?.curve))
+
+function setCurvePoint(key: keyof EasingCurve, event: Event): void {
+  if (!easingAction.value || !activeCurve.value) return
+  const input = event.target as HTMLInputElement
+  const value = Number(input.value)
+  const next = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : activeCurve.value[key]
+  easingAction.value.curve = { ...activeCurve.value, [key]: next }
+}
+
+function applyCurvePreset(preset: CurvePreset): void {
+  if (!easingAction.value) return
+  easingAction.value.curve = { ...preset.curve }
+}
+
+function resetCurve(): void {
+  if (!easingAction.value) return
+  easingAction.value.curve = undefined
+}
+
+function setActionStart(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const raw = input.value.trim()
+  if (!selectedAction.value) return
+  if (!raw) {
+    selectedAction.value.start = undefined
+    return
+  }
+  const value = Number(raw)
+  selectedAction.value.start = Number.isFinite(value) && value > 0 ? Math.min(600, value) : undefined
+}
 
 const stageRef = ref<HTMLElement | null>(null)
 const viewportRef = ref<HTMLElement | null>(null)
 let scene: PresentationScene | null = null
 
-const sceneStatus = reactive<SceneStatus>({ ready: false, failed: false, message: '准备三维场景', detail: '正在创建 Cesium 视图' })
+const sceneStatus = reactive<SceneStatus>({
+  ready: false,
+  failed: false,
+  message: '准备三维场景',
+  detail: '正在创建 Cesium 视图'
+})
 const loading = computed(() => !sceneStatus.ready && !sceneStatus.failed)
 
 const mode = ref<PlaybackMode>('idle')
 const currentTime = ref(0)
 const playbackRate = ref(1)
+const loopPlayback = ref(false)
 const uiHidden = ref(false)
 const isFullscreen = ref(false)
 const isCompact = ref(false)
@@ -118,6 +231,13 @@ const railLeftOpen = ref(true)
 const railRightOpen = ref(true)
 
 const isDirty = computed(() => JSON.stringify(project.value) !== savedSignature.value)
+const saveLabel = computed(() => {
+  if (saveStatus.value === 'saving') return '保存中'
+  if (saveStatus.value === 'failed') return '保存失败'
+  return isDirty.value ? '未保存' : '已保存'
+})
+const exportProfile = computed(() => profileFor({ ...exportSettings }))
+const exportIsFrames = computed(() => (exportSettings.format ?? 'video') === 'frames')
 
 const activeStepName = computed(() => runtime.value.step?.stepName ?? selectedStep.value?.stepName ?? '尚未选择步骤')
 
@@ -131,8 +251,160 @@ const stepMarkers = computed(() => {
   }))
 })
 
+const railTab = ref<'steps' | 'tracks'>('steps')
+const trackLanes = computed(() => buildTrackLanes(timeline.value, TIMELINE_FPS))
+const trackFrames = computed(() => Math.max(1, trackFrameRange(trackLanes.value)))
+const playheadPercent = computed(() => clamp((currentTime.value * TIMELINE_FPS) / trackFrames.value, 0, 1) * 100)
+
+function selectTrackClip(clip: TrackClip): void {
+  selectedStepId.value = clip.stepId
+  selectedActionId.value = clip.actionId
+  previewAt(clip.startFrame / TIMELINE_FPS)
+}
+
+const draggingClipId = ref('')
+
+function onTrackClipDragStart(clip: TrackClip, event: DragEvent): void {
+  if (clip.locked) {
+    event.preventDefault()
+    toast('该片段已锁定，请先解锁', 'warn')
+    return
+  }
+  draggingClipId.value = clip.id
+  event.dataTransfer?.setData('text/plain', clip.id)
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+
+function onTrackClipDrop(target: TrackClip): void {
+  const source = trackLanes.value.flatMap((lane) => lane.clips).find((clip) => clip.id === draggingClipId.value)
+  draggingClipId.value = ''
+  if (!source || source.id === target.id) return
+  if (target.locked) {
+    toast('目标片段已锁定，无法插入', 'warn')
+    return
+  }
+  const sourceStep = project.value.steps.find((step) => step.stepId === source.stepId)
+  const targetStep = project.value.steps.find((step) => step.stepId === target.stepId)
+  if (!sourceStep || !targetStep) return
+  const sourceIndex = sourceStep.actions.findIndex((action) => action.actionId === source.actionId)
+  if (sourceIndex < 0) return
+  const [action] = sourceStep.actions.splice(sourceIndex, 1)
+  if (!action) return
+  action.start = undefined
+  const insertAt = targetStep.actions.findIndex((item) => item.actionId === target.actionId)
+  targetStep.actions.splice(insertAt < 0 ? targetStep.actions.length : insertAt, 0, action)
+  selectedStepId.value = targetStep.stepId
+  selectedActionId.value = action.actionId
+  previewAt(target.startFrame / TIMELINE_FPS)
+  toast('动作已移动到目标轨道位置')
+}
+
+interface TrimState {
+  clip: TrackClip
+  startX: number
+  laneWidth: number
+  frames: number
+  startDurationFrames: number
+  snapPoints: number[]
+}
+
+let trimState: TrimState | null = null
+
+function trimSpeedOf(clip: TrackClip): number {
+  const step = project.value.steps.find((item) => item.stepId === clip.stepId)
+  const action = step?.actions.find((item) => item.actionId === clip.actionId)
+  const cameraAction = action?.actionType === 'flyTo' || action?.actionType === 'recordRoute'
+  return cameraAction ? clamp(step?.speedRate ?? 1, 0.25, 4) : 1
+}
+
+function onTrimStart(clip: TrackClip, event: PointerEvent): void {
+  if (event.button !== 0) return
+  if (clip.locked) {
+    toast('该片段已锁定，请先解锁', 'warn')
+    return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  const lane = (event.currentTarget as HTMLElement | null)?.closest('.ps-track__lane') as HTMLElement | null
+  if (!lane) return
+  const rect = lane.getBoundingClientRect()
+  if (!rect.width) return
+  trimState = {
+    clip,
+    startX: event.clientX,
+    laneWidth: rect.width,
+    frames: trackFrames.value,
+    startDurationFrames: clip.durationFrames,
+    snapPoints: trackSnapPoints(trackLanes.value, clip.id)
+  }
+  window.addEventListener('pointermove', onTrimMove)
+  window.addEventListener('pointerup', onTrimEnd, { once: true })
+}
+
+function onTrimMove(event: PointerEvent): void {
+  if (!trimState) return
+  const { clip, startX, laneWidth, frames, startDurationFrames, snapPoints } = trimState
+  const deltaFrames = Math.round(((event.clientX - startX) / laneWidth) * frames)
+  const rawEnd = clip.startFrame + startDurationFrames + deltaFrames
+  const snappedEnd = snapFrame(rawEnd, snapPoints)
+  const durationFrames = trimmedFrames(clip.startFrame, Math.max(clip.startFrame + 1, snappedEnd), frames)
+  const step = project.value.steps.find((item) => item.stepId === clip.stepId)
+  const action = step?.actions.find((item) => item.actionId === clip.actionId)
+  if (!action) return
+  action.duration = clamp((durationFrames / TIMELINE_FPS) * trimSpeedOf(clip), 0.2, 600)
+  previewAt((clip.startFrame + durationFrames) / TIMELINE_FPS)
+}
+
+function onTrimEnd(): void {
+  if (!trimState) return
+  window.removeEventListener('pointermove', onTrimMove)
+  trimState = null
+  toast('片段时长已调整，后续动作自动顺延')
+}
+
+function onLaneDrop(lane: { id: string; clips: TrackClip[] }, event: DragEvent): void {
+  const source = trackLanes.value.flatMap((item) => item.clips).find((clip) => clip.id === draggingClipId.value)
+  draggingClipId.value = ''
+  if (!source || source.kind !== lane.id || source.locked) return
+  const stepTiming = timeline.value.steps.find((item) => item.step.stepId === source.stepId)
+  const step = project.value.steps.find((item) => item.stepId === source.stepId)
+  const action = step?.actions.find((item) => item.actionId === source.actionId)
+  if (!stepTiming || !action) return
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) return
+  const rect = target.getBoundingClientRect()
+  if (!rect.width) return
+  const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1)
+  const stepStartFrame = Math.round(stepTiming.start * TIMELINE_FPS)
+  const localRaw = Math.round(ratio * trackFrames.value - stepStartFrame)
+  const localPoints = trackSnapPoints(trackLanes.value, source.id)
+    .map((point) => point - stepStartFrame)
+    .filter((point) => point >= 0)
+  const localFrame = Math.max(0, snapFrame(localRaw, localPoints))
+  action.start = localFrame > 0 ? Math.min(600, localFrame / TIMELINE_FPS) : undefined
+  selectedStepId.value = source.stepId
+  selectedActionId.value = source.actionId
+  previewAt(Math.max(0, (stepStartFrame + localFrame) / TIMELINE_FPS))
+  toast(localFrame > 0 ? '片段起点已调整并吸附' : '片段已恢复为自动衔接')
+}
+
+function seekTrack(event: MouseEvent): void {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) return
+  const rect = target.getBoundingClientRect()
+  if (!rect.width) return
+  const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1)
+  seek((ratio * trackFrames.value) / TIMELINE_FPS)
+}
+
 const recorderFormat = detectRecorderFormat()
-const exportSettings = reactive<ExportSettings>({ resolution: '1080p', fps: 30 })
+const exportSettings = reactive<ExportSettings>({
+  resolution: '1080p',
+  fps: 30,
+  mode: 'realtime',
+  format: 'video',
+  fit: 'contain'
+})
 const exportState = reactive<ExportState>({
   active: false,
   progress: 0,
@@ -153,13 +425,11 @@ let restoredNotice = bootState.restored
 
 let rafId = 0
 let lastFrameTs = 0
-let exportRaf = 0
 let recordingTimer: number | undefined
 let draftTimer: number | undefined
 let recordingSamples: { pose: CameraPose; elapsed: number }[] = []
-let exporter: CompositeExporter | null = null
+let exportController: AbortController | null = null
 let exportCancelled = false
-let exportStartedAt = 0
 let suspendDraft = false
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -193,7 +463,8 @@ function ensureSelection(): void {
 }
 
 function applyRuntimeAt(time: number): void {
-  const next = evaluateTimeline(timeline.value, time, project.value.initial)
+  const frame = Math.round(clamp(time, 0, total.value) * TIMELINE_FPS)
+  const next = evaluateFrame(timeline.value, frame, project.value.initial, TIMELINE_FPS)
   runtime.value = next
   if (scene?.isReady) scene.applyRuntime(next)
 }
@@ -236,6 +507,13 @@ function tick(timestamp: number): void {
   currentTime.value = Math.min(total.value, currentTime.value + delta * playbackRate.value)
   applyRuntimeAt(currentTime.value)
   if (currentTime.value >= total.value) {
+    if (loopPlayback.value) {
+      currentTime.value = 0
+      lastFrameTs = timestamp
+      applyRuntimeAt(0)
+      rafId = requestAnimationFrame(tick)
+      return
+    }
     mode.value = 'paused'
     rafId = 0
     lastFrameTs = 0
@@ -291,10 +569,14 @@ function stopPlayback(): void {
   applyRuntimeAt(0)
 }
 
-function stepFrame(delta: number): void {
+function stepFrame(seconds: number): void {
   pausePlayback()
   mode.value = 'preview'
-  const next = clamp(currentTime.value + delta, 0, total.value)
+  const next = clamp(
+    Math.round((currentTime.value + seconds) * TIMELINE_FPS) / TIMELINE_FPS,
+    0,
+    total.value
+  )
   currentTime.value = next
   applyRuntimeAt(next)
 }
@@ -325,11 +607,54 @@ function nextStep(): void {
 }
 
 function scheduleDraft(): void {
-  if (suspendDraft) return
+  if (isPlayerMode.value || suspendDraft) return
   if (draftTimer) window.clearTimeout(draftTimer)
   draftTimer = window.setTimeout(() => {
     persistDraft()
   }, 600)
+}
+
+let persistQueue: Promise<void> = Promise.resolve()
+
+function persistStore(options: { notify?: boolean; label?: string } = {}): Promise<boolean> {
+  if (isPlayerMode.value) return Promise.resolve(true)
+  const task = persistQueue.then(() => applyPersist(options))
+  persistQueue = task.then(
+    () => undefined,
+    () => undefined
+  )
+  return task
+}
+
+async function applyPersist(options: { notify?: boolean; label?: string }): Promise<boolean> {
+  if (isPlayerMode.value) return true
+  if (saveStatus.value !== 'saving') saveStatus.value = 'saving'
+  if (hasStudioPlugins()) runProjectSaveHooks(runtimeToDocument(project.value))
+  const result: SaveResult = await writeStoreSafe(store.value)
+  if (result.ok) {
+    saveError.value = ''
+    saveStatus.value = 'saved'
+    if (result.warning) {
+      storageNotice.value = result.warning
+      if (options.notify) toast(result.warning, 'warn')
+    } else {
+      storageNotice.value = ''
+    }
+    if (options.notify) {
+      recordDiagnostic('orchestration', 'save', 'info', { location: result.location, bytes: result.bytes })
+      toast(
+        `${options.label ?? '已保存'}（${result.location === 'localstorage' ? '本地快照' : 'IndexedDB + 本地快照'}）`,
+        'success'
+      )
+    }
+    return true
+  }
+  recordDiagnostic('orchestration', 'save-failed', 'error', { code: result.code, message: result.message })
+  saveStatus.value = 'failed'
+  saveError.value = result.message
+  toast(`${options.label ?? '保存'}失败：${result.message}`, 'error')
+  if (result.backup) downloadBlob(result.backup, `${safeFileName(project.value.name)}.recovery.json`)
+  return false
 }
 
 function persistDraft(): void {
@@ -338,27 +663,103 @@ function persistDraft(): void {
     project: deepClone(project.value),
     savedAt: nowIso()
   }
-  writeStore(store.value)
+  saveStatus.value = 'dirty'
+  void persistStore()
 }
 
 function commitBaseline(): void {
   savedSignature.value = JSON.stringify(project.value)
   savedSnapshot.value = deepClone(project.value)
   store.value.draft = null
-  writeStore(store.value)
   ensureSelection()
+  saveStatus.value = 'clean'
+  void persistStore()
+}
+
+function resetHistory(): void {
+  if (historyTimer) window.clearTimeout(historyTimer)
+  historyTimer = undefined
+  undoStack.value = []
+  redoStack.value = []
+  historyBaseline = JSON.stringify(project.value)
+}
+
+function commitHistory(): void {
+  if (historyTimer) {
+    window.clearTimeout(historyTimer)
+    historyTimer = undefined
+  }
+  if (historyApplying) return
+  const current = JSON.stringify(project.value)
+  if (current === historyBaseline) return
+  undoStack.value = [...undoStack.value.slice(-(HISTORY_LIMIT - 1)), historyBaseline]
+  redoStack.value = []
+  historyBaseline = current
+}
+
+function scheduleHistory(): void {
+  if (isPlayerMode.value || historyApplying) return
+  if (historyTimer) window.clearTimeout(historyTimer)
+  historyTimer = window.setTimeout(commitHistory, 550)
+}
+
+function applyHistorySnapshot(snapshot: string): void {
+  const parsed = JSON.parse(snapshot) as PresentationProject
+  const index = store.value.projects.findIndex((item) => item.id === parsed.id)
+  if (index < 0) return
+  historyApplying = true
+  store.value.projects.splice(index, 1, parsed)
+  historyBaseline = snapshot
+  store.value.draft = { projectId: parsed.id, project: deepClone(parsed), savedAt: nowIso() }
+  ensureSelection()
+  currentTime.value = clamp(currentTime.value, 0, total.value)
+  applyRuntimeAt(currentTime.value)
+  scheduleDraft()
+  scheduleCustomLayerSync()
+  void nextTick(() => {
+    historyApplying = false
+  })
+}
+
+function undo(): void {
+  commitHistory()
+  const snapshot = undoStack.value[undoStack.value.length - 1]
+  if (!snapshot) {
+    toast('没有可撤销的操作', 'warn')
+    return
+  }
+  undoStack.value = undoStack.value.slice(0, -1)
+  redoStack.value = [...redoStack.value, JSON.stringify(project.value)]
+  applyHistorySnapshot(snapshot)
+  toast('已撤销上一步操作')
+}
+
+function redo(): void {
+  commitHistory()
+  const snapshot = redoStack.value[redoStack.value.length - 1]
+  if (!snapshot) {
+    toast('没有可重做的操作', 'warn')
+    return
+  }
+  redoStack.value = redoStack.value.slice(0, -1)
+  undoStack.value = [...undoStack.value, JSON.stringify(project.value)]
+  applyHistorySnapshot(snapshot)
+  toast('已重做上一步操作')
 }
 
 function saveProject(): void {
+  if (isPlayerMode.value) {
+    toast('只读播放模式无法保存工程', 'warn')
+    return
+  }
   project.value.updateTime = nowIso()
   const index = store.value.projects.findIndex((item) => item.id === project.value.id)
   const stored = deepClone(project.value)
   if (index >= 0) store.value.projects[index] = stored
   store.value.draft = null
-  writeStore(store.value)
   savedSignature.value = JSON.stringify(stored)
   savedSnapshot.value = deepClone(stored)
-  toast('已保存到本地工程库', 'success')
+  void persistStore({ notify: true })
 }
 
 function discardChanges(): void {
@@ -366,6 +767,7 @@ function discardChanges(): void {
   const index = store.value.projects.findIndex((item) => item.id === project.value.id)
   if (index >= 0) store.value.projects[index] = deepClone(savedSnapshot.value)
   initializeSelection()
+  resetHistory()
   currentTime.value = 0
   applyRuntimeAt(0)
   toast('已恢复到上次保存的状态')
@@ -418,6 +820,7 @@ function confirmDialog(): void {
     store.value.currentId = created.id
     initializeSelection()
     commitBaseline()
+    resetHistory()
     currentTime.value = 0
     applyRuntimeAt(0)
     dialog.kind = null
@@ -440,6 +843,7 @@ function confirmDialog(): void {
     store.value.currentId = clone.id
     initializeSelection()
     commitBaseline()
+    resetHistory()
     currentTime.value = 0
     applyRuntimeAt(0)
     dialog.kind = null
@@ -470,6 +874,7 @@ function confirmDialog(): void {
       store.value.currentId = store.value.projects[0]!.id
       initializeSelection()
       commitBaseline()
+      resetHistory()
       currentTime.value = 0
       applyRuntimeAt(0)
     }
@@ -492,6 +897,7 @@ function switchProject(id: string): void {
     const saved = store.value.projects.find((item) => item.id === id)
     savedSignature.value = JSON.stringify(saved ?? project.value)
     savedSnapshot.value = saved ? deepClone(saved) : null
+    resetHistory()
     currentTime.value = 0
     mode.value = 'idle'
     applyRuntimeAt(0)
@@ -531,9 +937,180 @@ function safeFileName(name: string): string {
 }
 
 function exportProjectFile(): void {
-  const filename = `${safeFileName(project.value.name)}.cesium.presentation`
-  downloadText(serializeProject(project.value), filename)
-  toast('工程文件已导出', 'success')
+  const document = runtimeToDocument(project.value)
+  downloadText(serializeDocument(document), `${safeFileName(project.value.name)}.studio.json`)
+  toast(`已导出 v${document.schemaVersion} 工程文档`, 'success')
+}
+
+async function collectLayerAssets(): Promise<{ assets: PackageAsset[]; warnings: string[] }> {
+  const assets: PackageAsset[] = []
+  const warnings: string[] = []
+  for (const layer of project.value.customLayers) {
+    const uri = layer.uri?.trim()
+    if (!uri || uri.startsWith('studio://')) continue
+    try {
+      const response = await fetch(uri)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const blob = await response.blob()
+      const url = new URL(uri, window.location.href)
+      const rawName = decodeURIComponent(url.pathname.split('/').pop() || `${layer.id}.bin`)
+      assets.push({
+        entry: {
+          id: `asset_${layer.id}`,
+          name: layer.name,
+          kind: layer.kind,
+          uri: `layers/${layer.id}/${safeFileName(rawName)}`,
+          required: true
+        },
+        blob
+      })
+    } catch (error) {
+      warnings.push(`无法打包图层「${layer.name}」：${error instanceof Error ? error.message : '资源不可访问'}`)
+    }
+  }
+  return { assets, warnings }
+}
+
+async function exportProjectPackage(): Promise<void> {
+  recordDiagnostic('orchestration', 'package-export-start', 'info', { format: 'studio' })
+  try {
+    const collected = await collectLayerAssets()
+    const result = await packStudioPackage(project.value, collected.assets)
+    if (collected.warnings.length) toast(collected.warnings.slice(0, 2).join('；'), 'warn')
+    downloadBlob(result.blob, packageFileName(project.value))
+    const size = (result.blob.size / 1024).toFixed(1)
+    recordDiagnostic('orchestration', 'package-export', 'info', {
+      format: 'studio',
+      assets: result.assetCount,
+      bytes: result.blob.size
+    })
+    toast(`工程包已导出：${result.assetCount} 个资源 · ${size} KB`, result.warnings.length ? 'warn' : 'success')
+    if (result.warnings.length) dialog.message = result.warnings.join('；')
+  } catch (error) {
+    recordDiagnostic('orchestration', 'package-export-failed', 'error', {
+      format: 'studio',
+      message: error instanceof Error ? error.message : String(error)
+    })
+    toast(error instanceof Error ? error.message : '工程包导出失败', 'error')
+  }
+}
+
+function playerBaseUrl(): string {
+  const base = new URL(import.meta.env.BASE_URL || './', window.location.href)
+  return base.href.endsWith('/') ? base.href : `${base.href}/`
+}
+
+async function exportPlayerPackage(): Promise<void> {
+  recordDiagnostic('orchestration', 'package-export-start', 'info', { format: 'player' })
+  try {
+    const collected = await collectLayerAssets()
+    const result = await packPlayerPackage(project.value, playerBaseUrl(), collected.assets)
+    if (collected.warnings.length) toast(collected.warnings.slice(0, 2).join('；'), 'warn')
+    downloadBlob(result.blob, `${safeFileName(project.value.name)}.player.zip`)
+    const size = (result.blob.size / 1024).toFixed(1)
+    recordDiagnostic('orchestration', 'package-export', 'info', {
+      format: 'player',
+      assets: result.assetCount,
+      bytes: result.blob.size
+    })
+    toast(`播放器包已导出：${result.assetCount} 个资源 · ${size} KB`, result.warnings.length ? 'warn' : 'success')
+  } catch (error) {
+    recordDiagnostic('orchestration', 'package-export-failed', 'error', {
+      format: 'player',
+      message: error instanceof Error ? error.message : String(error)
+    })
+    toast(error instanceof Error ? error.message : '播放器包导出失败', 'error')
+  }
+}
+
+function revokePlayerObjectUrls(): void {
+  while (playerObjectUrls.length) {
+    const url = playerObjectUrls.pop()
+    if (url) URL.revokeObjectURL(url)
+  }
+}
+
+function isAbsoluteUri(uri: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(uri) || uri.startsWith('//')
+}
+
+function resolvePlayerUris(target: PresentationProject, assets: Record<string, Blob> = {}, base = ''): void {
+  for (const layer of target.customLayers) {
+    const uri = layer.uri?.trim()
+    if (!uri || isAbsoluteUri(uri)) continue
+    const normalized = uri.replace(/^\.\//, '')
+    const blob = assets[normalized] ?? assets[`assets/${normalized}`]
+    if (blob) {
+      const url = URL.createObjectURL(blob)
+      playerObjectUrls.push(url)
+      layer.uri = url
+      continue
+    }
+    if (base) {
+      try {
+        layer.uri = new URL(uri, base).href
+      } catch {
+        /* 保留原始相对路径，由场景层报错 */
+      }
+    }
+  }
+}
+
+function installPlayerProject(target: PresentationProject, assets: Record<string, Blob> = {}, base = ''): void {
+  revokePlayerObjectUrls()
+  resolvePlayerUris(target, assets, base)
+  store.value.projects = [target]
+  store.value.currentId = target.id
+  store.value.draft = null
+  savedSignature.value = JSON.stringify(target)
+  savedSnapshot.value = deepClone(target)
+  saveStatus.value = 'saved'
+  saveError.value = ''
+  initializeSelection()
+  resetHistory()
+  currentTime.value = 0
+  playerLoadError.value = ''
+  applyRuntimeAt(0)
+  runProjectOpenHooks(target)
+  if (scene?.isReady) void syncCustomLayersNow()
+}
+
+async function loadPlayerBlob(blob: Blob, name: string, base = ''): Promise<string[]> {
+  const isZip = /\.zip($|\?)/i.test(name) || blob.type.includes('zip')
+  let imported: PresentationProject
+  let assets: Record<string, Blob> = {}
+  let notes: string[] = []
+  if (isZip) {
+    const unpacked = await unpackStudioPackage(blob)
+    imported = unpacked.parsed.project
+    assets = unpacked.assets
+    notes = [...unpacked.warnings, ...unpacked.checksumFailures.map((item) => `校验失败：${item}`)]
+    if (unpacked.missingAssets.length) notes.push(`缺少必需资源：${unpacked.missingAssets.join('、')}`)
+  } else {
+    const parsed = parseProjectDocument(JSON.parse(await blob.text()))
+    imported = parsed.project
+    if (parsed.source !== 'studio-v2') notes = [`已从 ${parsed.source} 迁移为 v2 工程文档`]
+  }
+  installPlayerProject(imported, assets, base)
+  return notes
+}
+
+async function loadPlayerProject(url: string): Promise<void> {
+  playerLoadError.value = ''
+  try {
+    const response = await fetch(url, { cache: 'no-store' })
+    if (!response.ok) throw new Error(`工程文件加载失败：HTTP ${response.status}`)
+    const notes = await loadPlayerBlob(await response.blob(), url, playerAssetBase)
+    if (notes.length) toast(notes.slice(0, 3).join('；'), 'warn')
+  } catch (error) {
+    playerLoadError.value = error instanceof Error ? error.message : '无法加载工程文件'
+    recordDiagnostic('resource', 'player-load-failed', 'error', { url, message: playerLoadError.value })
+  }
+}
+
+async function retryPlayerLoad(): Promise<void> {
+  if (playerProjectUrl) await loadPlayerProject(playerProjectUrl)
+  if (!sceneStatus.ready && !sceneStatus.failed) await bootScene()
 }
 
 function triggerImport(): void {
@@ -545,20 +1122,50 @@ async function onFilePicked(event: Event): Promise<void> {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
+  if (isPlayerMode.value) {
+    try {
+      const notes = await loadPlayerBlob(file, file.name)
+      toast(`已加载「${project.value.name}」`, 'success')
+      if (notes.length) toast(notes.slice(0, 3).join('；'), 'warn')
+      if (!sceneStatus.ready && !sceneStatus.failed) await bootScene()
+    } catch (error) {
+      playerLoadError.value = error instanceof Error ? error.message : '无法解析工程文件'
+      recordDiagnostic('resource', 'player-file-failed', 'error', { message: playerLoadError.value })
+    }
+    return
+  }
   try {
-    const text = await file.text()
-    const imported = parseProjectFile(text)
+    let imported: PresentationProject
+    let notes: string[] = []
+    if (/\.zip$/i.test(file.name)) {
+      const unpacked = await unpackStudioPackage(file)
+      imported = unpacked.parsed.project
+      notes = [...unpacked.warnings, ...unpacked.checksumFailures.map((name) => `校验失败：${name}`)]
+      if (unpacked.missingAssets.length) notes.push(`缺少必需资源：${unpacked.missingAssets.join('、')}`)
+    } else {
+      const parsed = parseProjectDocument(JSON.parse(await file.text()))
+      imported = parsed.project
+      if (parsed.source !== 'studio-v2') notes = [`已从 ${parsed.source} 迁移为 v2 工程文档`]
+    }
     if (store.value.projects.some((item) => item.id === imported.id)) imported.id = createId('prj')
     imported.updateTime = nowIso()
     store.value.projects.push(imported)
     store.value.currentId = imported.id
+    store.value.draft = null
+    savedSignature.value = JSON.stringify(project.value)
+    savedSnapshot.value = deepClone(project.value)
     initializeSelection()
-    commitBaseline()
+    resetHistory()
     currentTime.value = 0
     applyRuntimeAt(0)
+    runProjectOpenHooks(imported)
+    void persistStore({ label: '导入工程' })
+    recordDiagnostic('orchestration', 'import', 'info', { name: imported.name, warnings: notes.length })
     toast(`已导入「${imported.name}」`, 'success')
+    if (notes.length) toast(notes.slice(0, 3).join('；'), 'warn')
   } catch (error) {
     const message = error instanceof Error ? error.message : '无法解析工程文件'
+    recordDiagnostic('orchestration', 'import-failed', 'error', { message })
     openDialog('importError', '', '')
     dialog.message = message
   }
@@ -635,6 +1242,9 @@ function moveAction(index: number, delta: number): void {
   if (!selectedStep.value) return
   const target = index + delta
   if (target < 0 || target >= selectedStep.value.actions.length) return
+  const source = selectedStep.value.actions[index]
+  const neighbor = selectedStep.value.actions[target]
+  if (source?.locked || neighbor?.locked) return
   const [item] = selectedStep.value.actions.splice(index, 1)
   if (!item) return
   selectedStep.value.actions.splice(target, 0, item)
@@ -647,6 +1257,7 @@ function duplicateAction(index: number): void {
   if (!source) return
   const clone = deepClone(source)
   clone.actionId = createId('act')
+  clone.locked = false
   selectedStep.value.actions.splice(index + 1, 0, clone)
   selectedActionId.value = clone.actionId
   toast('已复制动作', 'success')
@@ -660,9 +1271,123 @@ function deleteAction(index: number): void {
   toast('动作已删除')
 }
 
-function toggleAction(action: PresentationAction): void {
-  action.enable = !action.enable
-  applyRuntimeAt(clamp(currentTime.value, 0, total.value))
+let customLayerTimer: number | undefined
+const customLayerStates = ref<Record<string, CustomLayerState>>({})
+
+function refreshCustomLayerStates(): void {
+  if (!scene?.isReady) {
+    customLayerStates.value = {}
+    return
+  }
+  const next: Record<string, CustomLayerState> = {}
+  for (const state of scene.getCustomLayerStates()) next[state.id] = state
+  customLayerStates.value = next
+}
+
+async function syncCustomLayersNow(): Promise<void> {
+  if (!scene?.isReady) return
+  await scene.syncCustomLayers(deepClone(project.value.customLayers))
+  refreshCustomLayerStates()
+}
+
+function toggleCustomLayerLock(layer: CustomLayer): void {
+  layer.locked = !layer.locked
+  scheduleDraft()
+}
+
+function onCustomLayerOpacityChanged(): void {
+  scheduleDraft()
+  scheduleCustomLayerSync()
+}
+
+function toggleActionLock(action: PresentationAction): void {
+  action.locked = !action.locked
+  scheduleDraft()
+}
+
+function selectExportMode(format: ExportSettings['format'], mode: ExportSettings['mode']): void {
+  exportSettings.format = format
+  exportSettings.mode = mode
+}
+
+function scheduleCustomLayerSync(): void {
+  if (customLayerTimer) window.clearTimeout(customLayerTimer)
+  customLayerTimer = window.setTimeout(() => {
+    void syncCustomLayersNow()
+  }, 350)
+}
+
+async function retryCustomLayer(layer: CustomLayer): Promise<void> {
+  if (!scene?.isReady) {
+    toast('三维场景尚未就绪', 'warn')
+    return
+  }
+  customLayerStates.value = { ...customLayerStates.value, [layer.id]: { id: layer.id, status: 'loading' } }
+  await syncCustomLayersNow()
+  const state = customLayerStates.value[layer.id]
+  if (state?.status === 'ready') toast(`图层「${layer.name}」已加载`, 'success')
+  else toast(state?.message ? `图层加载失败：${state.message}` : '图层加载失败', 'error')
+}
+
+function customLayerStatusLabel(status: CustomLayerState['status'] | undefined): string {
+  if (status === 'loading') return '加载中'
+  if (status === 'ready') return '已加载'
+  if (status === 'error') return '失败'
+  return '待配置'
+}
+
+function customLayerUriIssue(layer: CustomLayer): string {
+  const uri = layer.uri.trim()
+  if (!uri) return ''
+  if (/^[a-z][a-z0-9+.-]*:/i.test(uri) && !/^https?:/i.test(uri)) return '仅支持 http(s) 或工程内相对路径'
+  if (uri.startsWith('/') || /^[a-z]:[\\/]/i.test(uri) || uri.split('/').includes('..'))
+    return '请使用工程内相对路径，避免绝对路径与上级目录'
+  return ''
+}
+
+function addCustomLayer(kind: '3dtiles' | 'geojson' = '3dtiles'): void {
+  project.value.customLayers.push({
+    id: createId('layer'),
+    name: kind === 'geojson' ? 'GeoJSON 图层' : '3D Tiles 图层',
+    kind,
+    uri: '',
+    visible: true,
+    locked: false,
+    opacity: 1
+  })
+  scheduleDraft()
+  scheduleCustomLayerSync()
+}
+
+function removeCustomLayer(id: string): void {
+  const index = project.value.customLayers.findIndex((layer) => layer.id === id)
+  if (index < 0) return
+  project.value.customLayers.splice(index, 1)
+  scheduleDraft()
+  scheduleCustomLayerSync()
+}
+
+function moveCustomLayer(id: string, delta: number): void {
+  const list = project.value.customLayers
+  const index = list.findIndex((layer) => layer.id === id)
+  const target = index + delta
+  if (index < 0 || target < 0 || target >= list.length) return
+  const [layer] = list.splice(index, 1)
+  list.splice(target, 0, layer)
+  scheduleDraft()
+  scheduleCustomLayerSync()
+}
+
+function onCustomLayerEdited(layer: { uri: string }): void {
+  if (!layer.uri.trim()) return
+  scheduleDraft()
+  scheduleCustomLayerSync()
+}
+
+function previewInitialState(): void {
+  pausePlayback()
+  currentTime.value = 0
+  applyRuntimeAt(0)
 }
 
 function captureInitialCamera(): void {
@@ -798,7 +1523,10 @@ function cancelRecording(): void {
 function smoothRoute(): void {
   if (!routeAction.value) return
   const route = finalizeRoute(
-    routeAction.value.route.samples.map((sample) => ({ pose: { ...sample }, elapsed: sample.t * routeAction.value!.route.recordedDuration * 1000 })),
+    routeAction.value.route.samples.map((sample) => ({
+      pose: { ...sample },
+      elapsed: sample.t * routeAction.value!.route.recordedDuration * 1000
+    })),
     routeAction.value.route.smoothing
   )
   routeAction.value.route = route
@@ -824,9 +1552,8 @@ function openExportDialog(): void {
     toast(playable.message, 'warn')
     return
   }
-  if (!recorderFormat) {
-    toast('当前浏览器不支持 MediaRecorder 视频导出', 'error')
-    return
+  if (exportSettings.format !== 'frames' && !recorderFormat) {
+    toast('当前浏览器不支持 MediaRecorder，可切换为逐帧序列导出', 'warn')
   }
   openDialog('export', '', '')
 }
@@ -851,8 +1578,9 @@ async function startExport(): Promise<void> {
     toast('三维场景尚未就绪', 'warn')
     return
   }
-  if (!recorderFormat) {
-    toast('当前浏览器不支持视频导出', 'error')
+  const profile = profileFor({ ...exportSettings })
+  if (profile.format === 'video' && !recorderFormat) {
+    toast('当前浏览器不支持视频导出，可切换为逐帧序列', 'error')
     return
   }
   const playable = hasPlayableActions(project.value)
@@ -862,90 +1590,83 @@ async function startExport(): Promise<void> {
   }
   dialog.kind = null
   pausePlayback()
+  runBeforeExportHooks(profile)
+  exportCancelled = false
+  mode.value = 'exporting'
   exportState.active = true
   exportState.progress = 0
   exportState.phase = 'preparing'
   exportState.message = '准备导出环境'
-  exportState.mime = recorderFormat.mime
-  exportState.extension = recorderFormat.extension
-  exportCancelled = false
-  mode.value = 'exporting'
-  await nextTick()
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  exportState.mime = profile.format === 'video' ? (recorderFormat?.mime ?? '') : 'image/png'
+  exportState.extension = profile.format === 'video' ? (recorderFormat?.extension ?? 'webm') : 'zip'
+  const controller = new AbortController()
+  exportController = controller
+  recordDiagnostic('export', 'start', 'info', {
+    format: profile.format,
+    width: profile.width,
+    height: profile.height,
+    fps: profile.fps
+  })
   const viewportWidth = scene.canvas.clientWidth || 1280
-  const { width, height } = resolutionOf(exportSettings)
-  scene.setResolutionScale(clamp(width / viewportWidth, 1, 2.4))
-  const first = evaluateTimeline(timeline.value, 0, project.value.initial)
-  runtime.value = first
-  scene.applyRuntime(first)
-  scene.requestRender()
-  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-  try {
-    const source = scene.canvas
-    exporter = new CompositeExporter({
-      source,
-      width,
-      height,
-      fps: exportSettings.fps,
-      mime: recorderFormat.mime
-    })
-    exportStartedAt = performance.now()
-    exportState.phase = 'recording'
-    exportState.message = `正在实时渲染 ${width}×${height} · ${exportSettings.fps}fps`
-    const projectPoint = projectScaledPoint(width, height)
-    const loop = (timestamp: number): void => {
-      if (!exporter || exportCancelled) return
-      const elapsed = Math.min(total.value, (timestamp - exportStartedAt) / 1000)
-      const next = evaluateTimeline(timeline.value, elapsed, project.value.initial)
-      runtime.value = next
-      scene?.applyRuntime(next)
-      exporter.drawFrame((ctx, canvasWidth, canvasHeight) => {
-        drawExportOverlay(ctx, canvasWidth, canvasHeight, next, projectPoint)
-      })
-      exportState.progress = total.value > 0 ? clamp(elapsed / total.value, 0, 1) : 1
-      exportState.message = `正在实时渲染 ${formatClock(elapsed)} / ${formatClock(total.value)}`
-      currentTime.value = elapsed
-      if (elapsed >= total.value) {
-        void finalizeExport()
-        return
-      }
-      exportRaf = requestAnimationFrame(loop)
-    }
-    exportRaf = requestAnimationFrame(loop)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '无法启动视频导出'
-    toast(message, 'error')
-    cleanupExport()
+  scene.setResolutionScale(clamp(profile.width / viewportWidth, 1, 2.4))
+  await nextTick()
+  const projectPoint = projectScaledPoint(profile.width, profile.height)
+  const applyFrame = (next: RuntimeState): void => {
+    runtime.value = next
+    if (scene?.isReady) scene.applyRuntime(next)
   }
-}
-
-async function finalizeExport(): Promise<void> {
-  if (!exporter) return
-  exportState.phase = 'finalizing'
-  exportState.message = '正在封装视频文件'
-  exportState.progress = 1
-  const active = exporter
-  await new Promise<void>((resolve) => window.setTimeout(resolve, 400))
   try {
-    const blob = await active.stop()
-    if (!exportCancelled) {
-      const extension = exportState.extension || 'webm'
-      downloadBlob(blob, `${safeFileName(project.value.name)}.${extension}`)
-      toast(`视频已导出：${(blob.size / 1024 / 1024).toFixed(1)} MB`, 'success')
+    const output = await (profile.format === 'frames' ? exportFrameSequence : exportRealtime)({
+      profile,
+      totalSeconds: total.value,
+      signal: controller.signal,
+      evaluate: (seconds) =>
+        evaluateFrame(timeline.value, Math.round(seconds * profile.fps), project.value.initial, profile.fps),
+      apply: applyFrame,
+      requestRender: () => scene?.requestRender(),
+      waitUntilVisible: async () => {
+        const readiness = await scene?.waitUntilVisible(20000)
+        if (readiness?.warnings.length && !exportCancelled) {
+          exportState.message = readiness.warnings[0]
+        }
+      },
+      sourceCanvas: () => scene?.canvas ?? null,
+      drawOverlay: (ctx, width, height, state) => drawExportOverlay(ctx, width, height, state, projectPoint),
+      onProgress: (progress: ExportProgress) => {
+        exportState.phase = progress.phase
+        exportState.progress = progress.progress
+        exportState.message = progress.message
+        if (progress.diagnostics?.warnings.length) storageNotice.value = progress.diagnostics.warnings[0]
+      }
+    })
+    if (exportCancelled) return
+    const filename = `${safeFileName(project.value.name)}.${output.extension}`
+    downloadBlob(output.blob, filename)
+    const size = (output.blob.size / 1024 / 1024).toFixed(1)
+    recordDiagnostic('export', 'complete', 'info', {
+      format: profile.format,
+      bytes: output.blob.size,
+      extension: output.extension
+    })
+    toast(`${profile.format === 'frames' ? '逐帧序列' : '视频'}已导出：${size} MB`, 'success')
+  } catch (error) {
+    if (exportCancelled || (error instanceof DOMException && error.name === 'AbortError')) {
+      recordDiagnostic('export', 'cancelled', 'warn', { format: profile.format })
+      toast('已取消导出')
+    } else {
+      const message = error instanceof Error ? error.message : '导出失败'
+      recordDiagnostic('export', 'failed', 'error', { format: profile.format, message })
+      toast(message, 'error')
     }
-  } catch {
-    toast('视频封装失败，请重试', 'error')
   } finally {
+    exportController = null
     cleanupExport()
   }
 }
 
 function cleanupExport(): void {
-  if (exportRaf) cancelAnimationFrame(exportRaf)
-  exportRaf = 0
-  exporter = null
   exportState.active = false
-  exportState.phase = 'done'
+  exportState.phase = exportCancelled ? 'cancelled' : 'done'
   exportState.progress = 0
   exportState.message = ''
   mode.value = 'idle'
@@ -956,9 +1677,8 @@ function cleanupExport(): void {
 
 function cancelExport(): void {
   exportCancelled = true
-  exporter?.cancel()
-  cleanupExport()
-  toast('已取消视频导出')
+  exportController?.abort()
+  exportController = null
 }
 
 function toggleFullscreen(): void {
@@ -1002,9 +1722,10 @@ function subtitleStyle(view: SubtitleView): Record<string, string | number> {
 
 function popupStyle(view: PopupView): Record<string, string | number> {
   const landmark = view.param.targetId ? LANDMARK_MAP[view.param.targetId] : null
-  const point = landmark && scene?.isReady
-    ? scene.project(landmark.longitude, landmark.latitude, landmark.height + 40)
-    : { x: (scene?.canvas?.clientWidth ?? 900) / 2, y: (scene?.canvas?.clientHeight ?? 600) / 2, visible: true }
+  const point =
+    landmark && scene?.isReady
+      ? scene.project(landmark.longitude, landmark.latitude, landmark.height + 40)
+      : { x: (scene?.canvas?.clientWidth ?? 900) / 2, y: (scene?.canvas?.clientHeight ?? 600) / 2, visible: true }
   const style: Record<string, string | number> = {
     opacity: point.visible ? view.alpha : 0,
     left: `${point.x}px`,
@@ -1021,10 +1742,23 @@ function onKeydown(event: KeyboardEvent): void {
     return
   }
   const target = event.target as HTMLElement | null
-  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
+  if (
+    target &&
+    (target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.tagName === 'SELECT' ||
+      target.isContentEditable)
+  ) {
     return
   }
   if (event.ctrlKey || event.metaKey) {
+    if (isPlayerMode.value) {
+      if (['s', 'e', 'z', 'y'].includes(event.key.toLowerCase())) {
+        event.preventDefault()
+        toast('只读播放模式，编辑功能已禁用', 'warn')
+      }
+      return
+    }
     if (event.key.toLowerCase() === 's') {
       event.preventDefault()
       saveProject()
@@ -1032,6 +1766,15 @@ function onKeydown(event: KeyboardEvent): void {
     if (event.key.toLowerCase() === 'e') {
       event.preventDefault()
       openExportDialog()
+    }
+    if (event.key.toLowerCase() === 'z') {
+      event.preventDefault()
+      if (event.shiftKey) redo()
+      else undo()
+    }
+    if (event.key.toLowerCase() === 'y') {
+      event.preventDefault()
+      redo()
     }
     return
   }
@@ -1057,6 +1800,11 @@ function onKeydown(event: KeyboardEvent): void {
   }
   if (event.key.toLowerCase() === 'h') {
     uiHidden.value = !uiHidden.value
+    return
+  }
+  if (event.key.toLowerCase() === 'l') {
+    loopPlayback.value = !loopPlayback.value
+    toast(loopPlayback.value ? '循环播放已开启' : '循环播放已关闭')
     return
   }
   if (event.key.toLowerCase() === 'f') {
@@ -1099,7 +1847,7 @@ function syncCompactLayout(compact: boolean): void {
 }
 
 function onBeforeUnload(event: BeforeUnloadEvent): void {
-  if (!isDirty.value) return
+  if (isPlayerMode.value || !isDirty.value) return
   event.preventDefault()
   event.returnValue = ''
 }
@@ -1129,10 +1877,14 @@ async function bootScene(): Promise<void> {
     sceneStatus.detail = '可播放、录制与导出'
     applyRuntimeAt(currentTime.value)
     instance.setCameraInputs(true)
+    await instance.syncCustomLayers(deepClone(project.value.customLayers))
+    refreshCustomLayerStates()
   } catch (error) {
+    const message = error instanceof Error ? error.message : '请检查网络与 WebGL 支持'
     sceneStatus.failed = true
     sceneStatus.message = '三维场景加载失败'
-    sceneStatus.detail = error instanceof Error ? error.message : '请检查网络与 WebGL 支持'
+    sceneStatus.detail = message
+    recordDiagnostic('resource', 'scene-failed', 'error', { message })
     toast('三维场景加载失败，请重试', 'error')
   }
 }
@@ -1142,6 +1894,14 @@ watch(
   () => {
     if (suspendDraft) return
     scheduleDraft()
+  },
+  { deep: true }
+)
+
+watch(
+  project,
+  () => {
+    scheduleHistory()
   },
   { deep: true }
 )
@@ -1160,27 +1920,67 @@ function onCompactChange(event: MediaQueryListEvent): void {
   syncCompactLayout(event.matches)
 }
 
-onMounted(() => {
+async function hydrateFromIndexedDb(): Promise<void> {
+  if (isPlayerMode.value) return
+  if (bootState.fromStorage) {
+    const diag = await storageDiagnostics()
+    if (diag.estimatedUsage && diag.estimatedQuota && diag.estimatedUsage > diag.estimatedQuota * 0.9) {
+      storageNotice.value = '浏览器本地存储空间接近上限，建议导出工程包后清理旧工程'
+    }
+    return
+  }
+  const result = await readStoreSafe()
+  if (!result.ok) {
+    storageNotice.value = result.message
+    if (result.raw) {
+      toast('本地工程数据损坏，已保留原始备份', 'error')
+    }
+    return
+  }
+  if (isDirty.value || store.value.projects.length !== 1) return
+  store.value = result.store
+  const restored = store.value.projects.find((item) => item.id === store.value.currentId) ?? store.value.projects[0]
+  savedSignature.value = JSON.stringify(restored)
+  savedSnapshot.value = deepClone(restored)
+  initializeSelection()
+  resetHistory()
+  applyRuntimeAt(0)
+  if (result.warnings.length) storageNotice.value = result.warnings.join('；')
+  recordDiagnostic('orchestration', 'restore', 'info', {
+    projects: store.value.projects.length,
+    location: result.location
+  })
+  toast(`已从 IndexedDB 恢复工程库（${store.value.projects.length} 个工程）`, 'info')
+}
+
+onMounted(async () => {
   compactQuery = window.matchMedia('(max-width: 760px)')
   syncCompactLayout(compactQuery.matches)
   compactQuery.addEventListener('change', onCompactChange)
   initializeSelection()
   applyRuntimeAt(0)
-  void bootScene()
+  if (isPlayerMode.value) {
+    if (playerProjectUrl) await loadPlayerProject(playerProjectUrl)
+    if (!playerLoadError.value) await bootScene()
+  } else {
+    void bootScene()
+    void hydrateFromIndexedDb()
+  }
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('beforeunload', onBeforeUnload)
   document.addEventListener('fullscreenchange', onFullscreenChange)
-  if (restoredNotice) {
+  if (restoredNotice && !isPlayerMode.value) {
     restoredNotice = false
     toast('已恢复上次未保存的编辑草稿', 'info')
   }
 })
 
 onBeforeUnmount(() => {
+  revokePlayerObjectUrls()
   if (rafId) cancelAnimationFrame(rafId)
-  if (exportRaf) cancelAnimationFrame(exportRaf)
   if (recordingTimer) window.clearInterval(recordingTimer)
   if (draftTimer) window.clearTimeout(draftTimer)
+  if (customLayerTimer) window.clearTimeout(customLayerTimer)
   if (scene) {
     scene.destroy()
     scene = null
@@ -1205,7 +2005,7 @@ const modeLabel = computed(() => {
     case 'preview':
       return 'PREVIEW'
     default:
-      return 'EDIT'
+      return isPlayerMode.value ? 'PLAY' : 'EDIT'
   }
 })
 </script>
@@ -1218,7 +2018,8 @@ const modeLabel = computed(() => {
       'is-cinema': uiHidden,
       'is-exporting': mode === 'exporting',
       'is-recording': mode === 'recording',
-      'is-playing': mode === 'playing'
+      'is-playing': mode === 'playing',
+      'is-player': isPlayerMode
     }"
   >
     <div class="ps-stage">
@@ -1227,14 +2028,22 @@ const modeLabel = computed(() => {
       <div class="ps-stage__glow" aria-hidden="true" />
 
       <div class="ps-overlay">
-        <div v-if="runtime.chapter" class="ps-chapter" :class="`is-${runtime.chapter.type}`" :style="{ opacity: runtime.chapter.alpha }">
+        <div
+          v-if="runtime.chapter"
+          class="ps-chapter"
+          :class="`is-${runtime.chapter.type}`"
+          :style="{ opacity: runtime.chapter.alpha }"
+        >
           <div v-if="runtime.chapter.type === 'dip'" class="ps-chapter__dip" />
           <div v-if="runtime.chapter.type === 'slide'" class="ps-chapter__slide" />
           <div class="ps-chapter__content">
             <div class="ps-chapter__index">{{ String(runtime.chapter.index).padStart(2, '0') }}</div>
             <div class="ps-chapter__rule" />
             <div class="ps-chapter__name">{{ runtime.chapter.name }}</div>
-            <div class="ps-chapter__meta">STEP {{ String(runtime.chapter.index).padStart(2, '0') }} / {{ String(runtime.chapter.total).padStart(2, '0') }}</div>
+            <div class="ps-chapter__meta">
+              STEP {{ String(runtime.chapter.index).padStart(2, '0') }} /
+              {{ String(runtime.chapter.total).padStart(2, '0') }}
+            </div>
             <div class="ps-chapter__bar"><span :style="{ width: `${runtime.chapter.progress * 100}%` }" /></div>
           </div>
         </div>
@@ -1289,11 +2098,14 @@ const modeLabel = computed(() => {
           <div class="ps-export-hud__bar"><span :style="{ width: `${exportState.progress * 100}%` }" /></div>
           <div class="ps-export-hud__meta">
             <span>{{ Math.round(exportState.progress * 100) }}%</span>
-            <span>{{ exportState.phase === 'finalizing' ? '封装中' : '实时录制' }} · {{ exportSettings.resolution.toUpperCase() }} · {{ exportSettings.fps }}fps</span>
+            <span
+              >{{ exportState.phase === 'finalizing' ? '封装中' : exportIsFrames ? '逐帧渲染' : '实时录制' }} ·
+              {{ exportSettings.resolution.toUpperCase() }} · {{ exportSettings.fps }}fps</span
+            >
           </div>
         </div>
 
-        <div v-if="loading" class="ps-loading">
+        <div v-if="loading && !playerLoadError" class="ps-loading">
           <div class="ps-loading__spinner" />
           <div class="ps-loading__title">{{ sceneStatus.message }}</div>
           <div class="ps-loading__detail">{{ sceneStatus.detail }}</div>
@@ -1312,27 +2124,61 @@ const modeLabel = computed(() => {
           <button type="button" class="ps-btn is-primary" @click="bootScene">重新加载场景</button>
         </div>
 
+        <div v-if="isPlayerMode && playerLoadError && !sceneStatus.failed" class="ps-loading is-failed">
+          <Icon name="warning" :size="26" />
+          <div class="ps-loading__title">工程加载失败</div>
+          <div class="ps-loading__detail">{{ playerLoadError }}</div>
+          <div class="ps-player-error__actions">
+            <button type="button" class="ps-btn is-primary" @click="retryPlayerLoad">重试</button>
+            <button type="button" class="ps-btn is-ghost" @click="triggerImport">打开工程包</button>
+          </div>
+        </div>
+
         <div v-if="!uiHidden && mode !== 'playing' && mode !== 'exporting'" class="ps-stage-brand">
           <span class="ps-stage-brand__dot" />
           <span>PRESENTATION</span>
+          <span v-if="isPlayerMode" class="ps-stage-brand__badge">READ ONLY</span>
           <span class="ps-stage-brand__name">{{ project.name }}</span>
-          <span v-if="isDirty" class="ps-stage-brand__dirty">未保存</span>
+          <span v-if="isDirty && !isPlayerMode" class="ps-stage-brand__dirty">未保存</span>
         </div>
 
         <div v-if="!uiHidden" class="ps-stage-actions">
-          <button type="button" class="ps-stage-btn ps-stage-btn--compact" :class="{ 'is-active': railLeftOpen }" title="工程与图层" @click="openRail('left')">
+          <button
+            v-if="!isPlayerMode"
+            type="button"
+            class="ps-stage-btn ps-stage-btn--compact"
+            :class="{ 'is-active': railLeftOpen }"
+            title="工程与图层"
+            @click="openRail('left')"
+          >
             <Icon name="folder" :size="15" />
           </button>
-          <button type="button" class="ps-stage-btn ps-stage-btn--compact" :class="{ 'is-active': railRightOpen }" title="演示编排" @click="openRail('right')">
+          <button
+            v-if="!isPlayerMode"
+            type="button"
+            class="ps-stage-btn ps-stage-btn--compact"
+            :class="{ 'is-active': railRightOpen }"
+            title="演示编排"
+            @click="openRail('right')"
+          >
             <Icon name="step" :size="15" />
           </button>
-          <button type="button" class="ps-stage-btn" :class="{ 'is-active': isFullscreen }" title="全屏 (F)" @click="toggleFullscreen">
+          <button v-if="isPlayerMode" type="button" class="ps-stage-btn" title="打开工程包" @click="triggerImport">
+            <Icon name="upload" :size="15" />
+          </button>
+          <button
+            type="button"
+            class="ps-stage-btn"
+            :class="{ 'is-active': isFullscreen }"
+            title="全屏 (F)"
+            @click="toggleFullscreen"
+          >
             <Icon name="expand" :size="15" />
           </button>
           <button type="button" class="ps-stage-btn" title="隐藏界面 (H)" @click="uiHidden = true">
             <Icon name="eyeOff" :size="15" />
           </button>
-          <button type="button" class="ps-stage-btn" title="快捷键" @click="openDialog('help')">
+          <button v-if="!isPlayerMode" type="button" class="ps-stage-btn" title="快捷键" @click="openDialog('help')">
             <Icon name="keyboard" :size="15" />
           </button>
         </div>
@@ -1343,9 +2189,13 @@ const modeLabel = computed(() => {
       </div>
     </div>
 
-    <div v-if="isCompact && !uiHidden && (railLeftOpen || railRightOpen)" class="ps-rail-backdrop" @click="closeRails" />
+    <div
+      v-if="!isPlayerMode && isCompact && !uiHidden && (railLeftOpen || railRightOpen)"
+      class="ps-rail-backdrop"
+      @click="closeRails"
+    />
 
-    <aside v-show="!uiHidden && railLeftOpen" class="ps-rail ps-rail--left">
+    <aside v-show="!isPlayerMode && !uiHidden && railLeftOpen" class="ps-rail ps-rail--left">
       <header class="ps-brand">
         <div class="ps-brand__mark"><Icon name="brand" :size="24" /></div>
         <div class="ps-brand__text">
@@ -1353,7 +2203,9 @@ const modeLabel = computed(() => {
           <div class="ps-brand__subtitle">CESIUM · CINEMATIC TOOLKIT</div>
         </div>
         <span class="ps-brand__version">1.0</span>
-        <button v-if="isCompact" type="button" class="ps-rail__close" title="收起面板" @click="closeRails"><Icon name="close" :size="15" /></button>
+        <button v-if="isCompact" type="button" class="ps-rail__close" title="收起面板" @click="closeRails">
+          <Icon name="close" :size="15" />
+        </button>
       </header>
 
       <div class="ps-rail__scroll">
@@ -1361,10 +2213,18 @@ const modeLabel = computed(() => {
           <div class="ps-project">
             <div class="ps-project__head">
               <div class="ps-project__name">{{ project.name }}</div>
-              <span v-if="isDirty" class="ps-project__state">未保存</span>
-              <span v-else class="ps-project__state is-saved">已保存</span>
+              <span
+                class="ps-project__state"
+                :class="{ 'is-saved': !isDirty && saveStatus !== 'failed', 'is-failed': saveStatus === 'failed' }"
+                :title="saveError || storageNotice"
+                >{{ saveLabel }}</span
+              >
             </div>
-            <div class="ps-project__meta">{{ project.steps.length }} 幕 · {{ project.steps.reduce((sum, step) => sum + step.actions.length, 0) }} 动作 · {{ formatDate(project.updateTime) }}</div>
+            <div class="ps-project__meta">
+              {{ project.steps.length }} 幕 ·
+              {{ project.steps.reduce((sum, step) => sum + step.actions.length, 0) }} 动作 ·
+              {{ formatDate(project.updateTime) }}
+            </div>
             <p v-if="project.note" class="ps-project__note">{{ project.note }}</p>
             <div class="ps-project__tools">
               <button type="button" class="ps-btn is-primary is-small" @click="saveProject">
@@ -1372,6 +2232,15 @@ const modeLabel = computed(() => {
               </button>
               <button type="button" class="ps-btn is-small" @click="exportProjectFile">
                 <Icon name="download" :size="14" />导出
+              </button>
+              <button type="button" class="ps-icon-btn" title="导出只读播放器包" @click="exportPlayerPackage">
+                <Icon name="play" :size="15" />
+              </button>
+              <button type="button" class="ps-icon-btn" :disabled="!canUndo" title="撤销 Ctrl+Z" @click="undo">
+                <Icon name="undo" :size="15" />
+              </button>
+              <button type="button" class="ps-icon-btn" :disabled="!canRedo" title="重做 Ctrl+Shift+Z" @click="redo">
+                <Icon name="redo" :size="15" />
               </button>
               <button type="button" class="ps-icon-btn" title="工程设置" @click="openProjectSettings">
                 <Icon name="settings" :size="15" />
@@ -1391,7 +2260,9 @@ const modeLabel = computed(() => {
               <span class="ps-project-item__dot" />
               <span class="ps-project-item__body">
                 <span class="ps-project-item__name">{{ item.name }}</span>
-                <span class="ps-project-item__meta">{{ item.steps.length }} 幕 · {{ formatDate(item.updateTime) }}</span>
+                <span class="ps-project-item__meta"
+                  >{{ item.steps.length }} 幕 · {{ formatDate(item.updateTime) }}</span
+                >
               </span>
               <span
                 class="ps-project-item__delete"
@@ -1407,9 +2278,15 @@ const modeLabel = computed(() => {
           </div>
 
           <div class="ps-btn-row">
-            <button type="button" class="ps-btn is-small" @click="createNewProject"><Icon name="plus" :size="14" />新建</button>
-            <button type="button" class="ps-btn is-small" @click="triggerImport"><Icon name="upload" :size="14" />导入</button>
-            <button type="button" class="ps-btn is-small" @click="openSaveAs"><Icon name="copy" :size="14" />另存</button>
+            <button type="button" class="ps-btn is-small" @click="createNewProject">
+              <Icon name="plus" :size="14" />新建
+            </button>
+            <button type="button" class="ps-btn is-small" @click="triggerImport">
+              <Icon name="upload" :size="14" />导入
+            </button>
+            <button type="button" class="ps-btn is-small" @click="openSaveAs">
+              <Icon name="copy" :size="14" />另存
+            </button>
           </div>
           <button type="button" class="ps-btn is-ghost is-small ps-full" @click="openRename">
             <Icon name="edit" :size="13" />重命名当前工程
@@ -1423,11 +2300,132 @@ const modeLabel = computed(() => {
               <span class="ps-toggle-row__name">{{ layer.name }}</span>
               <span class="ps-toggle-row__desc">{{ layer.description }}</span>
             </span>
-            <UiSwitch v-model="project.initial.layers[layer.id]" :label="layer.name" />
+            <UiSwitch
+              v-model="project.initial.layers[layer.id]"
+              :label="layer.name"
+              @update:model-value="previewInitialState"
+            />
+          </div>
+          <p class="ps-hint">修改初始状态后自动回到演示起点预览。</p>
+          <div class="ps-btn-row">
+            <button type="button" class="ps-btn is-small" @click="captureInitialCamera">
+              <Icon name="camera" :size="13" />捕获初始机位
+            </button>
+            <button type="button" class="ps-btn is-small" @click="resetInitialState">
+              <Icon name="reset" :size="13" />重置
+            </button>
+          </div>
+        </UiSection>
+
+        <UiSection title="场景图层" icon="layers" collapsible>
+          <div v-if="!project.customLayers.length" class="ps-hint">
+            添加 3D Tiles 或 GeoJSON 后可在场景中独立控制显隐与透明度。
+          </div>
+          <div v-for="(layer, index) in project.customLayers" :key="layer.id" class="ps-custom-layer">
+            <div class="ps-custom-layer__head">
+              <UiSwitch v-model="layer.visible" :label="layer.name" @update:model-value="onCustomLayerEdited(layer)" />
+              <input
+                v-model="layer.name"
+                class="ps-text-input is-tiny"
+                maxlength="60"
+                :disabled="layer.locked"
+                @change="scheduleDraft"
+              />
+              <span
+                class="ps-custom-layer__state"
+                :class="`is-${customLayerStates[layer.id]?.status ?? 'idle'}`"
+                :title="customLayerStates[layer.id]?.message ?? ''"
+                >{{ customLayerStatusLabel(customLayerStates[layer.id]?.status) }}</span
+              >
+              <span class="ps-custom-layer__actions">
+                <button
+                  v-if="customLayerStates[layer.id]?.status === 'error'"
+                  type="button"
+                  class="ps-icon-btn"
+                  title="重试加载"
+                  @click="retryCustomLayer(layer)"
+                >
+                  <Icon name="reset" :size="12" />
+                </button>
+                <button
+                  type="button"
+                  class="ps-icon-btn"
+                  title="上移"
+                  :disabled="index === 0"
+                  @click="moveCustomLayer(layer.id, -1)"
+                >
+                  <Icon name="up" :size="12" />
+                </button>
+                <button
+                  type="button"
+                  class="ps-icon-btn"
+                  title="下移"
+                  :disabled="index === project.customLayers.length - 1"
+                  @click="moveCustomLayer(layer.id, 1)"
+                >
+                  <Icon name="down" :size="12" />
+                </button>
+                <button
+                  type="button"
+                  class="ps-icon-btn"
+                  :title="layer.locked ? '解锁' : '锁定'"
+                  @click="toggleCustomLayerLock(layer)"
+                >
+                  <Icon :name="'lock'" :size="12" />
+                </button>
+                <button
+                  type="button"
+                  class="ps-icon-btn is-danger"
+                  title="删除图层"
+                  @click="removeCustomLayer(layer.id)"
+                >
+                  <Icon name="trash" :size="12" />
+                </button>
+              </span>
+            </div>
+            <div class="ps-custom-layer__row">
+              <select
+                v-model="layer.kind"
+                class="ps-select is-tiny"
+                :disabled="layer.locked"
+                @change="onCustomLayerEdited(layer)"
+              >
+                <option value="3dtiles">3D Tiles</option>
+                <option value="geojson">GeoJSON</option>
+              </select>
+              <input
+                v-model="layer.uri"
+                class="ps-text-input is-tiny"
+                placeholder="相对路径，例如 dayanta/tileset.json"
+                :disabled="layer.locked"
+                @change="onCustomLayerEdited(layer)"
+              />
+            </div>
+            <p v-if="customLayerUriIssue(layer)" class="ps-custom-layer__issue">{{ customLayerUriIssue(layer) }}</p>
+            <p v-else-if="customLayerStates[layer.id]?.status === 'error'" class="ps-custom-layer__issue">
+              {{ customLayerStates[layer.id]?.message }}
+            </p>
+            <div class="ps-custom-layer__row">
+              <span class="ps-custom-layer__meta">透明度 {{ Math.round((layer.opacity ?? 1) * 100) }}%</span>
+              <input
+                v-model.number="layer.opacity"
+                class="ps-range"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                :disabled="layer.locked"
+                @change="onCustomLayerOpacityChanged"
+              />
+            </div>
           </div>
           <div class="ps-btn-row">
-            <button type="button" class="ps-btn is-small" @click="captureInitialCamera"><Icon name="camera" :size="13" />捕获初始机位</button>
-            <button type="button" class="ps-btn is-small" @click="resetInitialState"><Icon name="reset" :size="13" />重置</button>
+            <button type="button" class="ps-btn is-small" @click="addCustomLayer('3dtiles')">
+              <Icon name="plus" :size="13" />3D Tiles
+            </button>
+            <button type="button" class="ps-btn is-small" @click="addCustomLayer('geojson')">
+              <Icon name="plus" :size="13" />GeoJSON
+            </button>
           </div>
         </UiSection>
 
@@ -1438,27 +2436,67 @@ const modeLabel = computed(() => {
               <span class="ps-toggle-row__name">{{ effect.name }}</span>
               <span class="ps-toggle-row__desc">{{ effect.description }}</span>
             </span>
-            <UiSwitch v-model="project.initial.effects[effect.id]" :label="effect.name" />
+            <UiSwitch
+              v-model="project.initial.effects[effect.id]"
+              :label="effect.name"
+              @update:model-value="previewInitialState"
+            />
           </div>
         </UiSection>
 
         <UiSection title="初始时序" icon="clock" collapsible>
           <div class="ps-slider-row">
-            <span class="ps-slider-row__head"><span>大雁塔生长</span><b>{{ Math.round(project.initial.time.dayanta * 100) }}%</b></span>
-            <input v-model.number="project.initial.time.dayanta" class="ps-range" type="range" min="0" max="1" step="0.01" />
+            <span class="ps-slider-row__head"
+              ><span>大雁塔生长</span><b>{{ Math.round(project.initial.time.dayanta * 100) }}%</b></span
+            >
+            <input
+              v-model.number="project.initial.time.dayanta"
+              class="ps-range"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              @input="previewInitialState"
+            />
           </div>
           <div class="ps-slider-row">
-            <span class="ps-slider-row__head"><span>地标显现</span><b>{{ Math.round(project.initial.time.landmarks * 100) }}%</b></span>
-            <input v-model.number="project.initial.time.landmarks" class="ps-range" type="range" min="0" max="1" step="0.01" />
+            <span class="ps-slider-row__head"
+              ><span>地标显现</span><b>{{ Math.round(project.initial.time.landmarks * 100) }}%</b></span
+            >
+            <input
+              v-model.number="project.initial.time.landmarks"
+              class="ps-range"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              @input="previewInitialState"
+            />
           </div>
           <div class="ps-slider-row">
-            <span class="ps-slider-row__head"><span>光柱点亮</span><b>{{ Math.round(project.initial.time.beacons * 100) }}%</b></span>
-            <input v-model.number="project.initial.time.beacons" class="ps-range" type="range" min="0" max="1" step="0.01" />
+            <span class="ps-slider-row__head"
+              ><span>光柱点亮</span><b>{{ Math.round(project.initial.time.beacons * 100) }}%</b></span
+            >
+            <input
+              v-model.number="project.initial.time.beacons"
+              class="ps-range"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              @input="previewInitialState"
+            />
           </div>
         </UiSection>
 
         <UiSection title="地标导航" icon="pin" collapsible :open="false">
-          <button v-for="landmark in LANDMARKS" :key="landmark.id" type="button" class="ps-landmark" @click="focusLandmark(landmark.id)">
+          <button
+            v-for="landmark in LANDMARKS"
+            :key="landmark.id"
+            type="button"
+            class="ps-landmark"
+            @click="focusLandmark(landmark.id)"
+          >
             <span class="ps-landmark__pin" :style="{ background: landmark.color }" />
             <span class="ps-landmark__body">
               <span class="ps-landmark__name">{{ landmark.name }}</span>
@@ -1476,20 +2514,28 @@ const modeLabel = computed(() => {
       </footer>
     </aside>
 
-    <aside v-show="!uiHidden && railRightOpen" class="ps-rail ps-rail--right">
+    <aside v-show="!isPlayerMode && !uiHidden && railRightOpen" class="ps-rail ps-rail--right">
       <header class="ps-rail__head">
         <div>
           <div class="ps-rail__eyebrow">STEP SEQUENCE</div>
           <div class="ps-rail__title">演示编排</div>
         </div>
         <div class="ps-rail__head-tools">
-          <button type="button" class="ps-icon-btn" title="新增步骤" @click="addStep"><Icon name="plus" :size="16" /></button>
-          <button v-if="isCompact" type="button" class="ps-rail__close" title="收起面板" @click="closeRails"><Icon name="close" :size="15" /></button>
+          <button type="button" class="ps-icon-btn" title="新增步骤" @click="addStep">
+            <Icon name="plus" :size="16" />
+          </button>
+          <button v-if="isCompact" type="button" class="ps-rail__close" title="收起面板" @click="closeRails">
+            <Icon name="close" :size="15" />
+          </button>
         </div>
       </header>
 
       <div class="ps-rail__scroll">
-        <div class="ps-step-list">
+        <div class="ps-rail-tabs">
+          <button type="button" :class="{ 'is-active': railTab === 'steps' }" @click="railTab = 'steps'">步骤</button>
+          <button type="button" :class="{ 'is-active': railTab === 'tracks' }" @click="railTab = 'tracks'">轨道</button>
+        </div>
+        <div v-show="railTab === 'steps'" class="ps-step-list">
           <div
             v-for="(step, index) in project.steps"
             :key="step.stepId"
@@ -1500,35 +2546,80 @@ const modeLabel = computed(() => {
               <span class="ps-step__index">{{ String(index + 1).padStart(2, '0') }}</span>
               <span class="ps-step__body">
                 <span class="ps-step__name">{{ step.stepName }}</span>
-                <span class="ps-step__meta">{{ step.actions.length }} 动作 · {{ step.duration.toFixed(1) }}s · {{ step.speedRate }}x</span>
+                <span class="ps-step__meta"
+                  >{{ step.actions.length }} 动作 · {{ step.duration.toFixed(1) }}s · {{ step.speedRate }}x</span
+                >
               </span>
-              <span class="ps-step__type"><Icon :name="step.transition.type === 'none' ? 'minus' : 'sparkle'" :size="12" />{{ step.transition.type === 'none' ? '无转场' : `${step.transition.duration.toFixed(1)}s` }}</span>
+              <span class="ps-step__type"
+                ><Icon :name="step.transition.type === 'none' ? 'minus' : 'sparkle'" :size="12" />{{
+                  step.transition.type === 'none' ? '无转场' : `${step.transition.duration.toFixed(1)}s`
+                }}</span
+              >
             </button>
             <div class="ps-step__tools">
-              <button type="button" class="ps-icon-btn is-tiny" title="上移" :disabled="index === 0" @click="moveStep(index, -1)"><Icon name="up" :size="12" /></button>
-              <button type="button" class="ps-icon-btn is-tiny" title="下移" :disabled="index === project.steps.length - 1" @click="moveStep(index, 1)"><Icon name="down" :size="12" /></button>
-              <button type="button" class="ps-icon-btn is-tiny" title="复制步骤" @click="duplicateStep(index)"><Icon name="copy" :size="12" /></button>
-              <button type="button" class="ps-icon-btn is-tiny is-danger" title="删除步骤" @click="deleteStep(index)"><Icon name="trash" :size="12" /></button>
+              <button
+                type="button"
+                class="ps-icon-btn is-tiny"
+                title="上移"
+                :disabled="index === 0"
+                @click="moveStep(index, -1)"
+              >
+                <Icon name="up" :size="12" />
+              </button>
+              <button
+                type="button"
+                class="ps-icon-btn is-tiny"
+                title="下移"
+                :disabled="index === project.steps.length - 1"
+                @click="moveStep(index, 1)"
+              >
+                <Icon name="down" :size="12" />
+              </button>
+              <button type="button" class="ps-icon-btn is-tiny" title="复制步骤" @click="duplicateStep(index)">
+                <Icon name="copy" :size="12" />
+              </button>
+              <button type="button" class="ps-icon-btn is-tiny is-danger" title="删除步骤" @click="deleteStep(index)">
+                <Icon name="trash" :size="12" />
+              </button>
             </div>
           </div>
           <button type="button" class="ps-step-add" @click="addStep"><Icon name="plus" :size="14" />新增步骤</button>
         </div>
 
-        <template v-if="selectedStep">
+        <template v-if="railTab === 'steps' && selectedStep">
           <div class="ps-block">
             <div class="ps-block__head">
               <span class="ps-block__title">步骤属性</span>
-              <span class="ps-block__hint">STEP {{ String(project.steps.findIndex((step) => step.stepId === selectedStep?.stepId) + 1).padStart(2, '0') }}</span>
+              <span class="ps-block__hint"
+                >STEP
+                {{
+                  String(project.steps.findIndex((step) => step.stepId === selectedStep?.stepId) + 1).padStart(2, '0')
+                }}</span
+              >
             </div>
             <UiField label="名称">
               <input v-model="selectedStep.stepName" class="ps-text-input" maxlength="40" />
             </UiField>
             <div class="ps-grid-3">
               <UiField label="时长" stacked>
-                <input v-model.number="selectedStep.duration" class="ps-number" type="number" min="0.5" max="600" step="0.5" />
+                <input
+                  v-model.number="selectedStep.duration"
+                  class="ps-number"
+                  type="number"
+                  min="0.5"
+                  max="600"
+                  step="0.5"
+                />
               </UiField>
               <UiField label="停留" stacked>
-                <input v-model.number="selectedStep.stayTime" class="ps-number" type="number" min="0" max="60" step="0.1" />
+                <input
+                  v-model.number="selectedStep.stayTime"
+                  class="ps-number"
+                  type="number"
+                  min="0"
+                  max="60"
+                  step="0.1"
+                />
               </UiField>
               <UiField label="倍速" stacked>
                 <select v-model.number="selectedStep.speedRate" class="ps-select">
@@ -1549,7 +2640,14 @@ const modeLabel = computed(() => {
                 </select>
               </UiField>
               <UiField label="转场时长" stacked>
-                <input v-model.number="selectedStep.transition.duration" class="ps-number" type="number" min="0" max="5" step="0.1" />
+                <input
+                  v-model.number="selectedStep.transition.duration"
+                  class="ps-number"
+                  type="number"
+                  min="0"
+                  max="5"
+                  step="0.1"
+                />
               </UiField>
             </div>
           </div>
@@ -1568,23 +2666,71 @@ const modeLabel = computed(() => {
               v-for="(action, index) in selectedStep.actions"
               :key="action.actionId"
               class="ps-action"
-              :class="{ 'is-active': action.actionId === selectedActionId, 'is-off': !action.enable }"
+              :class="{
+                'is-active': action.actionId === selectedActionId,
+                'is-off': !action.enable,
+                'is-locked': action.locked
+              }"
             >
               <button type="button" class="ps-action__main" @click="selectAction(action)">
-                <span class="ps-action__icon" :style="{ color: ACTION_DEFINITIONS.find((item) => item.type === action.actionType)?.color }">
-                  <Icon :name="ACTION_DEFINITIONS.find((item) => item.type === action.actionType)?.icon ?? 'dot'" :size="15" />
+                <span
+                  class="ps-action__icon"
+                  :style="{ color: ACTION_DEFINITIONS.find((item) => item.type === action.actionType)?.color }"
+                >
+                  <Icon
+                    :name="ACTION_DEFINITIONS.find((item) => item.type === action.actionType)?.icon ?? 'dot'"
+                    :size="15"
+                  />
                 </span>
                 <span class="ps-action__body">
-                  <span class="ps-action__name">{{ ACTION_DEFINITIONS.find((item) => item.type === action.actionType)?.name }}</span>
-                  <span class="ps-action__meta">{{ action.duration.toFixed(1) }}s · {{ action.enable ? '启用' : '停用' }}</span>
+                  <span class="ps-action__name">{{
+                    ACTION_DEFINITIONS.find((item) => item.type === action.actionType)?.name
+                  }}</span>
+                  <span class="ps-action__meta"
+                    >{{ action.duration.toFixed(1) }}s · {{ action.enable ? '启用' : '停用' }}</span
+                  >
                 </span>
                 <span class="ps-action__dot" />
               </button>
               <div class="ps-action__tools">
-                <button type="button" class="ps-icon-btn is-tiny" title="上移" :disabled="index === 0" @click="moveAction(index, -1)"><Icon name="up" :size="11" /></button>
-                <button type="button" class="ps-icon-btn is-tiny" title="下移" :disabled="index === selectedStep.actions.length - 1" @click="moveAction(index, 1)"><Icon name="down" :size="11" /></button>
-                <button type="button" class="ps-icon-btn is-tiny" title="复制" @click="duplicateAction(index)"><Icon name="copy" :size="11" /></button>
-                <button type="button" class="ps-icon-btn is-tiny is-danger" title="删除" @click="deleteAction(index)"><Icon name="trash" :size="11" /></button>
+                <button
+                  type="button"
+                  class="ps-icon-btn is-tiny"
+                  :title="action.locked ? '解锁轨道位置' : '锁定轨道位置'"
+                  @click="toggleActionLock(action)"
+                >
+                  <Icon name="lock" :size="11" />
+                </button>
+                <button
+                  type="button"
+                  class="ps-icon-btn is-tiny"
+                  title="上移"
+                  :disabled="index === 0 || action.locked"
+                  @click="moveAction(index, -1)"
+                >
+                  <Icon name="up" :size="11" />
+                </button>
+                <button
+                  type="button"
+                  class="ps-icon-btn is-tiny"
+                  title="下移"
+                  :disabled="index === selectedStep.actions.length - 1 || action.locked"
+                  @click="moveAction(index, 1)"
+                >
+                  <Icon name="down" :size="11" />
+                </button>
+                <button type="button" class="ps-icon-btn is-tiny" title="复制" @click="duplicateAction(index)">
+                  <Icon name="copy" :size="11" />
+                </button>
+                <button
+                  type="button"
+                  class="ps-icon-btn is-tiny is-danger"
+                  title="删除"
+                  :disabled="action.locked"
+                  @click="deleteAction(index)"
+                >
+                  <Icon name="trash" :size="11" />
+                </button>
               </div>
             </div>
             <div class="ps-palette">
@@ -1612,23 +2758,43 @@ const modeLabel = computed(() => {
 
             <template v-if="flyAction">
               <div class="ps-camera-actions">
-                <button type="button" class="ps-btn is-small is-primary" @click="captureFlyCamera"><Icon name="camera" :size="13" />捕获当前视角</button>
-                <select class="ps-select" :value="flyAction.targetId ?? ''" @change="applyLandmarkToFly(($event.target as HTMLSelectElement).value)">
+                <button type="button" class="ps-btn is-small is-primary" @click="captureFlyCamera">
+                  <Icon name="camera" :size="13" />捕获当前视角
+                </button>
+                <select
+                  class="ps-select"
+                  :value="flyAction.targetId ?? ''"
+                  @change="applyLandmarkToFly(($event.target as HTMLSelectElement).value)"
+                >
                   <option value="">自由机位</option>
-                  <option v-for="landmark in LANDMARKS" :key="landmark.id" :value="landmark.id">{{ landmark.name }}</option>
+                  <option v-for="landmark in LANDMARKS" :key="landmark.id" :value="landmark.id">
+                    {{ landmark.name }}
+                  </option>
                 </select>
               </div>
               <div class="ps-grid-3">
-                <UiField label="经度" stacked><input v-model.number="flyAction.camera.longitude" class="ps-number" type="number" step="0.0001" /></UiField>
-                <UiField label="纬度" stacked><input v-model.number="flyAction.camera.latitude" class="ps-number" type="number" step="0.0001" /></UiField>
-                <UiField label="高度" stacked><input v-model.number="flyAction.camera.height" class="ps-number" type="number" step="1" /></UiField>
-                <UiField label="方位" stacked><input v-model.number="flyAction.camera.heading" class="ps-number" type="number" step="1" /></UiField>
-                <UiField label="俯仰" stacked><input v-model.number="flyAction.camera.pitch" class="ps-number" type="number" step="1" /></UiField>
-                <UiField label="视场角" stacked><input v-model.number="flyAction.camera.fov" class="ps-number" type="number" step="1" /></UiField>
+                <UiField label="经度" stacked
+                  ><input v-model.number="flyAction.camera.longitude" class="ps-number" type="number" step="0.0001"
+                /></UiField>
+                <UiField label="纬度" stacked
+                  ><input v-model.number="flyAction.camera.latitude" class="ps-number" type="number" step="0.0001"
+                /></UiField>
+                <UiField label="高度" stacked
+                  ><input v-model.number="flyAction.camera.height" class="ps-number" type="number" step="1"
+                /></UiField>
+                <UiField label="方位" stacked
+                  ><input v-model.number="flyAction.camera.heading" class="ps-number" type="number" step="1"
+                /></UiField>
+                <UiField label="俯仰" stacked
+                  ><input v-model.number="flyAction.camera.pitch" class="ps-number" type="number" step="1"
+                /></UiField>
+                <UiField label="视场角" stacked
+                  ><input v-model.number="flyAction.camera.fov" class="ps-number" type="number" step="1"
+                /></UiField>
               </div>
               <div class="ps-grid-2">
                 <UiField label="缓动" stacked>
-                  <select v-model="flyAction.easing" class="ps-select">
+                  <select v-model="flyAction.easing" class="ps-select" @change="resetCurve">
                     <option value="linear">线性</option>
                     <option value="smooth">平滑</option>
                     <option value="cinematic">电影</option>
@@ -1638,27 +2804,65 @@ const modeLabel = computed(() => {
                   <UiSwitch v-model="flyAction.arc" label="弧线飞行" />
                 </UiField>
               </div>
-              <p class="ps-hint">当前机位：{{ formatPoseValue(flyAction.camera.longitude) }}, {{ formatPoseValue(flyAction.camera.latitude) }} · {{ Math.round(flyAction.camera.height) }}m</p>
+              <p class="ps-hint">
+                当前机位：{{ formatPoseValue(flyAction.camera.longitude) }},
+                {{ formatPoseValue(flyAction.camera.latitude) }} · {{ Math.round(flyAction.camera.height) }}m
+              </p>
             </template>
 
             <template v-else-if="routeAction">
               <div class="ps-stats">
-                <div><b>{{ routeAction.route.samples.length }}</b><span>采样点</span></div>
-                <div><b>{{ routeAction.route.recordedDuration.toFixed(1) }}s</b><span>录制时长</span></div>
-                <div><b>{{ routeAction.route.interpolation === 'catmullrom' ? '样条' : '线性' }}</b><span>插值</span></div>
+                <div>
+                  <b>{{ routeAction.route.samples.length }}</b
+                  ><span>采样点</span>
+                </div>
+                <div>
+                  <b>{{ routeAction.route.recordedDuration.toFixed(1) }}s</b><span>录制时长</span>
+                </div>
+                <div>
+                  <b>{{ routeAction.route.interpolation === 'catmullrom' ? '样条' : '线性' }}</b
+                  ><span>插值</span>
+                </div>
               </div>
-              <UiField label="衔接混合" hint="秒">
-                <input v-model.number="routeAction.entryBlend" class="ps-number" type="number" min="0" max="4" step="0.1" />
-              </UiField>
+              <div class="ps-grid-2">
+                <UiField label="缓动" stacked>
+                  <select v-model="routeAction.easing" class="ps-select" @change="resetCurve">
+                    <option value="linear">线性</option>
+                    <option value="smooth">平滑</option>
+                    <option value="cinematic">电影</option>
+                  </select>
+                </UiField>
+                <UiField label="衔接混合" hint="秒">
+                  <input
+                    v-model.number="routeAction.entryBlend"
+                    class="ps-number"
+                    type="number"
+                    min="0"
+                    max="4"
+                    step="0.1"
+                  />
+                </UiField>
+              </div>
               <UiField label="平滑强度">
-                <input v-model.number="routeAction.route.smoothing" class="ps-range" type="range" min="0" max="1" step="0.01" />
+                <input
+                  v-model.number="routeAction.route.smoothing"
+                  class="ps-range"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                />
               </UiField>
               <UiField label="显示航线">
                 <UiSwitch v-model="routeAction.showTrail" label="显示航线" />
               </UiField>
               <div class="ps-btn-row">
-                <button type="button" class="ps-btn is-small" @click="smoothRoute"><Icon name="reset" :size="13" />重新平滑</button>
-                <button type="button" class="ps-btn is-small is-danger" @click="purgeRoute"><Icon name="trash" :size="13" />清空航线</button>
+                <button type="button" class="ps-btn is-small" @click="smoothRoute">
+                  <Icon name="reset" :size="13" />重新平滑
+                </button>
+                <button type="button" class="ps-btn is-small is-danger" @click="purgeRoute">
+                  <Icon name="trash" :size="13" />清空航线
+                </button>
               </div>
               <p class="ps-hint">在预览中点击「录制航线」，实时采样当前相机运动。</p>
             </template>
@@ -1689,7 +2893,7 @@ const modeLabel = computed(() => {
                   </select>
                 </UiField>
                 <UiField label="缓动" stacked>
-                  <select v-model="timeAction.easing" class="ps-select">
+                  <select v-model="timeAction.easing" class="ps-select" @change="resetCurve">
                     <option value="linear">线性</option>
                     <option value="smooth">平滑</option>
                     <option value="cinematic">电影</option>
@@ -1697,18 +2901,26 @@ const modeLabel = computed(() => {
                 </UiField>
               </div>
               <div class="ps-slider-row">
-                <span class="ps-slider-row__head"><span>起始</span><b>{{ Math.round(timeAction.from * 100) }}%</b></span>
+                <span class="ps-slider-row__head"
+                  ><span>起始</span><b>{{ Math.round(timeAction.from * 100) }}%</b></span
+                >
                 <input v-model.number="timeAction.from" class="ps-range" type="range" min="0" max="1" step="0.01" />
               </div>
               <div class="ps-slider-row">
-                <span class="ps-slider-row__head"><span>结束</span><b>{{ Math.round(timeAction.to * 100) }}%</b></span>
+                <span class="ps-slider-row__head"
+                  ><span>结束</span><b>{{ Math.round(timeAction.to * 100) }}%</b></span
+                >
                 <input v-model.number="timeAction.to" class="ps-range" type="range" min="0" max="1" step="0.01" />
               </div>
-              <p class="ps-hint">{{ TIME_TARGET_LABELS[timeAction.target] }} · 时长 {{ timeAction.duration.toFixed(1) }}s</p>
+              <p class="ps-hint">
+                {{ TIME_TARGET_LABELS[timeAction.target] }} · 时长 {{ timeAction.duration.toFixed(1) }}s
+              </p>
             </template>
 
             <template v-else-if="subtitleAction">
-              <UiField label="标题"><input v-model="subtitleAction.subtitle.title" class="ps-text-input" maxlength="40" /></UiField>
+              <UiField label="标题"
+                ><input v-model="subtitleAction.subtitle.title" class="ps-text-input" maxlength="40"
+              /></UiField>
               <UiField label="正文" stacked>
                 <textarea v-model="subtitleAction.subtitle.text" class="ps-textarea" rows="3" maxlength="220" />
               </UiField>
@@ -1734,18 +2946,38 @@ const modeLabel = computed(() => {
               </div>
               <div v-if="subtitleAction.subtitle.position === 'callout'" class="ps-grid-2">
                 <UiField label="标注锚点" stacked>
-                  <select class="ps-select" :value="''" @change="applyLandmarkToCallout(($event.target as HTMLSelectElement).value)">
+                  <select
+                    class="ps-select"
+                    :value="''"
+                    @change="applyLandmarkToCallout(($event.target as HTMLSelectElement).value)"
+                  >
                     <option value="" disabled>选择地标</option>
-                    <option v-for="landmark in LANDMARKS" :key="landmark.id" :value="landmark.id">{{ landmark.name }}</option>
+                    <option v-for="landmark in LANDMARKS" :key="landmark.id" :value="landmark.id">
+                      {{ landmark.name }}
+                    </option>
                   </select>
                 </UiField>
                 <UiField label="字号">
-                  <input v-model.number="subtitleAction.subtitle.fontSize" class="ps-range" type="range" min="16" max="64" step="1" />
+                  <input
+                    v-model.number="subtitleAction.subtitle.fontSize"
+                    class="ps-range"
+                    type="range"
+                    min="16"
+                    max="64"
+                    step="1"
+                  />
                 </UiField>
               </div>
               <div v-else class="ps-grid-2">
                 <UiField label="字号">
-                  <input v-model.number="subtitleAction.subtitle.fontSize" class="ps-range" type="range" min="16" max="64" step="1" />
+                  <input
+                    v-model.number="subtitleAction.subtitle.fontSize"
+                    class="ps-range"
+                    type="range"
+                    min="16"
+                    max="64"
+                    step="1"
+                  />
                 </UiField>
                 <UiField label="对齐" stacked>
                   <select v-model="subtitleAction.subtitle.align" class="ps-select">
@@ -1756,17 +2988,32 @@ const modeLabel = computed(() => {
                 </UiField>
               </div>
               <div class="ps-grid-2">
-                <UiField label="文字颜色"><input v-model="subtitleAction.subtitle.color" class="ps-color" type="color" /></UiField>
-                <UiField label="强调色"><input v-model="subtitleAction.subtitle.accent" class="ps-color" type="color" /></UiField>
+                <UiField label="文字颜色"
+                  ><input v-model="subtitleAction.subtitle.color" class="ps-color" type="color"
+                /></UiField>
+                <UiField label="强调色"
+                  ><input v-model="subtitleAction.subtitle.accent" class="ps-color" type="color"
+                /></UiField>
               </div>
               <div class="ps-slider-row">
-                <span class="ps-slider-row__head"><span>淡入淡出</span><b>{{ subtitleAction.subtitle.fade.toFixed(2) }}s</b></span>
-                <input v-model.number="subtitleAction.subtitle.fade" class="ps-range" type="range" min="0" max="2" step="0.05" />
+                <span class="ps-slider-row__head"
+                  ><span>淡入淡出</span><b>{{ subtitleAction.subtitle.fade.toFixed(2) }}s</b></span
+                >
+                <input
+                  v-model.number="subtitleAction.subtitle.fade"
+                  class="ps-range"
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.05"
+                />
               </div>
             </template>
 
             <template v-else-if="popupAction">
-              <UiField label="标题"><input v-model="popupAction.popup.title" class="ps-text-input" maxlength="40" /></UiField>
+              <UiField label="标题"
+                ><input v-model="popupAction.popup.title" class="ps-text-input" maxlength="40"
+              /></UiField>
               <UiField label="内容" stacked>
                 <textarea v-model="popupAction.popup.content" class="ps-textarea" rows="3" maxlength="220" />
               </UiField>
@@ -1774,7 +3021,9 @@ const modeLabel = computed(() => {
                 <UiField label="锚定地标" stacked>
                   <select v-model="popupAction.popup.targetId" class="ps-select">
                     <option :value="null">屏幕中心</option>
-                    <option v-for="landmark in LANDMARKS" :key="landmark.id" :value="landmark.id">{{ landmark.name }}</option>
+                    <option v-for="landmark in LANDMARKS" :key="landmark.id" :value="landmark.id">
+                      {{ landmark.name }}
+                    </option>
                   </select>
                 </UiField>
                 <UiField label="方位" stacked>
@@ -1788,9 +3037,18 @@ const modeLabel = computed(() => {
                 </UiField>
               </div>
               <div class="ps-grid-2">
-                <UiField label="强调色"><input v-model="popupAction.popup.accent" class="ps-color" type="color" /></UiField>
+                <UiField label="强调色"
+                  ><input v-model="popupAction.popup.accent" class="ps-color" type="color"
+                /></UiField>
                 <UiField label="卡片宽度" hint="px">
-                  <input v-model.number="popupAction.popup.width" class="ps-number" type="number" min="200" max="560" step="10" />
+                  <input
+                    v-model.number="popupAction.popup.width"
+                    class="ps-number"
+                    type="number"
+                    min="200"
+                    max="560"
+                    step="10"
+                  />
                 </UiField>
               </div>
             </template>
@@ -1806,12 +3064,121 @@ const modeLabel = computed(() => {
               <p class="ps-hint">效果在动作时长内平滑过渡到目标状态。</p>
             </template>
 
-            <div class="ps-grid-2 ps-action-common">
+            <div v-if="easingAction && activeCurve" class="ps-curve">
+              <div class="ps-curve__head">
+                <span>缓动曲线</span>
+                <small>{{ activeCurveCustom ? '自定义贝塞尔' : '跟随缓动预设' }}</small>
+                <button v-if="activeCurveCustom" type="button" class="ps-btn is-tiny" @click="resetCurve">
+                  恢复预设
+                </button>
+              </div>
+              <svg
+                class="ps-curve__canvas"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                role="img"
+                aria-label="缓动曲线预览"
+              >
+                <line x1="0" y1="100" x2="100" y2="0" class="ps-curve__guide" />
+                <line
+                  :x1="activeCurve.x1 * 100"
+                  :y1="100 - activeCurve.y1 * 100"
+                  x2="0"
+                  y2="100"
+                  class="ps-curve__handle"
+                />
+                <line
+                  :x1="activeCurve.x2 * 100"
+                  :y1="100 - activeCurve.y2 * 100"
+                  x2="100"
+                  y2="0"
+                  class="ps-curve__handle"
+                />
+                <path :d="activeCurvePath" class="ps-curve__line" />
+                <circle :cx="activeCurve.x1 * 100" :cy="100 - activeCurve.y1 * 100" r="2.4" class="ps-curve__point" />
+                <circle :cx="activeCurve.x2 * 100" :cy="100 - activeCurve.y2 * 100" r="2.4" class="ps-curve__point" />
+              </svg>
+              <div class="ps-curve__presets">
+                <button
+                  v-for="preset in CURVE_PRESETS"
+                  :key="preset.id"
+                  type="button"
+                  class="ps-chip"
+                  @click="applyCurvePreset(preset)"
+                >
+                  {{ preset.name }}
+                </button>
+              </div>
+              <div class="ps-curve__inputs">
+                <label
+                  >X1<input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    :value="activeCurve.x1"
+                    @change="setCurvePoint('x1', $event)"
+                /></label>
+                <label
+                  >Y1<input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    :value="activeCurve.y1"
+                    @change="setCurvePoint('y1', $event)"
+                /></label>
+                <label
+                  >X2<input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    :value="activeCurve.x2"
+                    @change="setCurvePoint('x2', $event)"
+                /></label>
+                <label
+                  >Y2<input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    :value="activeCurve.y2"
+                    @change="setCurvePoint('y2', $event)"
+                /></label>
+              </div>
+            </div>
+
+            <div class="ps-grid-3 ps-action-common">
               <UiField label="动作时长" stacked>
-                <input v-model.number="selectedAction.duration" class="ps-number" type="number" min="0.2" max="600" step="0.1" />
+                <input
+                  v-model.number="selectedAction.duration"
+                  class="ps-number"
+                  type="number"
+                  min="0.2"
+                  max="600"
+                  step="0.1"
+                />
+              </UiField>
+              <UiField label="起始" hint="秒，留空自动" stacked>
+                <input
+                  class="ps-number"
+                  type="number"
+                  min="0"
+                  max="600"
+                  step="0.1"
+                  placeholder="自动"
+                  :value="selectedAction.start ?? ''"
+                  @change="setActionStart"
+                />
               </UiField>
               <UiField label="备注" stacked>
-                <input v-model="selectedAction.note" class="ps-text-input" maxlength="60" placeholder="镜头意图 / 审片备注" />
+                <input
+                  v-model="selectedAction.note"
+                  class="ps-text-input"
+                  maxlength="60"
+                  placeholder="镜头意图 / 审片备注"
+                />
               </UiField>
             </div>
           </div>
@@ -1833,7 +3200,61 @@ const modeLabel = computed(() => {
               <button type="button" class="ps-btn is-primary is-small" @click="finishRecording">停止并生成</button>
               <button type="button" class="ps-btn is-small" @click="cancelRecording">取消</button>
             </div>
-            <p class="ps-hint">录制会实时采样相机位置与姿态，自动生成 recordRoute 动作。</p>
+            <p class="ps-hint">录制会实时采样相机位置与姿态，自动生成 recordRoute 动作；相机会自动保持离地至少 4m。</p>
+          </div>
+        </template>
+
+        <template v-if="railTab === 'tracks'">
+          <div class="ps-tracks">
+            <div class="ps-tracks__head">
+              <span>标准轨道</span>
+              <b>{{ trackFrames }} 帧 · {{ TIMELINE_FPS }}fps</b>
+            </div>
+            <div v-for="lane in trackLanes" :key="lane.id" class="ps-track">
+              <div class="ps-track__label">
+                <span>{{ lane.label }}</span>
+                <small>{{ lane.hint }}</small>
+              </div>
+              <div class="ps-track__lane" @click="seekTrack" @dragover.prevent @drop.prevent="onLaneDrop(lane, $event)">
+                <span class="ps-track__playhead" :style="{ left: `${playheadPercent}%` }" />
+                <button
+                  v-for="clip in lane.clips"
+                  :key="clip.id"
+                  type="button"
+                  class="ps-track__clip"
+                  :class="{
+                    'is-active': clip.actionId === selectedActionId,
+                    'is-off': !clip.enabled,
+                    'is-locked': clip.locked
+                  }"
+                  :style="{
+                    left: `${(clip.startFrame / trackFrames) * 100}%`,
+                    width: `${Math.max(1.2, (clip.durationFrames / trackFrames) * 100)}%`,
+                    '--clip-color': clip.color
+                  }"
+                  :title="`${clip.label} · ${clip.durationFrames} 帧 · 第 ${clip.stepIndex + 1} 幕${clip.locked ? ' · 已锁定' : ''}`"
+                  :draggable="!clip.locked"
+                  @dragstart="onTrackClipDragStart(clip, $event)"
+                  @dragover.prevent
+                  @drop.prevent="onTrackClipDrop(clip)"
+                  @click.stop="selectTrackClip(clip)"
+                >
+                  <Icon :name="clip.locked ? 'lock' : clip.icon" :size="10" />
+                  <span>{{ clip.label }}</span>
+                  <span
+                    v-if="!clip.locked"
+                    class="ps-track__trim"
+                    title="拖动调整片段时长"
+                    draggable="false"
+                    @dragstart.stop.prevent
+                    @pointerdown.stop="onTrimStart(clip, $event)"
+                  />
+                </button>
+              </div>
+            </div>
+            <p class="ps-hint">
+              拖动片段到轨道空白处调整起点，拖动尾部调整时长；两者都会吸附边界，点击片段跳转并选中动作。
+            </p>
           </div>
         </template>
       </div>
@@ -1854,29 +3275,48 @@ const modeLabel = computed(() => {
           type="range"
           min="0"
           :max="Math.max(0.01, total)"
-          step="0.01"
+          :step="1 / TIMELINE_FPS"
           :value="currentTime"
           @input="seek(Number(($event.target as HTMLInputElement).value))"
         />
       </div>
       <div class="ps-transport__row">
         <div class="ps-transport__status">
-          <span class="ps-mode" :class="`is-${mode}`">
-            <span class="ps-mode__dot" />{{ modeLabel }}
-          </span>
+          <span class="ps-mode" :class="`is-${mode}`"> <span class="ps-mode__dot" />{{ modeLabel }} </span>
           <span class="ps-transport__step">{{ activeStepName }}</span>
-          <span v-if="isDirty" class="ps-transport__dirty">未保存</span>
+          <span v-if="isDirty && !isPlayerMode" class="ps-transport__dirty">未保存</span>
         </div>
         <div class="ps-transport__controls">
-          <button type="button" class="ps-transport__btn" title="上一幕" @click="previousStep"><Icon name="prev" :size="16" /></button>
-          <button type="button" class="ps-transport__btn is-main" :title="mode === 'playing' ? '暂停' : '播放'" @click="togglePlayback">
+          <button type="button" class="ps-transport__btn" title="上一幕" @click="previousStep">
+            <Icon name="prev" :size="16" />
+          </button>
+          <button
+            type="button"
+            class="ps-transport__btn is-main"
+            :title="mode === 'playing' ? '暂停' : '播放'"
+            @click="togglePlayback"
+          >
             <Icon :name="mode === 'playing' ? 'pause' : 'play'" :size="18" />
           </button>
-          <button type="button" class="ps-transport__btn" title="停止并回到开头" @click="stopPlayback"><Icon name="stop" :size="14" /></button>
-          <button type="button" class="ps-transport__btn" title="下一幕" @click="nextStep"><Icon name="next" :size="16" /></button>
+          <button type="button" class="ps-transport__btn" title="停止并回到开头" @click="stopPlayback">
+            <Icon name="stop" :size="14" />
+          </button>
+          <button
+            type="button"
+            class="ps-transport__btn"
+            :class="{ 'is-active': loopPlayback }"
+            :title="loopPlayback ? '关闭循环播放' : '循环播放'"
+            @click="loopPlayback = !loopPlayback"
+          >
+            <Icon name="replay" :size="14" />
+          </button>
+          <button type="button" class="ps-transport__btn" title="下一幕" @click="nextStep">
+            <Icon name="next" :size="16" />
+          </button>
         </div>
         <div class="ps-transport__right">
           <span class="ps-clock">{{ formatClock(currentTime) }}<i>/</i>{{ formatClock(total) }}</span>
+          <span class="ps-frame">{{ Math.round(currentTime * TIMELINE_FPS) }}F</span>
           <div class="ps-speed">
             <button
               v-for="rate in [0.5, 1, 1.5, 2]"
@@ -1885,61 +3325,143 @@ const modeLabel = computed(() => {
               class="ps-speed__item"
               :class="{ 'is-active': playbackRate === rate }"
               @click="playbackRate = rate"
-            >{{ rate }}x</button>
+            >
+              {{ rate }}x
+            </button>
           </div>
-          <button type="button" class="ps-transport__btn is-ghost" title="后退 0.2s" @click="stepFrame(-0.2)"><Icon name="prev" :size="14" /></button>
-          <button type="button" class="ps-transport__btn is-ghost" title="前进 0.2s" @click="stepFrame(0.2)"><Icon name="next" :size="14" /></button>
-          <button type="button" class="ps-transport__btn is-ghost" title="视频导出 (Ctrl+E)" @click="openExportDialog"><Icon name="film" :size="15" /></button>
+          <button type="button" class="ps-transport__btn is-ghost" title="后退 0.2s" @click="stepFrame(-0.2)">
+            <Icon name="prev" :size="14" />
+          </button>
+          <button type="button" class="ps-transport__btn is-ghost" title="前进 0.2s" @click="stepFrame(0.2)">
+            <Icon name="next" :size="14" />
+          </button>
+          <button
+            v-if="!isPlayerMode"
+            type="button"
+            class="ps-transport__btn is-ghost"
+            title="视频导出 (Ctrl+E)"
+            @click="openExportDialog"
+          >
+            <Icon name="film" :size="15" />
+          </button>
         </div>
       </div>
     </div>
 
     <div v-if="!uiHidden" class="ps-toasts">
       <div v-for="item in toasts" :key="item.id" class="ps-toast" :class="`is-${item.tone}`">
-        <Icon :name="item.tone === 'success' ? 'check' : item.tone === 'error' || item.tone === 'warn' ? 'warning' : 'info'" :size="14" />
+        <Icon
+          :name="item.tone === 'success' ? 'check' : item.tone === 'error' || item.tone === 'warn' ? 'warning' : 'info'"
+          :size="14"
+        />
         <span>{{ item.text }}</span>
       </div>
     </div>
 
-    <input ref="fileInputRef" type="file" accept=".json,.cesium.presentation,application/json" class="ps-hidden-input" @change="onFilePicked" />
+    <input
+      ref="fileInputRef"
+      type="file"
+      accept=".json,.zip,.studio.json,.cesium.presentation,application/json,application/zip"
+      class="ps-hidden-input"
+      @change="onFilePicked"
+    />
 
-    <UiModal :open="dialog.kind === 'new'" title="新建演示" subtitle="以当前工程的初始状态作为起点" width="440px" @close="closeDialog" @confirm="confirmDialog">
+    <UiModal
+      :open="dialog.kind === 'new'"
+      title="新建演示"
+      subtitle="以当前工程的初始状态作为起点"
+      width="440px"
+      @close="closeDialog"
+      @confirm="confirmDialog"
+    >
       <UiField label="工程名称" stacked>
-        <input v-model="dialog.value" class="ps-text-input" maxlength="60" placeholder="例如：曲江夜色 · 飞行演示" @keydown.enter="confirmDialog" />
+        <input
+          v-model="dialog.value"
+          class="ps-text-input"
+          maxlength="60"
+          placeholder="例如：曲江夜色 · 飞行演示"
+          @keydown.enter="confirmDialog"
+        />
       </UiField>
     </UiModal>
 
-    <UiModal :open="dialog.kind === 'rename'" title="重命名工程" width="440px" @close="closeDialog" @confirm="confirmDialog">
+    <UiModal
+      :open="dialog.kind === 'rename'"
+      title="重命名工程"
+      width="440px"
+      @close="closeDialog"
+      @confirm="confirmDialog"
+    >
       <UiField label="工程名称" stacked>
         <input v-model="dialog.value" class="ps-text-input" maxlength="60" @keydown.enter="confirmDialog" />
       </UiField>
     </UiModal>
 
-    <UiModal :open="dialog.kind === 'saveAs'" title="另存为新工程" subtitle="复制当前工程的全部步骤与动作" width="440px" @close="closeDialog" @confirm="confirmDialog">
+    <UiModal
+      :open="dialog.kind === 'saveAs'"
+      title="另存为新工程"
+      subtitle="复制当前工程的全部步骤与动作"
+      width="440px"
+      @close="closeDialog"
+      @confirm="confirmDialog"
+    >
       <UiField label="新工程名称" stacked>
         <input v-model="dialog.value" class="ps-text-input" maxlength="60" @keydown.enter="confirmDialog" />
       </UiField>
     </UiModal>
 
-    <UiModal :open="dialog.kind === 'projectSettings'" title="工程设置" width="520px" @close="closeDialog" @confirm="confirmDialog">
+    <UiModal
+      :open="dialog.kind === 'projectSettings'"
+      title="工程设置"
+      width="520px"
+      @close="closeDialog"
+      @confirm="confirmDialog"
+    >
       <UiField label="工程名称" stacked>
         <input v-model="dialog.value" class="ps-text-input" maxlength="60" />
       </UiField>
       <UiField label="工程说明" stacked>
-        <textarea v-model="dialog.note" class="ps-textarea" rows="4" maxlength="800" placeholder="记录演示主题、镜头语言或交付说明" />
+        <textarea
+          v-model="dialog.note"
+          class="ps-textarea"
+          rows="4"
+          maxlength="800"
+          placeholder="记录演示主题、镜头语言或交付说明"
+        />
       </UiField>
       <div class="ps-dialog-actions">
-        <button type="button" class="ps-btn is-small" @click="exportProjectFile"><Icon name="download" :size="13" />导出工程文件</button>
-        <button type="button" class="ps-btn is-small" @click="triggerImport"><Icon name="upload" :size="13" />导入工程</button>
+        <button type="button" class="ps-btn is-small" @click="exportProjectFile">
+          <Icon name="download" :size="13" />导出工程文档
+        </button>
+        <button type="button" class="ps-btn is-small" @click="exportProjectPackage">
+          <Icon name="download" :size="13" />导出工程包
+        </button>
+        <button type="button" class="ps-btn is-small" @click="triggerImport">
+          <Icon name="upload" :size="13" />导入工程
+        </button>
       </div>
     </UiModal>
 
-    <UiModal :open="dialog.kind === 'deleteProject'" title="删除工程" width="440px" danger confirm-text="删除" @close="closeDialog" @confirm="confirmDialog">
+    <UiModal
+      :open="dialog.kind === 'deleteProject'"
+      title="删除工程"
+      width="440px"
+      danger
+      confirm-text="删除"
+      @close="closeDialog"
+      @confirm="confirmDialog"
+    >
       <p class="ps-dialog-text">确认删除「{{ dialog.value }}」？该操作会从本地工程库移除，无法撤销。</p>
       <p class="ps-dialog-sub">建议先导出工程文件作为备份。</p>
     </UiModal>
 
-    <UiModal :open="dialog.kind === 'unsaved'" title="有未保存的修改" subtitle="切换工程或新建前需要处理当前草稿" width="480px" @close="closeDialog">
+    <UiModal
+      :open="dialog.kind === 'unsaved'"
+      title="有未保存的修改"
+      subtitle="切换工程或新建前需要处理当前草稿"
+      width="480px"
+      @close="closeDialog"
+    >
       <p class="ps-dialog-text">「{{ project.name }}」存在尚未保存的修改。草稿已自动写入浏览器，可安全保存后继续。</p>
       <template #footer>
         <button type="button" class="ps-btn" @click="closeDialog">取消</button>
@@ -1948,51 +3470,168 @@ const modeLabel = computed(() => {
       </template>
     </UiModal>
 
-    <UiModal :open="dialog.kind === 'export'" title="导出演示视频" subtitle="实时渲染三维场景并合成字幕、弹窗与转场" width="560px" @close="closeDialog">
+    <UiModal
+      :open="dialog.kind === 'export'"
+      title="导出演示"
+      subtitle="实时录制或逐帧确定性渲染，合成字幕、弹窗与转场"
+      width="560px"
+      @close="closeDialog"
+    >
       <div class="ps-export-section">
         <span class="ps-export-label">分辨率</span>
         <div class="ps-seg">
-          <button v-for="option in [{ id: '1080p', label: '1080P', meta: '1920×1080' }, { id: '2k', label: '2K', meta: '2560×1440' }, { id: '4k', label: '4K', meta: '3840×2160' }]" :key="option.id" type="button" class="ps-seg__item" :class="{ 'is-active': exportSettings.resolution === option.id }" @click="exportSettings.resolution = option.id as ExportSettings['resolution']">
-            <b>{{ option.label }}</b><small>{{ option.meta }}</small>
+          <button
+            v-for="option in [
+              { id: '1080p', label: '1080P', meta: '1920×1080' },
+              { id: '2k', label: '2K', meta: '2560×1440' },
+              { id: '4k', label: '4K', meta: '3840×2160' }
+            ]"
+            :key="option.id"
+            type="button"
+            class="ps-seg__item"
+            :class="{ 'is-active': exportSettings.resolution === option.id }"
+            @click="exportSettings.resolution = option.id as ExportSettings['resolution']"
+          >
+            <b>{{ option.label }}</b
+            ><small>{{ option.meta }}</small>
           </button>
         </div>
       </div>
       <div class="ps-export-section">
         <span class="ps-export-label">帧率</span>
         <div class="ps-seg">
-          <button type="button" class="ps-seg__item" :class="{ 'is-active': exportSettings.fps === 30 }" @click="exportSettings.fps = 30"><b>30 FPS</b><small>稳定输出</small></button>
-          <button type="button" class="ps-seg__item" :class="{ 'is-active': exportSettings.fps === 60 }" @click="exportSettings.fps = 60"><b>60 FPS</b><small>顺滑运动</small></button>
+          <button
+            type="button"
+            class="ps-seg__item"
+            :class="{ 'is-active': exportSettings.fps === 30 }"
+            @click="exportSettings.fps = 30"
+          >
+            <b>30 FPS</b><small>稳定输出</small>
+          </button>
+          <button
+            type="button"
+            class="ps-seg__item"
+            :class="{ 'is-active': exportSettings.fps === 60 }"
+            @click="exportSettings.fps = 60"
+          >
+            <b>60 FPS</b><small>顺滑运动</small>
+          </button>
+        </div>
+      </div>
+      <div class="ps-export-section">
+        <span class="ps-export-label">导出方式</span>
+        <div class="ps-seg">
+          <button
+            type="button"
+            class="ps-seg__item"
+            :class="{ 'is-active': (exportSettings.format ?? 'video') === 'video' }"
+            @click="selectExportMode('video', 'realtime')"
+          >
+            <b>实时视频</b><small>快 · 受设备帧率影响</small>
+          </button>
+          <button
+            type="button"
+            class="ps-seg__item"
+            :class="{ 'is-active': exportIsFrames }"
+            @click="selectExportMode('frames', 'deterministic')"
+          >
+            <b>逐帧序列</b><small>慢 · 确定性 PNG + ZIP</small>
+          </button>
+        </div>
+      </div>
+      <div class="ps-export-section">
+        <span class="ps-export-label">画面适配</span>
+        <div class="ps-seg">
+          <button
+            v-for="fit in [
+              { id: 'contain', label: '完整' },
+              { id: 'cover', label: '铺满' },
+              { id: 'stretch', label: '拉伸' }
+            ]"
+            :key="fit.id"
+            type="button"
+            class="ps-seg__item"
+            :class="{ 'is-active': (exportSettings.fit ?? 'contain') === fit.id }"
+            @click="exportSettings.fit = fit.id as 'contain' | 'cover' | 'stretch'"
+          >
+            <b>{{ fit.label }}</b
+            ><small>{{ fit.id }}</small>
+          </button>
         </div>
       </div>
       <div class="ps-export-info">
-        <div><span>编码格式</span><b>{{ recorderFormat?.label ?? '不支持' }}</b></div>
-        <div><span>时间轴</span><b>{{ formatClock(total) }}</b></div>
-        <div><span>步骤动作</span><b>{{ project.steps.length }} 幕 / {{ project.steps.reduce((sum, step) => sum + step.actions.filter((action) => action.enable).length, 0) }} 动作</b></div>
+        <div>
+          <span>输出</span
+          ><b>{{
+            exportIsFrames
+              ? `PNG 序列 · ${exportProfile.width}×${exportProfile.height}`
+              : (recorderFormat?.label ?? '不支持')
+          }}</b>
+        </div>
+        <div>
+          <span>时间轴</span><b>{{ formatClock(total) }}</b>
+        </div>
+        <div>
+          <span>步骤动作</span
+          ><b
+            >{{ project.steps.length }} 幕 /
+            {{
+              project.steps.reduce((sum, step) => sum + step.actions.filter((action) => action.enable).length, 0)
+            }}
+            动作</b
+          >
+        </div>
       </div>
-      <p class="ps-export-note">导出为实时录制，请保持页面处于前台，避免切换标签页导致丢帧。视频将自动下载。</p>
+      <p class="ps-export-note">
+        {{
+          exportIsFrames
+            ? '逐帧模式以整数帧求值，输出 PNG 序列、字幕 SRT 与 manifest，压缩为 ZIP 下载。'
+            : '实时模式请保持页面处于前台，避免切换标签页导致丢帧；对确定性有要求时请使用逐帧模式。'
+        }}
+      </p>
       <template #footer>
         <button type="button" class="ps-btn" @click="closeDialog">取消</button>
-        <button type="button" class="ps-btn is-primary" @click="startExport"><Icon name="film" :size="14" />开始导出</button>
+        <button type="button" class="ps-btn is-primary" @click="startExport">
+          <Icon name="film" :size="14" />{{ exportIsFrames ? '开始逐帧导出' : '开始实时导出' }}
+        </button>
       </template>
     </UiModal>
 
-    <UiModal :open="dialog.kind === 'help'" title="快捷键与操作" subtitle="在三维舞台内使用键盘完成快速编排" width="560px" hide-footer @close="closeDialog">
+    <UiModal
+      :open="dialog.kind === 'help'"
+      title="快捷键与操作"
+      subtitle="在三维舞台内使用键盘完成快速编排"
+      width="560px"
+      hide-footer
+      @close="closeDialog"
+    >
       <div class="ps-shortcuts">
         <div><kbd>Space</kbd><span>播放 / 暂停</span></div>
-        <div><kbd>←</kbd><kbd>→</kbd><span>后退 / 前进 0.2 秒</span></div>
+        <div><kbd>←</kbd><kbd>→</kbd><span>后退 / 前进 1 帧</span></div>
         <div><kbd>Home</kbd><span>停止并回到开头</span></div>
         <div><kbd>H</kbd><span>隐藏 / 显示界面</span></div>
         <div><kbd>F</kbd><span>全屏预览</span></div>
         <div><kbd>Esc</kbd><span>退出播放 / 取消录制</span></div>
         <div><kbd>Ctrl</kbd><kbd>S</kbd><span>保存当前工程</span></div>
         <div><kbd>Ctrl</kbd><kbd>E</kbd><span>打开视频导出</span></div>
+        <div><kbd>Ctrl</kbd><kbd>Z</kbd><span>撤销上一步编辑</span></div>
+        <div><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Z</kbd><span>重做已撤销的编辑</span></div>
+        <div><kbd>L</kbd><span>循环播放开关</span></div>
       </div>
       <p class="ps-dialog-sub">{{ STAGE_HELP }}</p>
     </UiModal>
 
-    <UiModal :open="dialog.kind === 'importError'" title="无法导入工程" width="460px" @close="closeDialog" @confirm="confirmDialog">
+    <UiModal
+      :open="dialog.kind === 'importError'"
+      title="无法导入工程"
+      width="460px"
+      @close="closeDialog"
+      @confirm="confirmDialog"
+    >
       <p class="ps-dialog-text">{{ dialog.message }}</p>
-      <p class="ps-dialog-sub">请确认文件为 Presentation Studio 导出的 .cesium.presentation 或合法 JSON。</p>
+      <p class="ps-dialog-sub">
+        请确认文件为 Presentation Studio 导出的 .studio.zip / .studio.json / .cesium.presentation 或合法 JSON。
+      </p>
     </UiModal>
   </div>
 </template>

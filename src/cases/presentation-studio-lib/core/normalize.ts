@@ -20,7 +20,10 @@ import { PROJECT_FORMAT, PROJECT_VERSION } from './types'
 import {
   type ActionType,
   type CameraPose,
+  type CustomLayer,
+  type CustomLayerKind,
   type EffectId,
+  type EasingCurve,
   type EasingType,
   type EffectSnapshot,
   type FlyToAction,
@@ -88,6 +91,16 @@ function text(value: unknown, fallback: string): string {
 
 function pickList<T extends string>(value: unknown, allowed: T[], fallback: T): T {
   return typeof value === 'string' && (allowed as string[]).includes(value) ? (value as T) : fallback
+}
+
+export function stableId(prefix: string, seed: string): string {
+  let hash = 2166136261
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  const encoded = (hash >>> 0).toString(36)
+  return `${prefix}_${encoded}`
 }
 
 function normalizeAngle(value: number): number {
@@ -213,15 +226,35 @@ function normalizePopup(raw: unknown): PopupAction['popup'] {
   }
 }
 
+function normalizeCurve(raw: unknown): EasingCurve | undefined {
+  if (!isRecord(raw)) return undefined
+  const x1 = num(raw.x1, NaN)
+  const y1 = num(raw.y1, NaN)
+  const x2 = num(raw.x2, NaN)
+  const y2 = num(raw.y2, NaN)
+  if (![x1, y1, x2, y2].every((value) => Number.isFinite(value))) return undefined
+  return {
+    x1: clamp(x1, 0, 1),
+    y1: clamp(y1, 0, 1),
+    x2: clamp(x2, 0, 1),
+    y2: clamp(y2, 0, 1)
+  }
+}
+
 function normalizeAction(raw: unknown, index: number): PresentationAction | null {
   if (!isRecord(raw)) return null
   const type = pickList(raw.actionType, ACTION_TYPES, 'flyTo')
   const fallback = createAction(type)
+  const start = raw.start !== undefined && raw.start !== null && Number.isFinite(Number(raw.start)) ? clamp(num(raw.start, 0), 0, 600) : undefined
+  const curve = normalizeCurve(raw.curve)
   const base = {
-    actionId: text(raw.actionId, `act_${index}_${Math.random().toString(36).slice(2, 7)}`),
+    actionId: text(raw.actionId, stableId('act', `${index}:${text(raw.actionType, 'unknown')}:${text(raw.note, '')}`)),
     enable: bool(raw.enable, true),
     duration: clamp(num(raw.duration, fallback.duration), 0.2, 600),
-    note: text(raw.note, '').slice(0, 200)
+    note: text(raw.note, '').slice(0, 200),
+    ...(start !== undefined ? { start } : {}),
+    ...(bool(raw.locked, false) ? { locked: true } : {}),
+    ...(curve ? { curve } : {})
   }
 
   switch (type) {
@@ -322,11 +355,11 @@ function normalizeStep(raw: unknown, index: number): PresentationStep {
     .slice(0, 200)
   const seen = new Set<string>()
   for (const action of actions) {
-    if (seen.has(action.actionId)) action.actionId = `${action.actionId}_${Math.random().toString(36).slice(2, 6)}`
+    if (seen.has(action.actionId)) action.actionId = stableId('act', `${action.actionId}:${seen.size}`)
     seen.add(action.actionId)
   }
   return {
-    stepId: text(source.stepId, `step_${index}_${Math.random().toString(36).slice(2, 7)}`),
+    stepId: text(source.stepId, stableId('step', `${index}:${text(source.stepName ?? source.name, '')}`)),
     stepName: text(source.stepName ?? source.name, `步骤 ${String(index + 1).padStart(2, '0')}`).slice(0, 40),
     duration: clamp(num(source.duration, 8), 0.5, 600),
     speedRate: clamp(num(source.speedRate ?? source.speed, 1), 0.25, 4),
@@ -334,6 +367,31 @@ function normalizeStep(raw: unknown, index: number): PresentationStep {
     transition: normalizeTransition(source.transition),
     actions
   }
+}
+
+function normalizeCustomLayers(raw: unknown): CustomLayer[] {
+  if (!Array.isArray(raw)) return []
+  const layers: CustomLayer[] = []
+  const seen = new Set<string>()
+  raw.slice(0, 200).forEach((item, index) => {
+    const source = asRecord(item)
+    const kind: CustomLayerKind = source.kind === 'geojson' ? 'geojson' : '3dtiles'
+    const uri = text(source.uri, '').trim().slice(0, 2048)
+    if (!uri) return
+    let id = text(source.id, stableId('layer', `${uri}:${index}`))
+    if (seen.has(id)) id = stableId('layer', `${id}:${index}`)
+    seen.add(id)
+    layers.push({
+      id,
+      name: text(source.name, kind === 'geojson' ? 'GeoJSON 图层' : '3D Tiles 图层').slice(0, 60),
+      kind,
+      uri,
+      visible: source.visible !== false,
+      locked: source.locked === true,
+      opacity: clamp(num(source.opacity, 1), 0, 1)
+    })
+  })
+  return layers
 }
 
 export function normalizeProject(raw: unknown): PresentationProject {
@@ -355,21 +413,46 @@ export function normalizeProject(raw: unknown): PresentationProject {
   if (!steps.length) steps.push(createStep(1))
   const seenSteps = new Set<string>()
   for (const step of steps) {
-    if (seenSteps.has(step.stepId)) step.stepId = `${step.stepId}_${Math.random().toString(36).slice(2, 6)}`
+    if (seenSteps.has(step.stepId)) step.stepId = stableId('step', `${step.stepId}:${seenSteps.size}`)
     seenSteps.add(step.stepId)
   }
   const now = nowIso()
   return {
     format: PROJECT_FORMAT,
     version: PROJECT_VERSION,
-    id: text(source.id, `prj_${Math.random().toString(36).slice(2, 10)}`),
+    id: text(source.id, stableId('prj', `${text(source.name, 'untitled')}:${text(source.createTime, '')}`)),
     name: text(source.name, '未命名演示').trim().slice(0, 60) || '未命名演示',
     note: text(source.note, '').slice(0, 800),
     createTime: text(source.createTime, now),
     updateTime: text(source.updateTime, now),
     initial,
-    steps
+    steps,
+    customLayers: normalizeCustomLayers(source.customLayers ?? asRecord(source.extensions).customLayers),
+    extensions: normalizeExtensions(source)
   }
+}
+
+const KNOWN_PROJECT_KEYS = new Set([
+  'format',
+  'version',
+  'id',
+  'name',
+  'note',
+  'createTime',
+  'updateTime',
+  'initial',
+  'initialState',
+  'scene',
+  'steps',
+  'extensions'
+])
+
+function normalizeExtensions(source: UnknownRecord): Record<string, unknown> | undefined {
+  const preserved: Record<string, unknown> = isRecord(source.extensions) ? { ...source.extensions } : {}
+  for (const [key, value] of Object.entries(source)) {
+    if (!KNOWN_PROJECT_KEYS.has(key)) preserved[key] = value
+  }
+  return Object.keys(preserved).length ? preserved : undefined
 }
 
 export function parseProjectFile(content: string): PresentationProject {

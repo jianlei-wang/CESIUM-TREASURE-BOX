@@ -62,6 +62,8 @@ const icons: Record<string, string> = {
   step: '<path d="M4 19h5v-5h5V9h5V4"/><circle cx="4" cy="19" r="1.4" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.4" fill="currentColor" stroke="none"/>',
   action: '<path d="M5 6h4v4H5zM15 14h4v4h-4z"/><path d="M9 8h4a2 2 0 0 1 2 2v4M15 14h-4a2 2 0 0 1-2-2V8"/>',
   reset: '<path d="M4.5 10A8 8 0 1 1 5 15"/><path d="M4 4v6h6"/>',
+  undo: '<path d="M9 7 4 12l5 5"/><path d="M4 12h9a6 6 0 0 1 6 6v1"/>',
+  redo: '<path d="m15 7 5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6v1"/>',
   expand: '<path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>',
   edit: '<path d="M4 20h4l11-11-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',

@@ -29,6 +29,13 @@ const V = spec.volume
 const CAMERA_ORDER = ['overview', 'river', 'city', 'peak', 'section'] as const
 const camera = ref<(typeof CAMERA_ORDER)[number]>('overview')
 
+const PRECISION_PRESETS = [
+  { tileSize: 16, levels: 4, label: '128³' },
+  { tileSize: 24, levels: 4, label: '192³' },
+  { tileSize: 32, levels: 4, label: '256³' }
+] as const
+const precision = ref(spec.defaults.tileSize)
+
 const depthThreshold = ref(config.depthThresholds[0])
 const isoEnabled = ref(false)
 const riverVisible = ref(true)
@@ -164,6 +171,11 @@ function flyTo(key: (typeof CAMERA_ORDER)[number]): void {
   scene.engine.value?.flyToView(cam.heading, cam.pitch, cam.rangeFactor, 1.1)
 }
 
+function selectPrecision(preset: (typeof PRECISION_PRESETS)[number]): void {
+  precision.value = preset.tileSize
+  scene.setPreset(preset.tileSize, preset.levels)
+}
+
 watch(
   () => scene.ui.timeStep,
   () => {
@@ -243,23 +255,25 @@ const pickedView = computed<PickedView | null>(() => {
   >
     <template #scene>
       <div ref="container" class="vol-cesium"></div>
-      <div v-if="kpiCards.length" class="fl-kpi">
-        <div v-for="card in kpiCards" :key="card.label" class="fl-kpi-card">
-          <span>{{ card.label }}</span>
-          <b>{{ card.value }}<i>{{ card.unit }}</i></b>
+      <div class="fl-hud">
+        <div v-if="kpiCards.length" class="fl-kpi">
+          <div v-for="card in kpiCards" :key="card.label" class="fl-kpi-card">
+            <span>{{ card.label }}</span>
+            <b>{{ card.value }}<i>{{ card.unit }}</i></b>
+          </div>
         </div>
-      </div>
-      <div class="fl-cam">
-        <button
-          v-for="key in CAMERA_ORDER"
-          :key="key"
-          type="button"
-          class="fl-cam-btn"
-          :class="{ active: camera === key }"
-          @click="flyTo(key)"
-        >
-          {{ config.camera[key].label }}
-        </button>
+        <div class="fl-cam">
+          <button
+            v-for="key in CAMERA_ORDER"
+            :key="key"
+            type="button"
+            class="fl-cam-btn"
+            :class="{ active: camera === key }"
+            @click="flyTo(key)"
+          >
+            {{ config.camera[key].label }}
+          </button>
+        </div>
       </div>
     </template>
 
@@ -389,9 +403,16 @@ const pickedView = computed<PickedView | null>(() => {
         <div class="vol-row">
           <span class="vol-label">精度</span>
           <div class="fl-seg">
-            <button type="button" class="fl-seg-btn" @click="scene.setPreset(16, 4)">128³</button>
-            <button type="button" class="fl-seg-btn" @click="scene.setPreset(24, 4)">192³</button>
-            <button type="button" class="fl-seg-btn" @click="scene.setPreset(32, 4)">256³</button>
+            <button
+              v-for="preset in PRECISION_PRESETS"
+              :key="preset.label"
+              type="button"
+              class="fl-seg-btn"
+              :class="{ active: precision === preset.tileSize }"
+              @click="selectPrecision(preset)"
+            >
+              {{ preset.label }}
+            </button>
           </div>
         </div>
       </div>
@@ -516,6 +537,12 @@ const pickedView = computed<PickedView | null>(() => {
   border-color: #39a0ff;
   color: #fff;
 }
+.fl-seg-btn.active {
+  border-color: #39a0ff;
+  background: rgba(57, 160, 255, 0.28);
+  color: #fff;
+  font-weight: 600;
+}
 .fl-basin {
   font-size: 12px;
   font-weight: 700;
@@ -553,17 +580,24 @@ const pickedView = computed<PickedView | null>(() => {
   line-height: 1.6;
   color: #9fb8d4;
 }
-.fl-kpi {
+.fl-hud {
   position: absolute;
   top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 248px;
+  right: calc(22px + min(276px, calc(100% - 24px)) + 228px);
   z-index: 9;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.fl-kpi {
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 4px;
-  max-width: min(560px, calc(100% - 360px));
-  pointer-events: none;
+  max-width: 100%;
 }
 .fl-kpi-card {
   display: flex;
@@ -595,15 +629,12 @@ const pickedView = computed<PickedView | null>(() => {
   font-weight: 500;
 }
 .fl-cam {
-  position: absolute;
-  bottom: 14px;
-  right: 14px;
-  z-index: 9;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  max-width: 300px;
-  justify-content: flex-end;
+  max-width: 100%;
+  justify-content: center;
+  pointer-events: auto;
 }
 .fl-cam-btn {
   padding: 5px 10px;
@@ -675,11 +706,12 @@ const pickedView = computed<PickedView | null>(() => {
   font-variant-numeric: tabular-nums;
 }
 @media (max-width: 860px) {
+  .fl-hud {
+    left: 12px;
+    right: 12px;
+  }
   .fl-kpi {
-    max-width: calc(100% - 24px);
-    top: auto;
-    bottom: 52px;
-    flex-wrap: wrap;
+    max-width: 100%;
   }
 }
 </style>

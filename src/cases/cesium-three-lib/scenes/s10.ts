@@ -15,7 +15,7 @@ function createS10(kit: import('../types').SceneKit): ScenarioRuntime {
     clothGeometry,
     new THREE.MeshStandardMaterial({ color: '#e0613f', roughness: 0.62, side: THREE.DoubleSide, transparent: true, opacity: 0.94 })
   )
-  cloth.position.set(-2, 19, 0)
+  cloth.position.set(-18, 17, 0)
   root.add(cloth)
   const trees: { group: THREE.Group; canopy: THREE.Mesh; phase: number }[] = []
   const random = seeded(7723)
@@ -70,7 +70,7 @@ function createS10(kit: import('../types').SceneKit): ScenarioRuntime {
     const state = model.state
     const position = clothGeometry.attributes.position as THREE.BufferAttribute
     for (let i = 0; i < position.count; i += 1) {
-      position.setXYZ(i, state.cloth[i * 3] - S10_WIDTH / 2, state.cloth[i * 3 + 1], state.cloth[i * 3 + 2])
+      position.setXYZ(i, state.cloth[i * 3], state.cloth[i * 3 + 1], state.cloth[i * 3 + 2])
     }
     position.needsUpdate = true
     normalTick += 1

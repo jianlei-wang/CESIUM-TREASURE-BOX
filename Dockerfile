@@ -13,6 +13,7 @@ FROM nginx:1.27-alpine AS runtime
 ENV APP_TITLE="Cesium酱の百宝箱"
 ENV API_BASE_URL=""
 ENV CESIUM_ION_TOKEN=""
+ENV WHITE_MODEL_TILESET_BASE=""
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/entrypoint.sh /docker-entrypoint.d/40-studio-runtime-config.sh
 RUN chmod +x /docker-entrypoint.d/40-studio-runtime-config.sh

@@ -17,16 +17,16 @@ import {
   loadBingImagery,
   type SceneCallbacks
 } from '../../lib/cesium-scene'
+import {
+  AMSTERDAM,
+  FALLBACK_NOTICE,
+  FALLBACK_TILESET_URL,
+  LOD_OPTIONS,
+  buildTilesetUrl,
+  describeTilesetError,
+  requestTilesetJson
+} from '../../lib/use-white-model-tileset'
 
-const TILESET_URL =
-  'https://data.3dbag.nl/v20250903/cesium3dtiles/lod22/tileset.json'
-
-const AMSTERDAM = { lon: 4.9041, lat: 52.3676 }
-const LOD_OPTIONS = [
-  { label: 'LOD 2.2（精细）', suffix: 'lod22' },
-  { label: 'LOD 1.3（简化）', suffix: 'lod13' },
-  { label: 'LOD 1.2（最简）', suffix: 'lod12' }
-]
 const STYLE_COLORS = ['white', 'silver', 'cyan', 'orange']
 const BLEND_MODES = [
   { value: Cesium3DTileColorBlendMode.REPLACE, label: '替换' },
@@ -48,6 +48,7 @@ const skipLod = ref(true)
 const dynamicError = ref(false)
 const heightOffset = ref(0)
 const loading = ref(false)
+const loadFailed = ref(false)
 
 const perfFps = ref(0)
 const perfTiles = ref(0)
@@ -60,9 +61,24 @@ let tileset: Cesium3DTileset | undefined
 let disposed = false
 let perfTimer: number | undefined
 let lastFrameTime = 0
+let loadSeq = 0
+const usingFallback = ref(false)
+let noticeTimer: number | undefined
 
-function buildUrl(suffix: string): string {
-  return `https://data.3dbag.nl/v20250903/cesium3dtiles/${suffix}/tileset.json`
+function clearNoticeTimer(): void {
+  if (noticeTimer !== undefined) {
+    window.clearTimeout(noticeTimer)
+    noticeTimer = undefined
+  }
+}
+
+function showFallbackNotice(): void {
+  clearNoticeTimer()
+  statusMessage.value = FALLBACK_NOTICE
+  noticeTimer = window.setTimeout(() => {
+    noticeTimer = undefined
+    if (!disposed) statusMessage.value = ''
+  }, 15000)
 }
 
 function applyStyle(): void {
@@ -120,34 +136,80 @@ function updatePerf(): void {
 
 async function addModel(): Promise<void> {
   if (!viewer || viewer.isDestroyed()) return
+  const v = viewer
+  const seq = ++loadSeq
   loading.value = true
+  loadFailed.value = false
+  let model: Cesium3DTileset | undefined
+  let usedFallback = usingFallback.value
   try {
-    const model = await Cesium3DTileset.fromUrl(buildUrl(LOD_OPTIONS[lodIndex.value].suffix))
+    clearNoticeTimer()
+    if (!usingFallback.value) {
+      const url = buildTilesetUrl(LOD_OPTIONS[lodIndex.value].suffix)
+      try {
+        await requestTilesetJson(url)
+        if (seq !== loadSeq || disposed || v.isDestroyed()) return
+        model = await Cesium3DTileset.fromUrl(url)
+      } catch {
+        if (seq !== loadSeq || disposed || v.isDestroyed()) return
+        statusMessage.value = '3DBAG 官方数据源不可达，正在切换 PDOK 全国建筑白模…'
+      }
+    }
+    if (!model) {
+      await requestTilesetJson(FALLBACK_TILESET_URL)
+      if (seq !== loadSeq || disposed || v.isDestroyed()) return
+      model = await Cesium3DTileset.fromUrl(FALLBACK_TILESET_URL)
+      usedFallback = true
+    }
+    if (seq !== loadSeq || disposed || v.isDestroyed()) {
+      model.destroy()
+      return
+    }
     model.maximumScreenSpaceError = screenSpaceError.value
     model.cacheBytes = cacheBytes.value * 1024 * 1024
     model.maximumCacheOverflowBytes = maxOverflow.value * 1024 * 1024
     model.skipLevelOfDetail = skipLod.value
     model.dynamicScreenSpaceError = dynamicError.value
-    viewer.scene.primitives.add(model)
+    v.scene.primitives.add(model)
     tileset = model
+    usingFallback.value = usedFallback
     applyHeight()
     applyStyle()
-    viewer.camera.flyTo({
-      destination: Cartesian3.fromDegrees(AMSTERDAM.lon, AMSTERDAM.lat, 18000),
-      orientation: { heading: -1.1, pitch: -CesiumMath.PI_OVER_TWO + 0.22, roll: 0 }
-    })
-    statusMessage.value = ''
+    if (usedFallback) {
+      v.camera.flyTo({
+        destination: Cartesian3.fromDegrees(AMSTERDAM.lon, AMSTERDAM.lat, 900),
+        orientation: { heading: -1.1, pitch: -0.55, roll: 0 }
+      })
+      showFallbackNotice()
+    } else {
+      v.camera.flyTo({
+        destination: Cartesian3.fromDegrees(AMSTERDAM.lon, AMSTERDAM.lat, 18000),
+        orientation: { heading: -1.1, pitch: -CesiumMath.PI_OVER_TWO + 0.22, roll: 0 }
+      })
+      statusMessage.value = ''
+    }
   } catch (error) {
-    statusMessage.value = error instanceof Error ? error.message : String(error)
+    if (seq !== loadSeq || disposed) return
+    loadFailed.value = true
+    statusMessage.value = describeTilesetError(error)
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
 function removeModel(): void {
+  loadSeq += 1
   if (!viewer || viewer.isDestroyed() || !tileset) return
   viewer.scene.primitives.remove(tileset)
   tileset = undefined
+}
+
+function onRetry(): void {
+  if (loading.value) return
+  removeModel()
+  usingFallback.value = false
+  statusMessage.value = '正在加载荷兰全境建筑白模…'
+  void addModel()
 }
 
 async function onLodChange(): Promise<void> {
@@ -161,6 +223,7 @@ async function onReset(): Promise<void> {
   if (!viewer || viewer.isDestroyed()) return
   removeModel()
   lodIndex.value = 0
+  usingFallback.value = false
   styleColorIndex.value = 0
   alphaValue.value = 100
   blendModeIndex.value = 2
@@ -177,6 +240,13 @@ async function onReset(): Promise<void> {
 
 function onFlyToCity(): void {
   if (!viewer || viewer.isDestroyed()) return
+  if (usingFallback.value) {
+    viewer.camera.flyTo({
+      destination: Cartesian3.fromDegrees(AMSTERDAM.lon, AMSTERDAM.lat, 900),
+      orientation: { heading: -1.1, pitch: -0.55, roll: 0 }
+    })
+    return
+  }
   viewer.camera.flyTo({
     destination: Cartesian3.fromDegrees(AMSTERDAM.lon, AMSTERDAM.lat, 18000),
     orientation: { heading: -1.1, pitch: -CesiumMath.PI_OVER_TWO + 0.22, roll: 0 }
@@ -187,7 +257,9 @@ onMounted(async () => {
   if (!container.value) return
   const sceneCallbacks: SceneCallbacks = {
     onStatus: (message) => { statusMessage.value = message },
-    onBasemapReady: () => { statusMessage.value = '' }
+    onBasemapReady: () => {
+      if (noticeTimer === undefined) statusMessage.value = ''
+    }
   }
   try {
     viewer = createMapScene(container.value, sceneCallbacks)
@@ -207,6 +279,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   disposed = true
+  clearNoticeTimer()
   if (perfTimer !== undefined) {
     window.clearInterval(perfTimer)
     perfTimer = undefined
@@ -300,9 +373,11 @@ onBeforeUnmount(() => {
         <button class="action-btn" :disabled="loading" @click="onReset">重置</button>
       </div>
       <div v-if="loading" class="loading-tip">模型加载中…</div>
+      <button v-if="loadFailed && !loading" class="action-btn retry-btn" @click="onRetry">重试加载</button>
       <p class="hint">加载荷兰全境建筑白模数据源，通过屏幕空间误差、瓦片缓存、内存上限与 LOD 跳级控制渲染细节与性能。</p>
     </div>
 
+    <div v-if="usingFallback" class="data-credit">建筑数据：PDOK / Kadaster · CC BY 4.0</div>
     <div v-if="statusMessage" class="status-mask">{{ statusMessage }}</div>
   </div>
 </template>
@@ -330,6 +405,8 @@ onBeforeUnmount(() => {
 .action-btn { flex: 1; height: 26px; border: 0; border-radius: 5px; cursor: pointer; font-size: 11px; background: #2f80ed; color: #eef4ff; }
 .action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .loading-tip { margin-top: 6px; font-size: 10px; color: #8ea5c2; }
+.retry-btn { width: 100%; margin-top: 6px; background: #c98a2e; }
+.data-credit { position: absolute; bottom: 28px; left: 14px; z-index: 8; padding: 3px 8px; border-radius: 4px; background: rgba(8, 21, 40, 0.72); color: #b9cbe0; font-size: 10px; pointer-events: none; }
 .hint { margin: 8px 0 0; font-size: 10px; color: #6d84a3; line-height: 1.5; }
 .status-mask { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 9; width: max-content; max-width: 380px; padding: 8px 14px; border: 1px solid rgba(137,210,233,.4); border-radius: 7px; color: #e8f4fa; background: rgba(8, 21, 40, 0.88); box-shadow: 0 3px 12px rgba(0,0,0,.35); font-size: 12px; pointer-events: none; text-align: center; line-height: 1.5; }
 </style>

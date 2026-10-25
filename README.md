@@ -145,9 +145,14 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 window.__CESIUM_STUDIO_CONFIG__ = {
   appTitle: 'Cesium酱の百宝箱',
   apiBaseUrl: '',
-  cesiumIonToken: ''
+  cesiumIonToken: '',
+  whiteModelTilesetBase: ''
 }
 ```
+
+`whiteModelTilesetBase` 可选，用于覆盖建筑白模的 3D Tiles 数据源根地址（默认 `https://data.3dbag.nl/v20250903/cesium3dtiles`，需包含 `lod12`、`lod13`、`lod22` 三个子目录）。当官方数据源迁移或需要走镜像时，填入镜像根地址即可，无需重新构建。
+
+当 3DBAG 官方数据源不可达时，案例会自动降级到 PDOK 3D Basisvoorziening 全国建筑白模（数据来源：PDOK / Kadaster，CC BY 4.0），并在界面提示当前数据来源。
 
 部署到子路径时通过构建变量 `BASE_URL` 调整资源前缀。Docker 运行时可使用环境变量覆盖配置：
 
@@ -158,6 +163,7 @@ docker run --rm -p 8080:80 \
   -e APP_TITLE="Cesium酱の百宝箱" \
   -e API_BASE_URL="" \
   -e CESIUM_ION_TOKEN="" \
+  -e WHITE_MODEL_TILESET_BASE="" \
   cesium-treasure-box
 ```
 

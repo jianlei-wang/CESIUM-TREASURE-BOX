@@ -134,7 +134,7 @@ function applyStyle(): void {
   const alpha = Math.max(0, Math.min(1, alphaValue.value / 100))
   const stops = PALETTES[paletteIndex.value].stops
   const conditions: string[][] = stops.map((s) => [
-    `\${b3_volume_lod22} >= ${s.min}`,
+    `Number(\${b3_volume_lod22}) >= ${s.min}`,
     toRgba(s.color, alpha)
   ])
   conditions.push(['true', toRgba(stops[stops.length - 1].color, alpha)])
@@ -183,7 +183,7 @@ function applyUniforms(): void {
 }
 
 function inspectFeature(tile: { content: { getFeature: (i: number) => unknown } }): void {
-  if (inspected) return
+  if (inspected || base.usingFallback.value) return
   try {
     const feature = tile.content.getFeature(0) as {
       getProperty: (name: string) => unknown
@@ -269,16 +269,19 @@ onBeforeUnmount(() => {
 
       <div class="section-title">建筑属性</div>
       <div class="attr-box">
-        <div v-if="buildingVolume !== null" class="attr-row">
-          <span>建筑体积</span><em>{{ buildingVolume.toLocaleString() }} m³</em>
-        </div>
-        <div v-if="buildingArea !== null" class="attr-row">
-          <span>占地参考</span><em>{{ buildingArea.toLocaleString() }} m²</em>
-        </div>
-        <div v-if="buildingYear !== null" class="attr-row">
-          <span>建造年份</span><em>{{ buildingYear }}</em>
-        </div>
-        <div v-if="buildingVolume === null" class="attr-row"><span>建筑属性读取中…</span></div>
+        <div v-if="base.usingFallback.value" class="attr-row"><span>备用数据源不含建筑体量属性</span></div>
+        <template v-else>
+          <div v-if="buildingVolume !== null" class="attr-row">
+            <span>建筑体积</span><em>{{ buildingVolume.toLocaleString() }} m³</em>
+          </div>
+          <div v-if="buildingArea !== null" class="attr-row">
+            <span>占地参考</span><em>{{ buildingArea.toLocaleString() }} m²</em>
+          </div>
+          <div v-if="buildingYear !== null" class="attr-row">
+            <span>建造年份</span><em>{{ buildingYear }}</em>
+          </div>
+          <div v-if="buildingVolume === null" class="attr-row"><span>建筑属性读取中…</span></div>
+        </template>
       </div>
 
       <div class="section-title">实时性能</div>
@@ -295,7 +298,7 @@ onBeforeUnmount(() => {
         <button class="action-btn" :disabled="base.loading.value" @click="base.reset(onTilesetReady)">重置</button>
       </div>
       <div v-if="base.loading.value" class="loading-tip">模型加载中…</div>
-      <p class="hint">Cesium3DTileStyle 依据 3DBAG 建筑属性 b3_volume_lod22（建筑体量）分级设色，再叠加 CustomShader 边缘光与高度渐变亮度，色带、透明度、光照参数均可实时调节。</p>
+      <p class="hint">Cesium3DTileStyle 依据 3DBAG 建筑属性 b3_volume_lod22（建筑体量）分级设色，再叠加 CustomShader 边缘光与高度渐变亮度，色带、透明度、光照参数均可实时调节。备用数据源缺少体量属性时统一使用最低色阶。</p>
     </div>
 
     <div v-if="base.statusMessage.value" class="status-mask">{{ base.statusMessage.value }}</div>

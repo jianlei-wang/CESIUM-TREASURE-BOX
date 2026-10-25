@@ -49,7 +49,7 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
   root.add(dustRing)
   let ringAge = 99
   let lastSignature = ''
-  const model = createS02Model({ floors: 12, columns: 5, impulse: 5, delay: 0, gravity: 20, damping: 0.02 })
+  const model = createS02Model({ floors: 12, columns: 5, impulse: 5, delay: 2, gravity: 20, damping: 0.02 })
 
   const build = (p: ParamValues): void => {
     for (const mesh of meshes.values()) disposeObject(mesh)
@@ -59,7 +59,7 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
       floors: Math.round(num(p, 'floors', 12)),
       columns: Math.round(num(p, 'columns', 5)),
       impulse: num(p, 'impulse', 5),
-      delay: num(p, 'delay', 0),
+      delay: num(p, 'delay', 2),
       gravity: num(p, 'gravity', 20),
       damping: num(p, 'damping', 0.02)
     })
@@ -88,7 +88,7 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
       floors: Math.round(num(p, 'floors', 12)),
       columns: Math.round(num(p, 'columns', 5)),
       impulse: num(p, 'impulse', 5),
-      delay: num(p, 'delay', 0),
+      delay: num(p, 'delay', 2),
       gravity: num(p, 'gravity', 20),
       damping: num(p, 'damping', 0.02)
     })
@@ -169,7 +169,7 @@ function createS02(kit: import('../types').SceneKit): ScenarioRuntime {
     }
   }
 
-  build({ floors: 12, columns: 5, impulse: 5, delay: 0, gravity: 20, damping: 0.02 } as ParamValues)
+  build({ floors: 12, columns: 5, impulse: 5, delay: 2, gravity: 20, damping: 0.02 } as ParamValues)
   lastSignature = '12|5'
 
   return {
@@ -247,7 +247,7 @@ export const S02: ScenarioMeta = {
       title: '起爆与碎块',
       params: [
         { key: 'impulse', label: '起爆冲量', type: 'range', min: 5, max: 90, step: 1, value: 5 },
-        { key: 'delay', label: '起爆延迟', type: 'range', min: 0, max: 6, step: 0.1, value: 0, unit: ' s' },
+        { key: 'delay', label: '起爆延迟', type: 'range', min: 0, max: 6, step: 0.1, value: 2, unit: ' s' },
         { key: 'gravity', label: '重力加速度', type: 'range', min: 5, max: 20, step: 0.1, value: 20, unit: ' m/s²' },
         { key: 'damping', label: '碎块阻尼', type: 'range', min: 0.02, max: 0.6, step: 0.01, value: 0.02 }
       ]

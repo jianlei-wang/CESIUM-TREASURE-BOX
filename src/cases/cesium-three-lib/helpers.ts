@@ -13,18 +13,19 @@ export interface SurfaceOptions {
 }
 
 export function surface(color: string, options: SurfaceOptions = {}): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
+  const params: THREE.MeshStandardMaterialParameters = {
     color,
-    transparent: options.transparent,
     opacity: options.opacity ?? 1,
     roughness: options.roughness ?? 0.72,
     metalness: options.metalness ?? 0.08,
-    emissive: options.emissive ? new THREE.Color(options.emissive) : undefined,
-    emissiveIntensity: options.emissiveIntensity ?? 0,
-    side: options.side,
-    flatShading: options.flatShading,
-    depthWrite: options.depthWrite
-  })
+    emissiveIntensity: options.emissiveIntensity ?? 0
+  }
+  if (options.transparent !== undefined) params.transparent = options.transparent
+  if (options.emissive) params.emissive = new THREE.Color(options.emissive)
+  if (options.side !== undefined) params.side = options.side
+  if (options.flatShading !== undefined) params.flatShading = options.flatShading
+  if (options.depthWrite !== undefined) params.depthWrite = options.depthWrite
+  return new THREE.MeshStandardMaterial(params)
 }
 
 export function basic(color: string, opacity = 1, side: THREE.Side = THREE.FrontSide): THREE.MeshBasicMaterial {

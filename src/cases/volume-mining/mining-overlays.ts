@@ -39,7 +39,7 @@ export function installMiningOverlay(engine: VolumeEngine): MiningOverlayHandle 
 
   function drawBenches(visible: boolean): void {
     if (!visible) {
-      engine.setLines(undefined)
+      engine.setLines(undefined, { layer: 'base' })
       return
     }
     const benches = MINING_CONFIG.benches
@@ -70,11 +70,12 @@ export function installMiningOverlay(engine: VolumeEngine): MiningOverlayHandle 
       offsets: new Uint32Array(offsets),
       speeds: new Float32Array(offsets.length - 1).fill(1)
     }
-    engine.setLines(result, { color: '#8fa4bd', width: 1.6, alphaStart: 0.9, alphaEnd: 0.9 })
+    engine.setLines(result, { color: '#8fa4bd', width: 1.6, alphaStart: 0.9, alphaEnd: 0.9, layer: 'base' })
   }
 
   function drawDrillholes(visible: boolean, channel: MiningElement, activeId?: string): void {
     if (!visible) {
+      engine.setLines(undefined, { layer: 'flow' })
       engine.clearOverlayPoints()
       return
     }
@@ -92,7 +93,7 @@ export function installMiningOverlay(engine: VolumeEngine): MiningOverlayHandle 
       offsets: new Uint32Array(offsets),
       speeds: new Float32Array(offsets.length - 1).fill(1)
     }
-    engine.setLines(lines, { color: '#e8c46a', width: 3, widthStart: 1.5, alphaStart: 0.55, alphaEnd: 0.95 })
+    engine.setLines(lines, { color: '#e8c46a', width: 3, widthStart: 1.5, alphaStart: 0.55, alphaEnd: 0.95, layer: 'flow' })
 
     engine.setOverlayPoints(
       holes.map((hole) => {
@@ -114,7 +115,8 @@ export function installMiningOverlay(engine: VolumeEngine): MiningOverlayHandle 
       drawDrillholes(state.drillholesVisible, state.channel, state.activeDrillholeId)
     },
     destroy(): void {
-      engine.setLines(undefined)
+      engine.setLines(undefined, { layer: 'base' })
+      engine.setLines(undefined, { layer: 'flow' })
       engine.clearOverlayPoints()
     }
   }

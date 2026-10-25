@@ -39,7 +39,7 @@ function riverY(x: number): number {
 export function installFloodOverlay(engine: VolumeEngine): FloodOverlayHandle {
   function drawRiver(visible: boolean): void {
     if (!visible) {
-      engine.setLines(undefined)
+      engine.setLines(undefined, { layer: 'base' })
       return
     }
     const positions: number[] = []
@@ -56,32 +56,36 @@ export function installFloodOverlay(engine: VolumeEngine): FloodOverlayHandle {
       offsets: new Uint32Array(offsets),
       speeds: new Float32Array([1])
     }
-    engine.setLines(result, { color: '#39a0ff', width: 4, widthStart: 2.5, alphaStart: 0.5, alphaEnd: 0.95 })
+    engine.setLines(result, { color: '#39a0ff', width: 4, widthStart: 2.5, alphaStart: 0.5, alphaEnd: 0.95, layer: 'base' })
   }
 
-  function drawPoints(visible: boolean, activeZoneId?: string): void {
-    if (!visible) {
+  function drawPoints(gaugesVisible: boolean, zonesVisible: boolean, activeZoneId?: string): void {
+    if (!gaugesVisible && !zonesVisible) {
       engine.clearOverlayPoints()
       return
     }
     const points = [
-      ...FLOOD_CONFIG.gauges.map((g) => ({
-        position: engine.localFromNormalized(g.x, Math.max(0.02, Math.min(0.98, riverY(g.x))), 0.05),
-        color: Color.fromCssColorString('#65d3eb').withAlpha(0.95),
-        pixelSize: 10,
-        label: g.id,
-        labelColor: Color.fromCssColorString('#cfeaff')
-      })),
-      ...FLOOD_CONFIG.zones.map((z) => {
-        const active = z.id === activeZoneId
-        return {
-          position: engine.localFromNormalized(z.x, z.y, 0.02),
-          color: Color.fromCssColorString(ZONE_COLORS[z.kind] ?? '#3d8bfd').withAlpha(active ? 1 : 0.85),
-          pixelSize: Math.max(9, Math.min(22, Math.round(z.r * 220))),
-          label: `${z.name}(${ZONE_LABELS[z.kind]})`,
-          labelColor: active ? Color.WHITE : Color.fromCssColorString('#e6f0fb')
-        }
-      })
+      ...(gaugesVisible
+        ? FLOOD_CONFIG.gauges.map((g) => ({
+            position: engine.localFromNormalized(g.x, Math.max(0.02, Math.min(0.98, riverY(g.x))), 0.05),
+            color: Color.fromCssColorString('#65d3eb').withAlpha(0.95),
+            pixelSize: 10,
+            label: g.id,
+            labelColor: Color.fromCssColorString('#cfeaff')
+          }))
+        : []),
+      ...(zonesVisible
+        ? FLOOD_CONFIG.zones.map((z) => {
+            const active = z.id === activeZoneId
+            return {
+              position: engine.localFromNormalized(z.x, z.y, 0.02),
+              color: Color.fromCssColorString(ZONE_COLORS[z.kind] ?? '#3d8bfd').withAlpha(active ? 1 : 0.85),
+              pixelSize: Math.max(9, Math.min(22, Math.round(z.r * 220))),
+              label: `${z.name}(${ZONE_LABELS[z.kind]})`,
+              labelColor: active ? Color.WHITE : Color.fromCssColorString('#e6f0fb')
+            }
+          })
+        : [])
     ]
     engine.setOverlayPoints(points)
   }
@@ -89,10 +93,10 @@ export function installFloodOverlay(engine: VolumeEngine): FloodOverlayHandle {
   return {
     update(state: FloodOverlayState): void {
       drawRiver(state.riverVisible)
-      drawPoints(state.gaugesVisible || state.zonesVisible, state.activeZoneId)
+      drawPoints(state.gaugesVisible, state.zonesVisible, state.activeZoneId)
     },
     destroy(): void {
-      engine.setLines(undefined)
+      engine.setLines(undefined, { layer: 'base' })
       engine.clearOverlayPoints()
     }
   }

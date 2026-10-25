@@ -31,6 +31,13 @@ const D = config.domain
 const CAMERA_ORDER = ['overview', 'orebody', 'section', 'pit', 'top'] as const
 const camera = ref<(typeof CAMERA_ORDER)[number]>('overview')
 
+const PRECISION_PRESETS = [
+  { tileSize: 16, levels: 4, label: '128³' },
+  { tileSize: 24, levels: 4, label: '192³' },
+  { tileSize: 32, levels: 4, label: '256³' }
+] as const
+const precision = ref(spec.defaults.tileSize)
+
 const channel = ref<MiningElement>('cu')
 const cutoff = ref(config.elements.cu.cutoffs[0])
 const density = ref(2.7)
@@ -179,6 +186,11 @@ function flyTo(key: (typeof CAMERA_ORDER)[number]): void {
   scene.engine.value?.flyToView(cam.heading, cam.pitch, cam.rangeFactor, 1.1)
 }
 
+function selectPrecision(preset: (typeof PRECISION_PRESETS)[number]): void {
+  precision.value = preset.tileSize
+  scene.setPreset(preset.tileSize, preset.levels)
+}
+
 watch(
   () => scene.ui.timeStep,
   () => {
@@ -256,23 +268,25 @@ const pickedView = computed<PickedView | null>(() => {
   >
     <template #scene>
       <div ref="container" class="vol-cesium"></div>
-      <div v-if="kpiCards.length" class="mn-kpi">
-        <div v-for="card in kpiCards" :key="card.label" class="mn-kpi-card">
-          <span>{{ card.label }}</span>
-          <b>{{ card.value }}<i>{{ card.unit }}</i></b>
+      <div class="mn-hud">
+        <div v-if="kpiCards.length" class="mn-kpi">
+          <div v-for="card in kpiCards" :key="card.label" class="mn-kpi-card">
+            <span>{{ card.label }}</span>
+            <b>{{ card.value }}<i>{{ card.unit }}</i></b>
+          </div>
         </div>
-      </div>
-      <div class="mn-cam">
-        <button
-          v-for="key in CAMERA_ORDER"
-          :key="key"
-          type="button"
-          class="mn-cam-btn"
-          :class="{ active: camera === key }"
-          @click="flyTo(key)"
-        >
-          {{ config.camera[key].label }}
-        </button>
+        <div class="mn-cam">
+          <button
+            v-for="key in CAMERA_ORDER"
+            :key="key"
+            type="button"
+            class="mn-cam-btn"
+            :class="{ active: camera === key }"
+            @click="flyTo(key)"
+          >
+            {{ config.camera[key].label }}
+          </button>
+        </div>
       </div>
     </template>
 
@@ -395,9 +409,16 @@ const pickedView = computed<PickedView | null>(() => {
         <div class="vol-row">
           <span class="vol-label">精度</span>
           <div class="mn-seg">
-            <button type="button" class="mn-seg-btn" @click="scene.setPreset(16, 4)">128³</button>
-            <button type="button" class="mn-seg-btn" @click="scene.setPreset(24, 4)">192³</button>
-            <button type="button" class="mn-seg-btn" @click="scene.setPreset(32, 4)">256³</button>
+            <button
+              v-for="preset in PRECISION_PRESETS"
+              :key="preset.label"
+              type="button"
+              class="mn-seg-btn"
+              :class="{ active: precision === preset.tileSize }"
+              @click="selectPrecision(preset)"
+            >
+              {{ preset.label }}
+            </button>
           </div>
         </div>
       </div>
@@ -502,6 +523,12 @@ const pickedView = computed<PickedView | null>(() => {
   border-color: #d4a94a;
   color: #fff;
 }
+.mn-seg-btn.active {
+  border-color: #d4a94a;
+  background: rgba(212, 169, 74, 0.28);
+  color: #fff;
+  font-weight: 600;
+}
 .mn-pit {
   font-size: 12px;
   font-weight: 700;
@@ -532,17 +559,24 @@ const pickedView = computed<PickedView | null>(() => {
   line-height: 1.6;
   color: #9fb8d4;
 }
-.mn-kpi {
+.mn-hud {
   position: absolute;
   top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 248px;
+  right: calc(22px + min(276px, calc(100% - 24px)) + 226px);
   z-index: 9;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.mn-kpi {
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 4px;
-  max-width: min(560px, calc(100% - 360px));
-  pointer-events: none;
+  max-width: 100%;
 }
 .mn-kpi-card {
   display: flex;
@@ -574,15 +608,12 @@ const pickedView = computed<PickedView | null>(() => {
   font-weight: 500;
 }
 .mn-cam {
-  position: absolute;
-  bottom: 14px;
-  right: 14px;
-  z-index: 9;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  max-width: 300px;
-  justify-content: flex-end;
+  max-width: 100%;
+  justify-content: center;
+  pointer-events: auto;
 }
 .mn-cam-btn {
   padding: 5px 10px;
@@ -647,11 +678,12 @@ const pickedView = computed<PickedView | null>(() => {
   color: #fff;
 }
 @media (max-width: 860px) {
+  .mn-hud {
+    left: 12px;
+    right: 12px;
+  }
   .mn-kpi {
-    max-width: calc(100% - 24px);
-    top: auto;
-    bottom: 52px;
-    flex-wrap: wrap;
+    max-width: 100%;
   }
 }
 </style>

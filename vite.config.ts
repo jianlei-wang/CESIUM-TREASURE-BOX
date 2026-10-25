@@ -57,7 +57,7 @@ const CESIUM_SYMBOLS = [
   'CylinderGeometry', 'BoxGraphics', 'VoxelContent', 'VoxelPrimitive', 'VoxelShapeType',
   'MetadataType', 'MetadataComponentType',
   'WebMapServiceImageryProvider', 'WebMapTileServiceImageryProvider', 'WebMercatorProjection', 'WebMercatorTilingScheme',
-  'ArcGisMapServerImageryProvider', 'ArcType', 'BlendingState', 'ClassificationType',
+  'ArcGisMapServerImageryProvider', 'ArcType', 'BlendingState', 'ClassificationPrimitive', 'ClassificationType',
   'buildModuleUrl', 'createWorldTerrainAsync', 'createOsmBuildingsAsync', 'CesiumTerrainProvider', 'ArcGISTiledElevationTerrainProvider', 'ParticleSystem', 'CircleEmitter', 'BoxEmitter', 'CylinderEmitter',
   'defined', 'destroyObject', 'sampleTerrainMostDetailed'
 ]

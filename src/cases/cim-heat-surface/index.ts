@@ -1,5 +1,6 @@
 import { defineAsyncComponent } from 'vue'
 import type { DemoCard } from '../types'
+import icon from './icon.webp'
 
 const CimHeatSurfaceDemo = defineAsyncComponent(() => import('./CimHeatSurfaceDemo.vue'))
 
@@ -9,6 +10,7 @@ const cimHeatSurfaceCase: DemoCard = {
   category: 'data',
   description: '把离散采样点渲染为热力纹理，并按强度抬升成可旋转的三维曲面',
   tag: '数据可视化',
+  icon,
   component: CimHeatSurfaceDemo,
   updatedAt: '2026-10-25'
 }

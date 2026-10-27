@@ -44,9 +44,15 @@ let followListener: (() => void) | undefined
 let disposed = false
 let hasStarted = false
 
-const forwardFix = Cesium.Quaternion.fromAxisAngle(Cesium.Cartesian3.UNIT_Y, Math.PI / 2)
 const scratchMatrix = new Cesium.Matrix4()
+const scratchRotation = new Cesium.Matrix3()
 const scratchOffset = new Cesium.Cartesian3()
+const scratchForward = new Cesium.Cartesian3()
+const scratchRight = new Cesium.Cartesian3()
+const scratchUp = new Cesium.Cartesian3()
+const scratchEnuMatrix = new Cesium.Matrix4()
+const scratchEnuRotation = new Cesium.Matrix3()
+const scratchTransformValues = new Array<number>(16).fill(0)
 
 function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
   const t2 = t * t
@@ -101,23 +107,18 @@ function createRoute(): void {
   positionProperty = property
 
   const baseOrientation = new Cesium.VelocityOrientationProperty(property)
-  const orientation = new Cesium.CallbackProperty((time, result) => {
-    const base = baseOrientation.getValue(time)
-    if (!base) return undefined
-    return Cesium.Quaternion.multiply(base, forwardFix, result ?? new Cesium.Quaternion())
-  }, false)
 
   routeEntity = viewer.entities.add({
     availability: new Cesium.TimeIntervalCollection([
       new Cesium.TimeInterval({ start: startTime, stop: stopTime })
     ]),
     position: property,
-    orientation,
+    orientation: baseOrientation,
     model: {
       uri: MODEL_URL,
-      minimumPixelSize: 56,
-      maximumScale: 220,
-      scale: 6
+      minimumPixelSize: 64,
+      maximumScale: 400,
+      scale: 12
     },
     path: {
       resolution: 2,
@@ -205,17 +206,48 @@ function updateReadout(): void {
 }
 
 function applyFollow(): void {
-  if (!viewer || viewer.isDestroyed() || !followEnabled.value || !routeEntity || !playing.value) return
+  if (!viewer || viewer.isDestroyed() || !followEnabled.value || !routeEntity) return
   const time = viewer.clock.currentTime
   const position = routeEntity.position?.getValue(time)
   const orientation = routeEntity.orientation?.getValue(time)
   if (!position || !orientation) return
-  const rotation = Cesium.Matrix3.fromQuaternion(orientation, new Cesium.Matrix3())
-  const transform = Cesium.Matrix4.fromRotationTranslation(rotation, position, scratchMatrix)
+  Cesium.Matrix3.fromQuaternion(orientation, scratchRotation)
+  Cesium.Matrix3.getColumn(scratchRotation, 0, scratchForward)
+  Cesium.Ellipsoid.WGS84.geodeticSurfaceNormal(position, scratchUp)
+  const verticalPart = Cesium.Cartesian3.dot(scratchForward, scratchUp)
+  Cesium.Cartesian3.multiplyByScalar(scratchUp, verticalPart, scratchRight)
+  Cesium.Cartesian3.subtract(scratchForward, scratchRight, scratchForward)
+  if (Cesium.Cartesian3.magnitudeSquared(scratchForward) < 1e-10) {
+    Cesium.Transforms.eastNorthUpToFixedFrame(position, Cesium.Ellipsoid.WGS84, scratchEnuMatrix)
+    Cesium.Matrix4.getMatrix3(scratchEnuMatrix, scratchEnuRotation)
+    Cesium.Matrix3.getColumn(scratchEnuRotation, 0, scratchForward)
+  }
+  Cesium.Cartesian3.normalize(scratchForward, scratchForward)
+  Cesium.Cartesian3.cross(scratchUp, scratchForward, scratchRight)
+  Cesium.Cartesian3.normalize(scratchRight, scratchRight)
+
+  scratchTransformValues[0] = scratchForward.x
+  scratchTransformValues[1] = scratchForward.y
+  scratchTransformValues[2] = scratchForward.z
+  scratchTransformValues[3] = 0
+  scratchTransformValues[4] = scratchRight.x
+  scratchTransformValues[5] = scratchRight.y
+  scratchTransformValues[6] = scratchRight.z
+  scratchTransformValues[7] = 0
+  scratchTransformValues[8] = scratchUp.x
+  scratchTransformValues[9] = scratchUp.y
+  scratchTransformValues[10] = scratchUp.z
+  scratchTransformValues[11] = 0
+  scratchTransformValues[12] = position.x
+  scratchTransformValues[13] = position.y
+  scratchTransformValues[14] = position.z
+  scratchTransformValues[15] = 1
+  Cesium.Matrix4.fromArray(scratchTransformValues, 0, scratchMatrix)
+
   scratchOffset.x = -cameraBack.value
-  scratchOffset.y = cameraRight.value
+  scratchOffset.y = -cameraRight.value
   scratchOffset.z = cameraUp.value
-  viewer.camera.lookAtTransform(transform, scratchOffset)
+  viewer.camera.lookAtTransform(scratchMatrix, scratchOffset)
 }
 
 function startRoam(): void {
@@ -277,6 +309,7 @@ function onSpeedChange(): void {
 
 function flyToOverview(): void {
   if (!viewer || viewer.isDestroyed()) return
+  viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY)
   viewer.camera.flyTo({
     destination: Cesium.Cartesian3.fromDegrees(108.961, 34.222, 16000),
     orientation: {
@@ -286,6 +319,12 @@ function flyToOverview(): void {
     },
     duration: 1.2
   })
+}
+
+function showOverview(): void {
+  if (!viewer || viewer.isDestroyed()) return
+  followEnabled.value = false
+  flyToOverview()
 }
 
 onMounted(() => {
@@ -387,7 +426,7 @@ onBeforeUnmount(() => {
         <b>{{ cameraRight }}</b>
       </div>
 
-      <button class="cdr-btn ghost" @click="flyToOverview">总览视角</button>
+      <button class="cdr-btn ghost" @click="showOverview">总览视角</button>
       <div class="cdr-hint">拖动进度会暂停巡航；关闭跟随后可自由旋转视角</div>
     </div>
 

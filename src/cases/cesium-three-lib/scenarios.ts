@@ -24,6 +24,7 @@ import { S22 } from './scenes/s22'
 import { S23 } from './scenes/s23'
 import { S24 } from './scenes/s24'
 import { S25 } from './scenes/s25'
+import { S26 } from './scenes/s26'
 
 export const SCENARIOS: ScenarioMeta[] = [
   S01,
@@ -50,7 +51,8 @@ export const SCENARIOS: ScenarioMeta[] = [
   S22,
   S23,
   S24,
-  S25
+  S25,
+  S26
 ]
 
 export const SCENARIO_MAP: Record<string, ScenarioMeta> = Object.fromEntries(

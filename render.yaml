@@ -1,17 +1,22 @@
 # Render Blueprint：部署浏览量服务（Node 单容器，静态站点 + /api + /admin/）
 #
-# 使用方式：在 Render 控制台选择 New -> Blueprint，连接本仓库即可。
-# 部署完成后把服务地址写入 deploy/api-base-url.txt 并提交，Pages 会自动指向该服务。
+# 使用方式：Render 控制台 -> New -> Blueprint -> 选择本仓库 -> Apply。
+# 部署完成后把服务地址写入 deploy/api-base-url.txt 并提交，Pages 构建时自动指向该服务。
+#
+# 注意：持久磁盘只在付费实例（Starter 及以上）可用。免费 `free` 实例空闲 15 分钟会休眠，
+# 且重启后 /app/data 会被重置，浏览量会丢失。因此这里固定 starter。
 services:
   - type: web
     name: cesium-views
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: free
+    plan: starter
+    region: singapore
     healthCheckPath: /api/health
+    autoDeployTrigger: checksPass
     envVars:
       - key: ADMIN_TOKEN
-        generateValue: true
+        sync: false
       - key: VIEWS_DATA_FILE
         value: /app/data/case-views.json
       - key: VIEW_RETENTION_DAYS

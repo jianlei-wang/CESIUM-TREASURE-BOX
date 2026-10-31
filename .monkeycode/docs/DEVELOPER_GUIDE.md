@@ -3,8 +3,17 @@
 ## 启动
 
 ```bash
+# 同时启动浏览量服务与 Vite 开发服务器（/api 由 Vite 反向代理）
 npm run dev
+
+# 仅启动 Vite 开发服务器
+npm run dev:frontend
+
+# 仅启动浏览量服务与 /admin/ 后台
+npm run server
 ```
+
+开发态后台入口：`http://localhost:5173/admin/`。首次启动若未配置 `ADMIN_TOKEN` 且无口令文件，浏览量服务会生成 `data/admin-token.txt` 并在日志中打印口令。
 
 ## 构建验证
 
@@ -16,7 +25,7 @@ git diff --check
 ## 质量门禁
 
 ```bash
-# lint + 格式检查 + 依赖审计 + 许可证白名单 + lockfile 一致性
+# lint + 格式检查 + 依赖审计 + 许可证白名单 + lockfile 一致性 + 浏览量服务单元测试
 npm run quality
 
 # 构建结束后单独复核 bundle 预算（npm run build 已自动调用）

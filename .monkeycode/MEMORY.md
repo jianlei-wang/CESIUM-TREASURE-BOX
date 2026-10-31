@@ -31,6 +31,16 @@ Entries discovered by the Agent during task execution should follow this format:
 
 ## Entries
 
+[Project Knowledge Summary]
+- Date: 2026-10-31
+- Context: Discovered by Agent while building 浏览量统计与运营后台（server/ + public/admin/）
+- Category: Workflow & Collaboration
+- Instructions:
+  - `npm run dev` 现由 `scripts/dev.mjs` 同启浏览量服务（默认 8787）与 Vite 5173，Vite 将 `/api` 代理到浏览量服务；单独起前端用 `npm run dev:frontend`，单独起后端用 `npm run server`。
+  - 浏览量数据写 `data/case-views.json`（已 gitignore），后台口令优先读 `ADMIN_TOKEN`，其次 `data/admin-token.txt`，都不存在时首次启动自动生成并打印一次；dev 后台入口 `http://localhost:5173/admin/`。
+  - `npm run sync` 现在还会生成 `public/data/cases.json` 案例目录；新增或删除案例后必须重新 sync，否则浏览量写入会因案例不在目录而返回 404。
+  - 生产部署改为单容器 Node 运行时（Dockerfile 不再使用 nginx），静态站点、`/api` 与 `/admin/` 同端口；`/app/data` 需挂载卷以持久化浏览量。
+
 [User Instruction Summary]
 - Date: 2026-10-23
 - Context: 用户多次反馈系统无法预览，要求始终保证可预览
@@ -39,7 +49,7 @@ Entries discovered by the Agent during task execution should follow this format:
   - 启动命令固定为 `npm run dev -- --host 0.0.0.0 --port 5173`，必须通过 background terminal 且 `timeout: 0` 启动，避免被超时机制自动终止。
   - 每次任务结束前调用 `request_preview(5173)` 并用 curl 检查访问地址返回 200；若进程退出必须立即重启后再交付。
   - 构建与预览并行时使用独立后台终端，构建完成不得关闭预览进程。
-  - 项目保持纯前端，不安装或部署后端、数据库与 Docker 服务；涉及后端的能力使用前端模拟数据或浏览器内处理。
+  - 项目在 2026-10-31 前为纯前端；用户已明确要求新增浏览量后台服务，现允许同仓 Node 服务（`server/`）与 Docker 部署，其余新功能仍优先前端实现。
 
 [User Instruction Summary]
 - Date: 2026-10-13

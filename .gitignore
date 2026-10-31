@@ -193,3 +193,7 @@ public/vendor/
 /data/
 data/case-views.json
 data/admin-token.txt
+
+# Cloudflare Wrangler 本地状态
+/.wrangler/
+.wrangler/

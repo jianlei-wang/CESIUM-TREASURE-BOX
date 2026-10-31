@@ -79,6 +79,7 @@ npm run preview
 | `npm run build` | 类型检查、Vite 打包与构建体积检查 |
 | `npm run preview` | 预览 `dist` 产物（需先启动 `npm run server` 才能访问浏览量统计） |
 | `npm run test:views` | 浏览量服务存储与 API 单元测试 |
+| `npm run test:worker` | Cloudflare Workers 后端单元测试（内存 D1 模拟） |
 | `npm run lint` | ESLint 检查 |
 | `npm run format` / `format:check` | Prettier 格式化 / 格式校验 |
 | `npm run audit` | 依赖安全审计 |
@@ -234,11 +235,15 @@ docker run --rm -p 8080:80 \
 
 ### 浏览量服务与运营后台
 
-GitHub Pages 只能托管静态文件，`/api` 与 `/admin/` 需要独立的 Node 服务。部署步骤：
+GitHub Pages 只能托管静态文件，`/api` 与 `/admin/` 需要独立后端。推荐 **Cloudflare Workers + D1**（免费、无需信用卡），完整步骤见 `worker/README.md`：
 
-1. 使用仓库根目录的 `render.yaml` 在 Render 创建 Blueprint（`New -> Blueprint`），或自行用 `Dockerfile` 部署到任意容器平台；
-2. 把服务地址写入 `deploy/api-base-url.txt`（单行，不带 `/api`）并提交，或在仓库 Variables 中设置 `VIEWS_API_BASE_URL`；
-3. 等待 Pages 工作流重新构建，前端即可跨域访问浏览量接口与后台。
+1. `npx wrangler login` 后执行 `npx wrangler d1 create cesium-views`，把返回的 `database_id` 填进 `wrangler.toml`；
+2. 执行 `npx wrangler d1 execute cesium-views --remote --file=worker/schema.sql` 建表；
+3. 执行 `npx wrangler secret put ADMIN_TOKEN` 设置后台口令，再 `npx wrangler deploy` 部署；
+4. 把 Worker 地址写入 `deploy/api-base-url.txt`（单行，不带 `/api`）并提交，或在仓库 Variables 中设置 `VIEWS_API_BASE_URL`；
+5. 等待 Pages 工作流重新构建，前端即可跨域访问浏览量接口与后台。
+
+`server/` 与 `Dockerfile` 提供等价的 Node 实现，适合自有服务器部署。
 
 服务端已支持跨域：`CORS_ORIGINS` 默认 `*`，生产建议收敛为 `https://jianlei-wang.github.io`。
 

@@ -21,6 +21,7 @@ import {
   View
 } from '@element-plus/icons-vue'
 import { categories, demos, loadCaseEntry, type CaseMeta } from './cases'
+import { fetchCaseViews, formatViewCount, recordCaseView, type CaseViewCounts } from './lib/case-views'
 const PerfChecklistDoc = defineAsyncComponent(() => import('./components/PerfChecklistDoc.vue'))
 const SkillsPanel = defineAsyncComponent(() => import('./components/SkillsPanel.vue'))
 
@@ -118,6 +119,29 @@ const categoryCounts = computed(() => new Map(categories.map((category) => [cate
 const totalDemos = computed(() => demos.length)
 const availableDemos = computed(() => demos.filter((demo) => demo.available).length)
 
+const caseViews = ref<CaseViewCounts>({})
+const viewsAvailable = ref(true)
+let viewRequestSeq = 0
+
+function viewCountOf(id: string): number {
+  return caseViews.value[id] ?? 0
+}
+
+async function refreshCaseViews(ids: string[]) {
+  const seq = ++viewRequestSeq
+  const counts = await fetchCaseViews(ids)
+  if (seq !== viewRequestSeq) return
+  const hasData = Object.keys(counts).length > 0
+  viewsAvailable.value = hasData
+  if (!hasData) return
+  caseViews.value = { ...caseViews.value, ...counts }
+}
+
+function bumpCaseView(id: string, delta: number) {
+  const next = Math.max(0, viewCountOf(id) + delta)
+  caseViews.value = { ...caseViews.value, [id]: next }
+}
+
 const GITHUB_REPO_URL = 'https://github.com/jianlei-wang/CESIUM-TREASURE-BOX'
 const GITHUB_REPO_API = 'https://api.github.com/repos/jianlei-wang/CESIUM-TREASURE-BOX'
 const githubStats = ref<{ watchers: number; forks: number; stars: number } | null>(null)
@@ -160,6 +184,10 @@ async function openCase(demo: CaseMeta) {
   setTimeout(() => {
     caseReady.value = true
   }, 10000)
+  bumpCaseView(demo.id, 1)
+  const recorded = await recordCaseView(demo.id)
+  if (recorded === null) bumpCaseView(demo.id, -1)
+  else caseViews.value = { ...caseViews.value, [demo.id]: recorded }
 }
 
 function closeCase() {
@@ -307,6 +335,14 @@ watch(fullCaseDemo, (demo) => {
     stopPerformanceObservers()
   }
 })
+
+watch(
+  () => visibleDemos.value.map((demo) => demo.id).join(','),
+  () => {
+    void refreshCaseViews(visibleDemos.value.map((demo) => demo.id))
+  },
+  { immediate: true, flush: 'post' }
+)
 
 onUnmounted(() => {
   stopFpsMonitor()
@@ -469,6 +505,13 @@ onUnmounted(() => {
                 <span v-if="showUpdatedAt && demo.available" class="card-status completed"><el-icon><CircleCheckFilled /></el-icon>更新完成 {{ demo.updatedAt ?? '2026-08-22' }}</span>
                 <span v-else-if="demo.available" class="card-status completed"><el-icon><CircleCheckFilled /></el-icon>可在线演示</span>
                  <span v-else class="card-status developing"><el-icon><Clock /></el-icon>开发中</span>
+                 <span
+                   v-if="viewsAvailable"
+                   class="card-views"
+                   :title="`累计浏览 ${viewCountOf(demo.id).toLocaleString('zh-CN')} 次`"
+                 >
+                   <el-icon><View /></el-icon>{{ formatViewCount(viewCountOf(demo.id)) }}
+                 </span>
                </div>
             </div>
           </article>

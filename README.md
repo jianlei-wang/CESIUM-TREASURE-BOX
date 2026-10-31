@@ -16,6 +16,7 @@
 - **20 个 Cesium + Three.js 工程仿真案例**：覆盖落体、建筑破坏、滑坡、溃坝、车流、风场、路径规划、塔吊、桥梁、膜结构、林火、城市内涝、船舶、地震、挖掘机、巡检、疏散、盾构、烟羽与消防调度。案例内置确定性求解器、指标面板、参数标定与合成数据来源说明。
 - **三维场景演示漫游制作系统**：对标 Skyline Presentation 的 Step + Action 编排，支持步骤分段、定点飞行、航线录制、图层显隐、建设时序、字幕弹窗、场景效果、播放控制、工程导入导出与 1080P / 2K / 4K 视频导出。
 - **全局搜索与按需加载**：按名称、描述检索，支持最新收录排序；案例组件懒加载，Cesium 大体积脚本延迟注入，首屏保持轻量。
+- **案例浏览量统计与运营后台**：每张案例卡片底部右侧展示累计浏览量，打开案例即累加并持久化到文件；`/admin/` 提供总量、今日、近 7 天、趋势、Top 10、分类分布与可检索/排序/导出 CSV 的明细，随系统一并启动与部署。
 - **多源底图**：内置天地图、高德、百度、腾讯、Google、Bing、GeoVis 等影像与注记提供器。
 - **工程化质量门禁**：TypeScript 类型检查、ESLint、Prettier、案例求解器单元测试、演示系统自检、Playwright 输出回归、长时浸泡测试、依赖审计、许可证检查、锁文件检查与构建体积检查。
 - **完整案例清单**：[`CASE_LIST.md`](./CASE_LIST.md) 由脚本自动生成，并记录公众号文章的产出与在线地址；当前已输出文章 56 篇。
@@ -69,12 +70,15 @@ npm run preview
 
 | 命令 | 说明 |
 | --- | --- |
-| `npm run sync` | 扫描 `src/cases`，生成案例清单 `manifest.ts` |
+| `npm run sync` | 扫描 `src/cases`，生成案例清单 `manifest.ts` 与后台案例目录 `public/data/cases.json` |
 | `npm run case-list` | 生成 `CASE_LIST.md` 案例列表文档 |
 | `npm run sync-articles` | 拉取公众号专栏文章，按案例名称回填文章产出与在线地址 |
-| `npm run dev` | 启动开发服务器（0.0.0.0） |
+| `npm run dev` | 同时启动浏览量服务与 Vite 开发服务器（`/api` 反向代理到浏览量服务） |
+| `npm run dev:frontend` | 仅启动 Vite 开发服务器（需自行运行 `npm run server`） |
+| `npm run server` | 单独启动浏览量服务与 `/admin/` 后台托管 |
 | `npm run build` | 类型检查、Vite 打包与构建体积检查 |
-| `npm run preview` | 预览 `dist` 产物 |
+| `npm run preview` | 预览 `dist` 产物（需先启动 `npm run server` 才能访问浏览量统计） |
+| `npm run test:views` | 浏览量服务存储与 API 单元测试 |
 | `npm run lint` | ESLint 检查 |
 | `npm run format` / `format:check` | Prettier 格式化 / 格式校验 |
 | `npm run audit` | 依赖安全审计 |
@@ -118,7 +122,10 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 │   ├── images/        # 贴图素材
 │   ├── models/        # 三维模型素材
 │   └── videos/        # 视频素材
+├── server/            # 浏览量服务（存储、鉴权、统计接口、静态托管）
+│   └── test/          # 服务端单元测试
 ├── scripts/           # 案例同步、质量门禁、文章回填与数据管线脚本
+│   ├── dev.mjs        # 一体化开发启动（浏览量服务 + Vite）
 │   └── ocean-tsd/     # 海洋温盐深数据生成、预处理与校验
 ├── src/
 │   ├── cases/         # 案例集合（每个案例一个目录 + index.ts）
@@ -130,6 +137,10 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 │   ├── App.vue        # 案例库主界面
 │   └── main.ts        # 入口
 ├── tests/             # Playwright 输出回归、浸泡测试与夹具
+├── public/
+│   ├── admin/         # 运营后台静态页面（/admin/）
+│   └── data/cases.json # 后台与浏览量服务使用的案例目录（自动生成）
+├── data/              # 运行时浏览量数据与后台口令（不入库）
 ├── docker/            # 容器入口脚本
 ├── CASE_LIST.md       # 全部案例清单与文章产出状态
 ├── index.html
@@ -161,12 +172,52 @@ window.__CESIUM_STUDIO_CONFIG__ = {
 docker build -t cesium-treasure-box .
 
 docker run --rm -p 8080:80 \
+  -v cesium-views-data:/app/data \
   -e APP_TITLE="Cesium酱の百宝箱" \
   -e API_BASE_URL="" \
   -e CESIUM_ION_TOKEN="" \
   -e WHITE_MODEL_TILESET_BASE="" \
+  -e ADMIN_TOKEN="请替换为你的后台口令" \
   cesium-treasure-box
 ```
+
+容器内由 Node 浏览量服务同时提供静态站点、`/api` 接口与 `/admin/` 后台，`/app/data` 为数据卷，需挂载持久化目录以保留浏览量。
+
+## 浏览量统计与运营后台
+
+### 启动方式
+
+开发环境执行 `npm run dev`，会同时启动：
+
+- 浏览量服务：`http://127.0.0.1:8787`（数据写入 `data/case-views.json`）；
+- Vite 开发服务器：`http://localhost:5173`，并把 `/api` 反向代理到浏览量服务。
+
+后台入口为 `/admin/`，开发态直接访问 `http://localhost:5173/admin/`。
+
+### 后台口令
+
+口令来源按优先级：
+
+1. 环境变量 `ADMIN_TOKEN`；
+2. 数据目录下的 `data/admin-token.txt`；
+3. 两者都不存在时，服务首次启动生成随机口令，写入 `data/admin-token.txt`（权限 600）并在启动日志中打印一次。
+
+后台口令保存在浏览器 `sessionStorage`，关闭标签页后自动清除；统计接口需要携带 `Authorization: Bearer <token>`。
+
+### 运行参数
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PORT` | `8787` | 浏览量服务端口（Docker 镜像内默认为 `80`） |
+| `HOST` | `0.0.0.0` | 监听地址 |
+| `VIEWS_DATA_FILE` | `data/case-views.json` | 浏览量数据文件 |
+| `ADMIN_TOKEN` | 空 | 后台口令；留空时读取或生成口令文件 |
+| `ADMIN_TOKEN_FILE` | `data/admin-token.txt` | 口令文件路径 |
+| `STATIC_ROOT` | `dist` | 静态站点目录 |
+| `VIEWS_CATALOG_FILE` | `public/data/cases.json` | 案例目录文件 |
+| `VIEW_RETENTION_DAYS` | `90` | 每日明细保留天数；累计浏览量永久保留 |
+
+浏览量口径为「每次打开可演示案例即 +1」，持久化采用临时文件加原子重命名，进程退出前会强制落盘。每日明细按保留天数清理，案例累计值永久保留。
 
 ## 部署
 

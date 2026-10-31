@@ -82,11 +82,26 @@ const cesiumDevGlobal: Plugin = {
   }
 }
 
+const adminDevEntry: Plugin = {
+  name: 'admin-dev-entry',
+  apply: 'serve',
+  configureServer(server) {
+    server.middlewares.use((req, _res, next) => {
+      const url = req.url ?? '/'
+      const [pathname, query] = url.split('?')
+      if (pathname === '/admin' || pathname === '/admin/') {
+        req.url = `/admin/index.html${query ? `?${query}` : ''}`
+      }
+      next()
+    })
+  }
+}
+
 const deploymentBase = process.env.BASE_URL?.trim() || './'
 
 export default defineConfig({
   base: deploymentBase,
-  plugins: [vue(), cesium(), cesiumHtmlOptimize, cesiumDevGlobal],
+  plugins: [vue(), cesium(), cesiumHtmlOptimize, cesiumDevGlobal, adminDevEntry],
   resolve: {
     alias: {
       '@rt': fileURLToPath(new URL('./src/cases/red-tide-3d', import.meta.url))
@@ -111,6 +126,22 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    allowedHosts: ['.monkeycode-ai.online']
+    allowedHosts: ['.monkeycode-ai.online'],
+    proxy: {
+      '/api': {
+        target: process.env.VIEWS_PROXY_TARGET?.trim() || 'http://127.0.0.1:8787',
+        changeOrigin: true
+      }
+    }
+  },
+  preview: {
+    host: '0.0.0.0',
+    allowedHosts: ['.monkeycode-ai.online'],
+    proxy: {
+      '/api': {
+        target: process.env.VIEWS_PROXY_TARGET?.trim() || 'http://127.0.0.1:8787',
+        changeOrigin: true
+      }
+    }
   }
 })

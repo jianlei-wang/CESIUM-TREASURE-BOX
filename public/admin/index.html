@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>案例浏览数据后台 · Cesium酱の百宝箱</title>
+    <link rel="stylesheet" href="./admin.css" />
+  </head>
+  <body>
+    <div id="login-view" class="login-view">
+      <form id="login-form" class="login-card" autocomplete="off">
+        <div class="login-brand">
+          <span class="login-mark">C</span>
+          <div>
+            <h1>案例浏览数据后台</h1>
+            <p>Cesium酱の百宝箱 · Analytics Console</p>
+          </div>
+        </div>
+        <label class="field">
+          <span>管理员口令</span>
+          <input id="token-input" type="password" placeholder="请输入 ADMIN_TOKEN" required />
+        </label>
+        <p id="login-error" class="login-error" hidden>口令不正确，请重试</p>
+        <button type="submit" class="primary-button">进入后台</button>
+        <p class="login-hint">口令保存在当前标签页会话中，关闭标签页后自动清除。</p>
+      </form>
+    </div>
+
+    <div id="console-view" class="console-view" hidden>
+      <header class="console-header">
+        <div class="console-brand">
+          <span class="login-mark">C</span>
+          <div>
+            <h1>案例浏览数据后台</h1>
+            <p id="updated-at">尚未获取数据</p>
+          </div>
+        </div>
+        <div class="console-actions">
+          <label class="range-picker">
+            统计范围
+            <select id="days-select">
+              <option value="7">最近 7 天</option>
+              <option value="14">最近 14 天</option>
+              <option value="30">最近 30 天</option>
+            </select>
+          </label>
+          <label class="switch">
+            <input id="auto-refresh" type="checkbox" />
+            <span>每 30 秒自动刷新</span>
+          </label>
+          <button id="refresh-button" type="button" class="ghost-button">刷新</button>
+          <button id="export-button" type="button" class="ghost-button">导出 CSV</button>
+          <button id="logout-button" type="button" class="ghost-button danger">退出</button>
+        </div>
+      </header>
+
+      <main class="console-body">
+        <p id="console-error" class="console-error" hidden></p>
+
+        <section class="kpi-grid" aria-label="浏览数据总览">
+          <article class="kpi-card accent">
+            <p>累计浏览量</p>
+            <strong id="kpi-total">-</strong>
+            <span id="kpi-total-sub">全部案例累计</span>
+          </article>
+          <article class="kpi-card">
+            <p>今日浏览量</p>
+            <strong id="kpi-today">-</strong>
+            <span>按自然日累计</span>
+          </article>
+          <article class="kpi-card">
+            <p>近 7 天浏览量</p>
+            <strong id="kpi-week">-</strong>
+            <span>含今日的滚动 7 天</span>
+          </article>
+          <article class="kpi-card">
+            <p>有浏览记录的案例</p>
+            <strong id="kpi-tracked">-</strong>
+            <span id="kpi-tracked-sub">共 - 个案例</span>
+          </article>
+        </section>
+
+        <section class="panel-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h2>每日浏览量趋势</h2>
+              <span id="trend-range" class="panel-note"></span>
+            </div>
+            <div id="trend-chart" class="trend-chart"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h2>浏览量 Top 10</h2>
+              <span class="panel-note">含标题与分类</span>
+            </div>
+            <ol id="top-list" class="top-list"></ol>
+          </article>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>分类浏览分布</h2>
+            <span class="panel-note">按浏览量降序</span>
+          </div>
+          <div id="category-chart" class="category-chart"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>案例明细</h2>
+            <div class="table-tools">
+              <input id="case-search" type="search" placeholder="搜索标题 / 标识 / 分类" />
+              <select id="case-sort">
+                <option value="views">按浏览量</option>
+                <option value="lastViewedAt">按最近浏览</option>
+                <option value="title">按标题</option>
+              </select>
+            </div>
+          </div>
+          <p id="table-note" class="panel-note"></p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>案例</th>
+                  <th>分类</th>
+                  <th class="num">浏览量</th>
+                  <th>首次浏览</th>
+                  <th>最近浏览</th>
+                </tr>
+              </thead>
+              <tbody id="case-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="../runtime-config.js"></script>
+    <script src="./admin.js"></script>
+  </body>
+</html>

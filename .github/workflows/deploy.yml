@@ -25,6 +25,7 @@ jobs:
       - run: npm ci
       - run: npm run quality
       - run: npm run test:studio
+      - run: npm run test:views
       - run: npx playwright install --with-deps chromium
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm run test:output

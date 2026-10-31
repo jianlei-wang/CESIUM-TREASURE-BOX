@@ -185,3 +185,11 @@ blob-report/
 
 # Generated physics runtime
 public/vendor/
+
+# 生成的案例目录与浏览量统计数据
+/public/data/cases.json
+
+# 浏览量统计数据与后台口令
+/data/
+data/case-views.json
+data/admin-token.txt

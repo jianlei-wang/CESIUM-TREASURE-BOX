@@ -1,0 +1,3 @@
+// AUTO-GENERATED from Hash.glsl by scripts/build-helper-shaders.mjs
+/* eslint-disable */
+export default "// random in [0, 1) for a point, without sin, which GPUs compute poorly for large numbers\nfloat hash(vec2 p) {\n  vec3 p3 = fract(p.xyx * 0.1031);\n  p3 += dot(p3, p3.yzx + 33.33);\n  return fract((p3.x + p3.y) * p3.z);\n}\n\n// per pixel noise in [0, 1), \"interleaved gradient noise\" (Jimenez 2014): a dither that\n// spreads the sample positions of a blur between neighbouring pixels\nfloat pixelNoise(vec2 pixel) {\n  return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));\n}\n"

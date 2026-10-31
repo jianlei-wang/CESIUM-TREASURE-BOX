@@ -1,0 +1,208 @@
+/* 共享案例界面样式：与项目内其他案例的 control-panel 观感保持一致 */
+.helper-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #102b40;
+}
+
+.helper-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.helper-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 250px;
+  max-height: calc(100% - 24px);
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid rgba(137, 210, 233, 0.28);
+  border-radius: 9px;
+  background: rgba(8, 32, 49, 0.84);
+  backdrop-filter: blur(6px);
+  color: #ddf2f8;
+  font-size: 12px;
+  line-height: 1.55;
+  box-sizing: border-box;
+}
+
+.helper-panel.is-left {
+  right: auto;
+  left: 12px;
+}
+
+.helper-panel.is-wide {
+  width: 300px;
+}
+
+.helper-title {
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.helper-hint {
+  margin: 0;
+  color: #7fb6c9;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.helper-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.helper-button {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(37, 127, 158, 0.55);
+  color: #edfaff;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.helper-button:hover:not(:disabled) {
+  background: #257f9e;
+}
+
+.helper-button.is-active {
+  background: #257f9e;
+  color: #fff;
+}
+
+.helper-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.helper-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.helper-row-label {
+  color: #bdd9e4;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.helper-value {
+  min-width: 46px;
+  color: #d9eff6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.helper-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.helper-range {
+  width: 100%;
+  accent-color: #2f80ed;
+}
+
+.helper-select {
+  width: 100%;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid rgba(137, 210, 233, 0.24);
+  border-radius: 5px;
+  background: rgba(8, 21, 40, 0.55);
+  color: #e6eef9;
+  font-size: 11px;
+}
+
+.helper-toggle {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(137, 210, 233, 0.3);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.helper-toggle i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e7f5f8;
+  transition: transform 0.2s ease;
+}
+
+.helper-toggle.is-on {
+  background: #2f80ed;
+}
+
+.helper-toggle.is-on i {
+  transform: translateX(16px);
+}
+
+.helper-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.helper-status {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 9;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 380px;
+  padding: 8px 14px;
+  border: 1px solid rgba(137, 210, 233, 0.4);
+  border-radius: 7px;
+  background: rgba(8, 21, 40, 0.88);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
+  color: #e8f4fa;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  pointer-events: none;
+}
+
+.helper-overlay-label {
+  position: absolute;
+  z-index: 8;
+  color: #bbb;
+  font-family: ui-monospace, monospace;
+  font-size: 1.4em;
+  white-space: pre;
+  pointer-events: none;
+}
+
+.helper-hidden {
+  display: none !important;
+}

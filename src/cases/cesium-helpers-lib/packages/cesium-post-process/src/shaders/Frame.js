@@ -1,0 +1,3 @@
+// AUTO-GENERATED from Frame.glsl by scripts/build-helper-shaders.mjs
+/* eslint-disable */
+export default "// Size of the visible frame of the given width over height, centered in the canvas, in texture\n// coordinates: bars above and below when the canvas is narrower than the ratio, on the sides when\n// it is wider; the whole canvas for a ratio of 0.\nvec2 frameSize(float aspectRatio) {\n  if (aspectRatio <= 0.0) {\n    return vec2(1.0);\n  }\n  float canvas = czm_viewport.z / czm_viewport.w;\n  return aspectRatio < canvas ? vec2(aspectRatio / canvas, 1.0) : vec2(1.0, canvas / aspectRatio);\n}\n"

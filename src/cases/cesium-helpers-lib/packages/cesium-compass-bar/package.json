@@ -1,0 +1,40 @@
+{
+  "name": "@geoblocks/cesium-compass-bar",
+  "version": "0.2.0",
+  "license": "BSD-3-Clause",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/geoblocks/cesium-helpers/",
+    "directory": "packages/cesium-compass-bar"
+  },
+  "main": "dist/cesium-compass-bar.js",
+  "module": "dist/cesium-compass-bar.js",
+  "types": "dist/cesium-compass-bar.d.ts",
+  "exports": {
+    ".": {
+      "source": "./src/cesium-compass-bar.js",
+      "types": "./dist/cesium-compass-bar.d.ts",
+      "default": "./dist/cesium-compass-bar.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.js"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "prepack": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "lit": "3.x"
+  },
+  "peerDependencies": {
+    "@cesium/core": ">=0.1.0",
+    "@cesium/engine": ">=10"
+  }
+}

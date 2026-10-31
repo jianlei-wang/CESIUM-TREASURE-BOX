@@ -1,0 +1,41 @@
+{
+  "name": "@geoblocks/cesium-flyto",
+  "version": "0.2.1",
+  "license": "BSD-3-Clause",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/geoblocks/cesium-helpers/",
+    "directory": "packages/cesium-flyto"
+  },
+  "main": "dist/cesium-flyto.js",
+  "module": "dist/cesium-flyto.js",
+  "types": "dist/cesium-flyto.d.ts",
+  "exports": {
+    ".": {
+      "source": "./src/cesium-flyto.js",
+      "types": "./dist/cesium-flyto.d.ts",
+      "default": "./dist/cesium-flyto.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.js"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "prepack": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@geoblocks/cesium-post-process": "^0.6.0"
+  },
+  "peerDependencies": {
+    "@cesium/core": ">=0.1.0",
+    "@cesium/engine": ">=10"
+  }
+}

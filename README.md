@@ -232,6 +232,16 @@ docker run --rm -p 8080:80 \
 
 不要把项目源码目录直接作为 Pages 目录：源码版 `index.html` 引用 `/src/main.ts`，仅在 dev 模式下由 Vite 提供。
 
+### 浏览量服务与运营后台
+
+GitHub Pages 只能托管静态文件，`/api` 与 `/admin/` 需要独立的 Node 服务。部署步骤：
+
+1. 使用仓库内置的 `deploy/render.yaml` 在 Render 创建 Blueprint（`New -> Blueprint`），或自行用 `Dockerfile` 部署到任意容器平台；
+2. 把服务地址写入 `deploy/api-base-url.txt`（单行，不带 `/api`）并提交，或在仓库 Variables 中设置 `VIEWS_API_BASE_URL`；
+3. 等待 Pages 工作流重新构建，前端即可跨域访问浏览量接口与后台。
+
+服务端已支持跨域：`CORS_ORIGINS` 默认 `*`，生产建议收敛为 `https://jianlei-wang.github.io`。
+
 ### 手动部署
 
 ```bash

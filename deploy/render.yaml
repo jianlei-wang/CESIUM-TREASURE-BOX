@@ -1,0 +1,24 @@
+# Render Blueprint：部署浏览量服务（Node 单容器，静态站点 + /api + /admin/）
+#
+# 使用方式：在 Render 控制台选择 New -> Blueprint，连接本仓库即可。
+# 部署完成后把服务地址写入 deploy/api-base-url.txt 并提交，Pages 会自动指向该服务。
+services:
+  - type: web
+    name: cesium-views
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: VIEWS_DATA_FILE
+        value: /app/data/case-views.json
+      - key: VIEW_RETENTION_DAYS
+        value: '90'
+      - key: CORS_ORIGINS
+        value: https://jianlei-wang.github.io
+    disk:
+      name: cesium-views-data
+      mountPath: /app/data
+      sizeGB: 1

@@ -73,11 +73,11 @@ npm run preview
 | `npm run sync` | 扫描 `src/cases`，生成案例清单 `manifest.ts` 与后台案例目录 `public/data/cases.json` |
 | `npm run case-list` | 生成 `CASE_LIST.md` 案例列表文档 |
 | `npm run sync-articles` | 拉取公众号专栏文章，按案例名称回填文章产出与在线地址 |
-| `npm run dev` | 同时启动浏览量服务与 Vite 开发服务器（`/api` 反向代理到浏览量服务） |
-| `npm run dev:frontend` | 仅启动 Vite 开发服务器（需自行运行 `npm run server`） |
-| `npm run server` | 单独启动浏览量服务与 `/admin/` 后台托管 |
+| `npm run dev` | 启动 Vite 开发服务器，`/api` 代理到 `deploy/api-base-url.txt` 指向的线上浏览量服务 |
+| `npm run dev:frontend` | 仅启动 Vite 开发服务器（与 `npm run dev` 等价，保留兼容） |
+| `npm run server` | 单独启动本地浏览量服务与 `/admin/` 后台托管（离线开发用） |
 | `npm run build` | 类型检查、Vite 打包与构建体积检查 |
-| `npm run preview` | 预览 `dist` 产物（需先启动 `npm run server` 才能访问浏览量统计） |
+| `npm run preview` | 预览 `dist` 产物，`/api` 同样代理到线上浏览量服务 |
 | `npm run test:views` | 浏览量服务存储与 API 单元测试 |
 | `npm run test:worker` | Cloudflare Workers 后端单元测试（内存 D1 模拟） |
 | `npm run lint` | ESLint 检查 |
@@ -188,12 +188,14 @@ docker run --rm -p 8080:80 \
 
 ### 启动方式
 
-开发环境执行 `npm run dev`，会同时启动：
+浏览量数据以 GitHub Pages 线上服务为准，前端固定读取同一份数据：
 
-- 浏览量服务：`http://127.0.0.1:8787`（数据写入 `data/case-views.json`）；
-- Vite 开发服务器：`http://localhost:5173`，并把 `/api` 反向代理到浏览量服务。
+- 线上：静态站点在 GitHub Pages，`/api` 直连 `deploy/api-base-url.txt` 中的 Cloudflare Worker；
+- 本地：`npm run dev` 启动 Vite，`scripts/vite-views-backend.mjs` 把 `/api` 代理到同一个 Worker，因此本地与线上浏览量一致。
 
-后台入口为 `/admin/`，开发态直接访问 `http://localhost:5173/admin/`。
+地址来源按优先级：环境变量 `VIEWS_API_BASE_URL` > `deploy/api-base-url.txt`。两者都为空时，Vite 插件会回退到本地 8787 服务并在进程内拉起，数据写入 `data/case-views.json`，仅供离线开发。
+
+后台入口为 `/admin/`，本地直接访问 Vite 端口下的 `/admin/`。注意新案例必须随 `public/data/cases.json` 一起部署到 Pages 后，Worker 才会接受该案例的浏览量写入（未在目录中的案例返回 404）。
 
 ### 后台口令
 

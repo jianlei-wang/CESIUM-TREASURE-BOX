@@ -2,6 +2,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import cesium from 'vite-plugin-cesium'
+import { viewsBackend, viewsProxyOptions } from './scripts/vite-views-backend.mjs'
 
 const CESIUM_GLOBAL_ID = '\0cesium-global'
 
@@ -136,7 +137,8 @@ export default defineConfig({
     cesium(),
     cesiumHtmlOptimize,
     cesiumDevGlobal,
-    adminDevEntry
+    adminDevEntry,
+    viewsBackend()
   ],
   resolve: {
     alias: {
@@ -166,21 +168,11 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     allowedHosts: ['.monkeycode-ai.online'],
-    proxy: {
-      '/api': {
-        target: process.env.VIEWS_PROXY_TARGET?.trim() || 'http://127.0.0.1:8787',
-        changeOrigin: true
-      }
-    }
+    proxy: { '/api': viewsProxyOptions() }
   },
   preview: {
     host: '0.0.0.0',
     allowedHosts: ['.monkeycode-ai.online'],
-    proxy: {
-      '/api': {
-        target: process.env.VIEWS_PROXY_TARGET?.trim() || 'http://127.0.0.1:8787',
-        changeOrigin: true
-      }
-    }
+    proxy: { '/api': viewsProxyOptions() }
   }
 })

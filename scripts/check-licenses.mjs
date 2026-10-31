@@ -28,6 +28,8 @@ function fromLicenseFile(path) {
     const file = join(root, path, name)
     if (!existsSync(file)) continue
     const text = readFileSync(file, 'utf8').slice(0, 4000)
+    if (/is in the public domain|public domain software|released into the public domain/i.test(text))
+      return 'Public-Domain'
     if (/Apache License/i.test(text)) return 'Apache-2.0'
     if (/BSD 3-Clause/i.test(text)) return 'BSD-3-Clause'
     if (/BSD 2-Clause/i.test(text)) return 'BSD-2-Clause'
@@ -41,7 +43,9 @@ function fromLicenseFile(path) {
 function classify(license) {
   const text = String(license)
   const restricted = /(^|[^A-Z])(AGPL|LGPL|GPL|SSPL|EPL|MPL|CDDL|CPAL|OSL)/i.test(text)
-  const permissive = /(MIT|ISC|BSD|APACHE|0BSD|CC0|UNLICENSE|BLUEOAK|ZLIB|WTFPL|EDL|PYTHON|CC-BY)/i.test(text)
+  const permissive = /(MIT|ISC|BSD|APACHE|0BSD|CC0|UNLICENSE|BLUEOAK|ZLIB|WTFPL|EDL|PYTHON|CC-BY|PUBLIC.DOMAIN)/i.test(
+    text
+  )
   const alternative = /\bOR\b|\bor\b/i.test(text)
   if (!permissive) return 'unknown'
   if (restricted && !alternative) return 'restricted'
@@ -53,9 +57,9 @@ for (const [path, entry] of Object.entries(lock.packages ?? {})) {
   if (!path.startsWith('node_modules/')) continue
   const name = path.slice(path.lastIndexOf('node_modules/') + 'node_modules/'.length)
   let license = entry.license || ''
-  if (!license) {
+  if (!license || /^SEE LICEN[CS]E IN /i.test(license)) {
     license = fromPackageJson(path)
-    if (!license) {
+    if (!license || /^SEE LICEN[CS]E IN /i.test(license)) {
       license = fromLicenseFile(path)
       if (license) inferred.push(`${name} -> ${license}`)
     }

@@ -1,0 +1,32 @@
+export {default as AnalogVideo} from './analog-video.js';
+export {default as Clouds} from './clouds.js';
+export {default as ColorIsolation} from './color-isolation.js';
+export {default as DigitalVideo} from './digital-video.js';
+export {default as Dufour} from './dufour.js';
+export {default as DroneDisplay} from './drone-display.js';
+export {default as Effect} from './effect.js';
+export {default as Infrared} from './infrared.js';
+export {default as Jello} from './jello.js';
+export {default as LensDistortion} from './lens-distortion.js';
+export {default as Lightning} from './lightning.js';
+export {default as MotionBlur} from './motion-blur.js';
+export {default as Precipitation} from './precipitation.js';
+export {default as OpenSky} from './open-sky.js';
+export {default as RainRings} from './rain-rings.js';
+export {default as SnowLine} from './snow-line.js';
+export {default as SpeedLines} from './speed-lines.js';
+export {default as Spotlight} from './spotlight.js';
+export {default as Super8} from './super8.js';
+export {default as Technicolor} from './technicolor.js';
+export {default as TiltShift} from './tilt-shift.js';
+export {default as Toy} from './toy.js';
+export {default as ValleyFog} from './valley-fog.js';
+export {default as WhiteModel} from './white-model.js';
+
+// the shader chunks the depth-based effects share, and the uniforms of Height, for effects of your own
+export {default as EyeFromDepth} from './shaders/EyeFromDepth.js';
+export {default as Hash} from './shaders/Hash.js';
+export {default as Height} from './shaders/Height.js';
+export {heightUniforms} from './height.js';
+export {localFromEye} from './local-frame.js';
+export {default as Normal} from './shaders/Normal.js';

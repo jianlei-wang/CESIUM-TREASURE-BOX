@@ -1,0 +1,38 @@
+{
+  "name": "@geoblocks/cesium-binoculars",
+  "version": "0.2.0",
+  "license": "BSD-3-Clause",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/geoblocks/cesium-helpers/",
+    "directory": "packages/cesium-binoculars"
+  },
+  "main": "dist/cesium-binoculars.js",
+  "module": "dist/cesium-binoculars.js",
+  "types": "dist/cesium-binoculars.d.ts",
+  "exports": {
+    ".": {
+      "source": "./src/cesium-binoculars.js",
+      "types": "./dist/cesium-binoculars.d.ts",
+      "default": "./dist/cesium-binoculars.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.js"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "prepack": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@cesium/core": ">=0.1.0",
+    "@cesium/engine": ">=10"
+  }
+}

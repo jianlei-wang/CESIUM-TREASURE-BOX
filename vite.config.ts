@@ -34,7 +34,7 @@ const CESIUM_SYMBOLS = [
   'GroundPolylinePrimitive',
   'GroundPrimitive',
   'HeadingPitchRange', 'HeadingPitchRoll', 'HeightReference', 'HermitePolynomialApproximation', 'HorizontalOrigin',
-  'ImageMaterialProperty', 'ImageryLayer', 'ImageryProvider', 'ImagerySplitDirection',
+  'ImageMaterialProperty', 'ImageryLayer', 'ImageryProvider',
   'GridImageryProvider', 'IonImageryProvider', 'OpenStreetMapImageryProvider', 'TileMapServiceImageryProvider',
   'IntersectionTests', 'Ion', 'JulianDate', 'KmlDataSource',
   'LabelCollection', 'LabelGraphics', 'LabelStyle', 'LagrangePolynomialApproximation', 'Material', 'MaterialAppearance', 'Math', 'Matrix3', 'Matrix4',
@@ -50,21 +50,21 @@ const CESIUM_SYMBOLS = [
   'ScreenSpaceEventHandler', 'ScreenSpaceEventType', 'ShaderProgram', 'ShaderSource',
   'ShadowMode',   'SingleTileImageryProvider', 'Simon1994PlanetaryPositions', 'SkyAtmosphere', 'SplitDirection', 'SunLight',
   'StripeMaterialProperty',
-  'Texture', 'Texture3D', 'TextureMagnificationFilter', 'TextureMinificationFilter', 'TextureUniform',
+  'Texture', 'Texture3D', 'Axis', 'CameraEventType', 'CatmullRomSpline', 'EasingFunction', 'EllipsoidalOccluder', 'KeyboardEventModifier', 'PointPrimitiveCollection', 'PolygonPipeline', 'PolylineMaterialAppearance', 'PostProcessStageLibrary', '_shadersGaussianBlur1D', 'TextureMagnificationFilter', 'TextureMinificationFilter', 'TextureUniform',
   'TextureWrap', 'TimeInterval', 'Transforms', 'Tonemapper', 'UniformType', 'UrlTemplateImageryProvider',
   'TimeIntervalCollection',
   'VertexArray', 'VertexFormat', 'VerticalOrigin', 'Viewer', 'WallGeometry',
   'CylinderGeometry', 'BoxGraphics', 'VoxelContent', 'VoxelPrimitive', 'VoxelShapeType',
-  'MetadataType', 'MetadataComponentType',
+  'MetadataType', 'MetadataComponentType', 'RequestScheduler',
   'WebMapServiceImageryProvider', 'WebMapTileServiceImageryProvider', 'WebMercatorProjection', 'WebMercatorTilingScheme',
   'ArcGisMapServerImageryProvider', 'ArcType', 'BlendingState', 'ClassificationPrimitive', 'ClassificationType',
-  'buildModuleUrl', 'createWorldTerrainAsync', 'createOsmBuildingsAsync', 'CesiumTerrainProvider', 'ArcGISTiledElevationTerrainProvider', 'ParticleSystem', 'CircleEmitter', 'BoxEmitter', 'CylinderEmitter',
+  'buildModuleUrl', 'createWorldTerrainAsync', 'createOsmBuildingsAsync', 'CesiumTerrainProvider', 'ArcGISTiledElevationTerrainProvider', 'ParticleSystem', 'CircleEmitter', 'BoxEmitter',
   'defined', 'destroyObject', 'sampleTerrainMostDetailed'
 ]
 
 const cesiumGlobalShim = `const Cesium = window.Cesium
 export default Cesium
-${CESIUM_SYMBOLS.map((s) => `export const ${s} = Cesium.${s}`).join('\n')}
+${[...new Set(CESIUM_SYMBOLS)].map((s) => `export const ${s} = Cesium.${s}`).join('\n')}
 `
 
 const cesiumDevGlobal: Plugin = {
@@ -99,12 +99,51 @@ const adminDevEntry: Plugin = {
 
 const deploymentBase = process.env.BASE_URL?.trim() || './'
 
+const compatPath = fileURLToPath(new URL('./src/cases/cesium-helpers-lib/compat/cesium-compat.ts', import.meta.url))
+const helperPath = (dir: string, entry: string) =>
+  fileURLToPath(new URL(`./src/cases/cesium-helpers-lib/packages/${dir}/src/${entry}.js`, import.meta.url))
+
+const helperAliases: Record<string, string> = {
+  '@geoblocks/cesium-audio': helperPath('cesium-audio', 'cesium-audio'),
+  '@geoblocks/cesium-binoculars': helperPath('cesium-binoculars', 'cesium-binoculars'),
+  '@geoblocks/cesium-bvh': helperPath('cesium-bvh', 'cesium-bvh'),
+  '@geoblocks/cesium-compass': helperPath('cesium-compass', 'cesium-compass'),
+  '@geoblocks/cesium-compass-bar': helperPath('cesium-compass-bar', 'cesium-compass-bar'),
+  '@geoblocks/cesium-drone': helperPath('cesium-drone', 'cesium-drone'),
+  '@geoblocks/cesium-first-person-mode': helperPath('FirstPersonCameraMode', 'FirstPersonCameraMode'),
+  '@geoblocks/cesium-flyto': helperPath('cesium-flyto', 'cesium-flyto'),
+  '@geoblocks/cesium-input': helperPath('cesium-input', 'cesium-input'),
+  '@geoblocks/cesium-iso': helperPath('cesium-iso', 'cesium-iso'),
+  '@geoblocks/cesium-obstacles': helperPath('cesium-obstacles', 'cesium-obstacles'),
+  '@geoblocks/cesium-overlay': helperPath('cesium-overlay', 'cesium-overlay'),
+  '@geoblocks/cesium-path-flyover': helperPath('cesium-path-flyover', 'cesium-path-flyover'),
+  '@geoblocks/cesium-post-process': helperPath('cesium-post-process', 'cesium-post-process'),
+  '@geoblocks/cesium-sphere-camera': helperPath('cesium-sphere-camera', 'cesium-sphere-camera'),
+  '@geoblocks/cesium-view-cube': helperPath('cesium-view-cube', 'cesium-view-cube'),
+  '@geoblocks/cesium-walk': helperPath('cesium-walk', 'cesium-walk')
+}
+
 export default defineConfig({
   base: deploymentBase,
-  plugins: [vue(), cesium(), cesiumHtmlOptimize, cesiumDevGlobal, adminDevEntry],
+  plugins: [
+    vue({
+      template: {
+        compilerOptions: {
+          isCustomElement: (tag) => tag.startsWith('cesium-')
+        }
+      }
+    }),
+    cesium(),
+    cesiumHtmlOptimize,
+    cesiumDevGlobal,
+    adminDevEntry
+  ],
   resolve: {
     alias: {
-      '@rt': fileURLToPath(new URL('./src/cases/red-tide-3d', import.meta.url))
+      '@rt': fileURLToPath(new URL('./src/cases/red-tide-3d', import.meta.url)),
+      '@cesium/core': compatPath,
+      '@cesium/engine': compatPath,
+      ...helperAliases
     }
   },
   optimizeDeps: {

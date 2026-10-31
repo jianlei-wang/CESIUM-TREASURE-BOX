@@ -3,14 +3,12 @@ main = "worker/index.mjs"
 compatibility_date = "2026-01-01"
 
 # Cloudflare 免费额度：Workers 10 万请求/天，D1 500 万行读/天、10 万行写/天。
-# 部署前先执行：
-#   npx wrangler d1 create cesium-views
-# 把返回的 database_id 填到下面。
+# D1 绑定名固定为 DB，与 worker/index.mjs 中的 env.DB 对应。
 
 [[d1_databases]]
 binding = "DB"
 database_name = "cesium-views"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "d8a6b9a4-472f-446f-af7d-b9a3de0c82c3"
 
 [vars]
 # 允许跨域访问的前端来源，多个用英文逗号分隔；留空则允许任意来源。

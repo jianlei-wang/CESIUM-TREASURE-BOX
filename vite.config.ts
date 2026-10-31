@@ -25,7 +25,7 @@ const CESIUM_SYMBOLS = [
   'ClockStep',
   'ColorGeometryInstanceAttribute', 'ColorMaterialProperty', 'ComponentDatatype',
   'ComputeCommand', 'ConstantPositionProperty', 'ConstantProperty', 'Credit',
-  'CullFace', 'CustomDataSource', 'CustomShader', 'CzmlDataSource', 'DirectionalLight',
+  'CullFace', 'CustomDataSource', 'CustomShader', 'CzmlDataSource', 'DirectionalLight', 'Check', 'Context',
   'Terrain',
   'DistanceDisplayCondition', 'DrawCommand', 'Ellipsoid', 'EllipsoidGeodesic',
   'EllipsoidGeometry', 'EllipsoidOutlineGeometry', 'EllipsoidSurfaceAppearance',
@@ -56,11 +56,11 @@ const CESIUM_SYMBOLS = [
   'TimeIntervalCollection',
   'VertexArray', 'VertexFormat', 'VerticalOrigin', 'Viewer', 'WallGeometry',
   'CylinderGeometry', 'BoxGraphics', 'VoxelContent', 'VoxelPrimitive', 'VoxelShapeType',
-  'MetadataType', 'MetadataComponentType', 'RequestScheduler',
+  'MetadataType', 'MetadataComponentType', 'MipmapHint', 'RequestScheduler',
   'WebMapServiceImageryProvider', 'WebMapTileServiceImageryProvider', 'WebMercatorProjection', 'WebMercatorTilingScheme',
   'ArcGisMapServerImageryProvider', 'ArcType', 'BlendingState', 'ClassificationPrimitive', 'ClassificationType',
   'buildModuleUrl', 'createWorldTerrainAsync', 'createOsmBuildingsAsync', 'CesiumTerrainProvider', 'ArcGISTiledElevationTerrainProvider', 'ParticleSystem', 'CircleEmitter', 'BoxEmitter',
-  'defined', 'destroyObject', 'sampleTerrainMostDetailed'
+  'defined', 'destroyObject', 'sampleTerrainMostDetailed', 'WebGLConstants', 'combine', 'createGuid'
 ]
 
 const cesiumGlobalShim = `const Cesium = window.Cesium

@@ -36,8 +36,10 @@ Entries discovered by the Agent during task execution should follow this format:
 - Context: Discovered by Agent while building 浏览量统计与运营后台（server/ + public/admin/）
 - Category: Workflow & Collaboration
 - Instructions:
-  - `npm run dev` 现由 `scripts/dev.mjs` 同启浏览量服务（默认 8787）与 Vite 5173，Vite 将 `/api` 代理到浏览量服务；单独起前端用 `npm run dev:frontend`，单独起后端用 `npm run server`。
-  - 浏览量数据写 `data/case-views.json`（已 gitignore），后台口令优先读 `ADMIN_TOKEN`，其次 `data/admin-token.txt`，都不存在时首次启动自动生成并打印一次；dev 后台入口 `http://localhost:5173/admin/`。
+  - 浏览量数据以 GitHub Pages 线上 Cloudflare Worker 为唯一准据：`scripts/vite-views-backend.mjs` 读取 `VIEWS_API_BASE_URL` 或 `deploy/api-base-url.txt`，把 dev/preview 的 `/api` 代理到同一个 Worker，本地与线上数字因此一致。地址为空时才回退到本地 8787（数据写 `data/case-views.json`，仅供离线开发）。
+  - 本沙箱 DNS 会把 `*.workers.dev` 解析到错误 IP（`108.160.x.x`），插件已内置 DoH（1.1.1.1 / cloudflare-dns.com）解析 + TCP 探活 + 自定义 lookup 固定可用 IP；直接用 curl/node fetch 访问该域名会失败，验证线上数据请走 5199 代理。
+  - Worker 的写入会校验案例目录（`CATALOG_URL` 指向 Pages 的 `data/cases.json`）：新案例必须先部署到 Pages，否则 `POST /api/views` 返回 404 `unknown case`。
+  - 后台口令优先读 `ADMIN_TOKEN`，其次 `data/admin-token.txt`；后台入口为当前 Vite 端口下的 `/admin/`（本地平台预览是 5199）。
   - `npm run sync` 现在还会生成 `public/data/cases.json` 案例目录；新增或删除案例后必须重新 sync，否则浏览量写入会因案例不在目录而返回 404。
   - 生产部署改为单容器 Node 运行时（Dockerfile 不再使用 nginx），静态站点、`/api` 与 `/admin/` 同端口；`/app/data` 需挂载卷以持久化浏览量。
 
@@ -45,9 +47,9 @@ Entries discovered by the Agent during task execution should follow this format:
 - Date: 2026-10-23
 - Context: 用户多次反馈系统无法预览，要求始终保证可预览
 - Instructions:
-  - 预览可用性是硬性验收条件。任何构建、测试或代码修改都不得停止或牺牲 5173 端口的 dev server。
-  - 启动命令固定为 `npm run dev -- --host 0.0.0.0 --port 5173`，必须通过 background terminal 且 `timeout: 0` 启动，避免被超时机制自动终止。
-  - 每次任务结束前调用 `request_preview(5173)` 并用 curl 检查访问地址返回 200；若进程退出必须立即重启后再交付。
+  - 预览可用性是硬性验收条件。平台预览进程由平台自身拉起（当前为 `vite --host 127.0.0.1 --port 5199`，PID 挂在 init 下），不得由 Agent 用 `npm run dev` 之类的自启进程替换。
+  - 改动 `vite.config.ts` 后平台进程会热重启；若日志出现 `server restart failed`，执行 `touch vite.config.ts` 触发再次加载。
+  - 每次任务结束前用 curl 检查 `http://127.0.0.1:5199/` 与 `/api/views?ids=<case>` 均返回 200。
   - 构建与预览并行时使用独立后台终端，构建完成不得关闭预览进程。
   - 项目在 2026-10-31 前为纯前端；用户已明确要求新增浏览量后台服务，现允许同仓 Node 服务（`server/`）与 Docker 部署，其余新功能仍优先前端实现。
 

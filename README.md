@@ -236,7 +236,7 @@ docker run --rm -p 8080:80 \
 
 GitHub Pages 只能托管静态文件，`/api` 与 `/admin/` 需要独立的 Node 服务。部署步骤：
 
-1. 使用仓库内置的 `deploy/render.yaml` 在 Render 创建 Blueprint（`New -> Blueprint`），或自行用 `Dockerfile` 部署到任意容器平台；
+1. 使用仓库根目录的 `render.yaml` 在 Render 创建 Blueprint（`New -> Blueprint`），或自行用 `Dockerfile` 部署到任意容器平台；
 2. 把服务地址写入 `deploy/api-base-url.txt`（单行，不带 `/api`）并提交，或在仓库 Variables 中设置 `VIEWS_API_BASE_URL`；
 3. 等待 Pages 工作流重新构建，前端即可跨域访问浏览量接口与后台。
 

@@ -19,7 +19,11 @@ const config = {
   staticRoot: resolve(process.env.STATIC_ROOT ?? join(rootDir, 'dist')),
   catalogFile: process.env.VIEWS_CATALOG_FILE ? resolve(process.env.VIEWS_CATALOG_FILE) : '',
   retentionDays: Number(process.env.VIEW_RETENTION_DAYS ?? 90),
-  envToken: (process.env.ADMIN_TOKEN ?? '').trim()
+  envToken: (process.env.ADMIN_TOKEN ?? '').trim(),
+  corsOrigins: (process.env.CORS_ORIGINS ?? '*')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 const CASE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
@@ -89,6 +93,18 @@ function clientKey(req) {
   const forwarded = req.headers['x-forwarded-for']
   if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',')[0].trim()
   return req.socket.remoteAddress ?? 'unknown'
+}
+
+function applyCors(req, res) {
+  const origin = typeof req.headers.origin === 'string' ? req.headers.origin : ''
+  if (!origin) return
+  const wildcard = config.corsOrigins.includes('*')
+  if (!wildcard && !config.corsOrigins.includes(origin)) return
+  res.setHeader('Access-Control-Allow-Origin', wildcard ? '*' : origin)
+  res.setHeader('Vary', 'Origin')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Token')
+  res.setHeader('Access-Control-Max-Age', '600')
 }
 
 function createRateLimiter({ windowMs, limit }) {
@@ -320,6 +336,14 @@ export async function createViewServer(options = {}) {
     const method = req.method ?? 'GET'
 
     try {
+      applyCors(req, res)
+
+      if (method === 'OPTIONS') {
+        res.writeHead(204)
+        res.end()
+        return
+      }
+
       if (pathname === '/api/health') {
         json(res, 200, { ok: true, uptime: Math.round(process.uptime()) })
         return

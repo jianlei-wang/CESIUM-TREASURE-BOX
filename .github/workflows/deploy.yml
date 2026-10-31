@@ -30,6 +30,9 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm run test:output
       - run: npm run build
+        env:
+          API_BASE_URL: ${{ vars.VIEWS_API_BASE_URL }}
+          CESIUM_ION_TOKEN: ${{ vars.CESIUM_ION_TOKEN }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

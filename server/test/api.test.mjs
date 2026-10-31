@@ -85,3 +85,24 @@ test('后台接口需要有效口令', async () => {
   assert.equal(data.totals.totalViews >= 1, true)
   assert.equal(Array.isArray(data.cases), true)
 })
+
+test('OPTIONS 预检返回 CORS 头', async () => {
+  const response = await fetch(`${baseUrl}/api/views`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://jianlei-wang.github.io',
+      'Access-Control-Request-Method': 'POST'
+    }
+  })
+  assert.equal(response.status, 204)
+  assert.equal(response.headers.get('access-control-allow-origin'), '*')
+  assert.match(response.headers.get('access-control-allow-methods') ?? '', /POST/)
+})
+
+test('GET /api/views 带 Origin 时返回 CORS 头', async () => {
+  const response = await fetch(`${baseUrl}/api/views?ids=case-a`, {
+    headers: { Origin: 'https://jianlei-wang.github.io' }
+  })
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('access-control-allow-origin'), '*')
+})

@@ -37,3 +37,9 @@
 | GET | `/api/admin/catalog` | Bearer | 案例目录 |
 
 `/admin/` 为独立静态页面，口令保存在 `sessionStorage`，请求携带 `Authorization: Bearer <token>`。
+
+### 跨域访问
+
+当静态站点与浏览量服务不同源（例如前端部署在 GitHub Pages、服务部署在他处）时，前端需在 `public/runtime-config.js` 中把 `apiBaseUrl` 指向服务地址，服务端通过 `CORS_ORIGINS` 放行来源（默认 `*`）。
+
+服务端对所有 `/api` 请求返回 `Access-Control-Allow-Origin`，并响应 `OPTIONS` 预检（204），允许方法与请求头为 `GET, POST, OPTIONS` 与 `Content-Type, Authorization, X-Admin-Token`。

@@ -216,6 +216,7 @@ docker run --rm -p 8080:80 \
 | `STATIC_ROOT` | `dist` | 静态站点目录 |
 | `VIEWS_CATALOG_FILE` | `public/data/cases.json` | 案例目录文件 |
 | `VIEW_RETENTION_DAYS` | `90` | 每日明细保留天数；累计浏览量永久保留 |
+| `CORS_ORIGINS` | `*` | 允许跨域调用 `/api` 的来源，逗号分隔；`*` 表示允许任意来源 |
 
 浏览量口径为「每次打开可演示案例即 +1」，持久化采用临时文件加原子重命名，进程退出前会强制落盘。每日明细按保留天数清理，案例累计值永久保留。
 

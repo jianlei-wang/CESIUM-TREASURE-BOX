@@ -1087,3 +1087,14 @@ Entries discovered by the Agent during task execution should follow this format:
 - Instructions:
   - 本仓库只允许 `master` 和 `jianlei_wang` 两个分支，禁止创建任何临时/功能分支。
   - 提交与推送一律直接使用现有分支（通常为 `jianlei_wang`），不要执行 `git checkout -b`。
+
+[Project Knowledge Summary]
+- Date: 2026-10-31
+- Context: Discovered by Agent while deploying the Cloudflare Workers + D1 views backend
+- Category: Operations & Deployment
+- Instructions:
+  - 浏览量后端已部署到 Cloudflare Workers：`https://cesium-views.cesium-toolbox-showcase.workers.dev`，D1 库名 `cesium-views`，binding 必须是 `DB`（`wrangler d1 create` 默认生成 `cesium_views`，需手动改）。
+  - 沙箱环境不能访问 `*.workers.dev` 与 `dash.cloudflare.com`（TLS 被拦），只能通过 `api.cloudflare.com` REST 操作；`wrangler deploy` 可用，但 `wrangler d1 execute` 的上传步骤会 `fetch failed`，改用 REST `POST /accounts/{id}/d1/database/{db}/query` 逐条执行 `worker/schema.sql`。
+  - 凭据存放于 `/root/.cloudflare.env`（600 权限，含 `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN`），部署前 `set -a && . /root/.cloudflare.env && set +a`。
+  - 后台口令通过 Workers secret `ADMIN_TOKEN` 设置，REST 接口为 `PUT /accounts/{id}/workers/scripts/cesium-views/secrets`。
+  - Pages 构建与 E2E 工作流需 Node 22（worker 测试依赖 `node:sqlite`）；无 `node:sqlite` 时测试以 `{ skip }` 作为 `test()` 第二个参数跳过。

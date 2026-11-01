@@ -6,6 +6,7 @@
  */
 import * as Cesium from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
+import { createBingImageryProvider } from '../../lib/bing'
 import { SkyAtmos } from './src/index.ts'
 
 const INITIAL_TIME = '2026-05-01T06:00Z'
@@ -20,13 +21,12 @@ export function createDefaultValues(preset) {
 
 /**
  * 在容器内创建地球并接入天空管线。
- * @param {{ container: HTMLElement, signal?: AbortSignal, ionToken?: string, tiandituToken?: string }} params
+ * @param {{ container: HTMLElement, signal?: AbortSignal, ionToken?: string }} params
  */
 export async function mountSkyAtmos({
   container,
   signal,
   ionToken = import.meta.env.VITE_CESIUM_ION_TOKEN?.trim() || '',
-  tiandituToken = import.meta.env.VITE_TIANDITU_TOKEN?.trim() || '',
 }) {
   const assertActive = () => {
     if (signal?.aborted) {
@@ -52,22 +52,7 @@ export async function mountSkyAtmos({
     shouldAnimate: false,
   })
 
-  const imageryProvider = tiandituToken
-    ? new Cesium.WebMapTileServiceImageryProvider({
-        url: `https://t1.tianditu.gov.cn/img_w/wmts?tk=${encodeURIComponent(tiandituToken)}`,
-        layer: 'img',
-        style: 'default',
-        format: 'tiles',
-        tileMatrixSetID: 'w',
-        tilingScheme: new Cesium.WebMercatorTilingScheme(),
-        maximumLevel: 18,
-        credit: '天地图',
-      })
-    : await Cesium.TileMapServiceImageryProvider.fromUrl(
-        Cesium.buildModuleUrl('Assets/Textures/NaturalEarthII'),
-      )
-
-  viewer.imageryLayers.addImageryProvider(imageryProvider)
+  viewer.imageryLayers.addImageryProvider(createBingImageryProvider())
 
   if (signal?.aborted) {
     viewer.destroy()

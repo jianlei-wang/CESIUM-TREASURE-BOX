@@ -10,12 +10,13 @@ import { createGridGround } from '../common/effects'
 
 import hdrUrl from '../assets/hdr/venice_sunset_1k.hdr?url'
 import turbineUrl from '../assets/model/turbine.glb?url'
+import { assetUrl } from '../../lib/asset-url'
 
 let sharedDraco: DRACOLoader | null = null
 function getDracoLoader(): DRACOLoader {
   if (!sharedDraco) {
     sharedDraco = new DRACOLoader()
-    sharedDraco.setDecoderPath('/draco/gltf/')
+    sharedDraco.setDecoderPath(assetUrl('/draco/gltf/'))
   }
   return sharedDraco
 }

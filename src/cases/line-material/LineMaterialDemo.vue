@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Cartesian2,
@@ -68,10 +69,10 @@ const KIND_DEFAULTS: Record<string, { speed?: number; percent?: number; gradient
   PolylineMultiArrow: { repeatFactor: 4 },
   PolylineDashArrow: { dashLength: 16, dashPattern: 255 },
   PolylineDirection: { outlineWidth: 2 },
-  PolylineLighting: { image: '/images/lighting.png' },
+  PolylineLighting: { image: assetUrl('/images/lighting.png') },
   PolylineFlicker: { speed: 3 },
-  PolylineImageTrail: { speed: 3, repeatX: 8, image: '/images/polyline-arrow.png' },
-  PolylineLightingTrail: { speed: 5, image: '/images/lighting.png' }
+  PolylineImageTrail: { speed: 3, repeatX: 8, image: assetUrl('/images/polyline-arrow.png') },
+  PolylineLightingTrail: { speed: 5, image: assetUrl('/images/lighting.png') }
 }
 
 const BASE_CENTER = { lon: 115.73, lat: 36.2 }

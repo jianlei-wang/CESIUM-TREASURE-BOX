@@ -1,3 +1,4 @@
+import { assetUrl } from '../../../lib/asset-url'
 import {
   HeadingPitchRoll,
   Math as CesiumMath,
@@ -16,7 +17,7 @@ import {
  *   会把骨骼矩阵退化成常量缩放，导致整个模型不可见）。静态化后模型稳定可见，geometry 复用 scene.bin。
  *   设备图层与模拟飞行共用。
  */
-export const DRONE_FULL_URI = '/models/flying_drone/scene_static.gltf'
+export const DRONE_FULL_URI = assetUrl('/models/flying_drone/scene_static.gltf')
 export const DRONE_CREDIT =
   'Drone model: "Flying Drone" by DogexorRexUwU, CC-BY-4.0 (Sketchfab)'
 

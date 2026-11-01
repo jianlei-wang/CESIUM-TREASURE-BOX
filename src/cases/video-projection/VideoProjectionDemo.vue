@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   Cartesian3,
@@ -22,7 +23,7 @@ import {
   type ProjectionCameraConfig
 } from '../video-projection-lib'
 
-const VIDEO_URL = '/videos/demo.mp4'
+const VIDEO_URL = assetUrl('/videos/demo.mp4')
 const BASE_LON = 120.628
 const BASE_LAT = 36.185
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { Cartesian3, Color, JulianDate, Math as CesiumMath, type Viewer } from 'cesium'
 import {
@@ -141,7 +142,7 @@ async function rebuildChain(): Promise<void> {
       const scene = viewerInstance.scene as unknown as { context: unknown }
       const luts = await loadAtmosphereLUTs(
         scene.context as Parameters<typeof loadAtmosphereLUTs>[0],
-        '/geo/luts'
+        assetUrl('/geo/luts')
       )
       lutsCache = luts
       lutsReady = true
@@ -184,7 +185,7 @@ async function initScene(): Promise<void> {
     const context = (scene as unknown as { context: unknown }).context
     lutsCache = await loadAtmosphereLUTs(
       context as Parameters<typeof loadAtmosphereLUTs>[0],
-      '/geo/luts'
+      assetUrl('/geo/luts')
     )
     lutsReady = true
   } catch (error) {

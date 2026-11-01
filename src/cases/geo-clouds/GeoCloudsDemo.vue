@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { Color, JulianDate, type Viewer } from 'cesium'
 import {
@@ -137,7 +138,7 @@ async function initScene(): Promise<void> {
     const context = (scene as unknown as { context: unknown }).context
     lutsCache = await loadAtmosphereLUTs(
       context as Parameters<typeof loadAtmosphereLUTs>[0],
-      '/geo/luts'
+      assetUrl('/geo/luts')
     )
     lutsReady = true
   } catch (error) {
@@ -163,7 +164,7 @@ async function initScene(): Promise<void> {
     const context = (scene as unknown as { context: unknown }).context
     weatherCache = await loadWeatherTextures(
       context as Parameters<typeof loadWeatherTextures>[0],
-      '/geo/clouds'
+      assetUrl('/geo/clouds')
     )
     weatherReady = true
   } catch (error) {

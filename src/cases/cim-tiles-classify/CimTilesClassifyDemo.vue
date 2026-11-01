@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import * as Cesium from 'cesium'
 import { createMapScene, destroyScene, loadBingImagery, type SceneCallbacks } from '../../lib/cesium-scene'
@@ -16,7 +17,7 @@ type Region = {
   label: Cesium.Entity
 }
 
-const TILESET_URL = '/dayanta/tileset.json'
+const TILESET_URL = assetUrl('/dayanta/tileset.json')
 const TILE_CENTER = { lon: 108.9606, lat: 34.2199, height: 445 }
 
 const container = ref<HTMLElement>()

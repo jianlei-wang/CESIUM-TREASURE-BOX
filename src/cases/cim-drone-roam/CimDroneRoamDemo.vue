@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import * as Cesium from 'cesium'
 import { createMapScene, destroyScene, loadBingImagery, type SceneCallbacks } from '../../lib/cesium-scene'
 
 type Waypoint = { lon: number; lat: number; height: number }
 
-const MODEL_URL = '/models/flying_drone/drone_lite.glb'
+const MODEL_URL = assetUrl('/models/flying_drone/drone_lite.glb')
 const SECONDS_PER_SAMPLE = 0.55
 const SAMPLE_COUNT = 240
 

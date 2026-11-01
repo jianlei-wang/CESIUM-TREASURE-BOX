@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   CallbackProperty,
@@ -30,7 +31,7 @@ import {
 type AxisName = 'x' | 'y' | 'z'
 type DragKind = 'translate' | 'rotate'
 
-const TILESET_URL = '/dayanta/tileset.json'
+const TILESET_URL = assetUrl('/dayanta/tileset.json')
 const AXIS_META: Record<AxisName, { label: string; color: string }> = {
   x: { label: 'X（东）', color: '#ff4d4f' },
   y: { label: 'Y（北）', color: '#f7c948' },

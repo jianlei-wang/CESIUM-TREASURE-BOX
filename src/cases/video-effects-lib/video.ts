@@ -1,4 +1,5 @@
-export const VIDEO_URL = '/videos/demo.mp4'
+import { assetUrl } from '../../lib/asset-url'
+export const VIDEO_URL = assetUrl('/videos/demo.mp4')
 
 export function createVideoElement(): HTMLVideoElement {
   const video = document.createElement('video')

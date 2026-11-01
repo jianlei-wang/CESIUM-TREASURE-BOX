@@ -1,12 +1,13 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onMounted, onUnmounted, ref, shallowRef } from 'vue'
 import { Cartesian2, Cartesian3, Color, type Viewer } from 'cesium'
 import { createMapScene, destroyScene, loadBingImagery, type SceneCallbacks } from '../../lib/cesium-scene'
 import LayerTreePanel from '../layer-tree-lib/LayerTreePanel.vue'
 import { LayerType, type LayerAddPreset, type LayerConfig, type LayerTreeControl, type LayerTreeOptions } from '../layer-tree-lib'
 
-const TILESET_URL = '/dayanta/tileset.json'
-const MODEL_URL = '/data/model/launchvehicle/launchvehicle.gltf'
+const TILESET_URL = assetUrl('/dayanta/tileset.json')
+const MODEL_URL = assetUrl('/data/model/launchvehicle/launchvehicle.gltf')
 
 const container = ref<HTMLElement | null>(null)
 const viewer = shallowRef<Viewer | null>(null)

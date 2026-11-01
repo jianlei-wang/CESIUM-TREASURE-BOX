@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   Cartesian3,
@@ -18,7 +19,7 @@ import {
   type SceneCallbacks
 } from '../../lib/cesium-scene'
 
-const TILESET_URL = '/dayanta/tileset.json'
+const TILESET_URL = assetUrl('/dayanta/tileset.json')
 const STYLE_COLORS = ['white', 'cyan', 'orange', 'red', 'green']
 
 const container = ref<HTMLElement | null>(null)

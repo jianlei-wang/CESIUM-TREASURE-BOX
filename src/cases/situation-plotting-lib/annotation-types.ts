@@ -10,6 +10,7 @@ import {
   type Viewer
 } from 'cesium'
 import type { GPoint } from '../military-plotting-lib/plot-edit/types'
+import { assetUrl } from '../../lib/asset-url'
 
 export const ANNOTATION_TEXT_PREFIX = 'situation-annotation-text-'
 export const ANNOTATION_IMAGE_PREFIX = 'situation-annotation-image-'
@@ -90,21 +91,18 @@ export const IMAGE_PRESETS: ImagePreset[] = [
 
 export type ModelPreset = { id: string; name: string; uri: string }
 
-function resolveModelUrl(path: string): string {
-  const base = import.meta.env.BASE_URL ?? '/'
-  return `${base.replace(/\/$/, '')}${path.startsWith('/') ? path : `/${path}`}`
-}
+
 
 export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: 'metro-station',
     name: '地铁站',
-    uri: resolveModelUrl('/data/model/metro_station/scene.gltf')
+    uri: assetUrl('/data/model/metro_station/scene.gltf')
   },
   {
     id: 'launch-vehicle',
     name: '运载火箭',
-    uri: resolveModelUrl('/data/model/launchvehicle/launchvehicle.gltf')
+    uri: assetUrl('/data/model/launchvehicle/launchvehicle.gltf')
   }
 ]
 

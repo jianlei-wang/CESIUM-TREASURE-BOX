@@ -1,3 +1,4 @@
+import { assetUrl } from '../../../lib/asset-url'
 export type RigidShape = 'sphere' | 'box'
 
 export interface RigidBodySpec {
@@ -47,7 +48,7 @@ export async function loadRapier(): Promise<RapierModule | null> {
   if (!rapierPromise) {
     rapierPromise = (async () => {
       try {
-        const url = '/vendor/rapier/rapier.es.js'
+        const url = assetUrl('/vendor/rapier/rapier.es.js')
         const module = (await import(/* @vite-ignore */ url)) as { default?: RapierModule } & RapierModule
         const rapier = module.default ?? module
         await rapier.init()

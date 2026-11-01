@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { assetUrl } from '../../lib/asset-url'
 // 运载火箭发射 CZML 轨迹数据（来源 RocketLaunching.zip，Vulcan 火箭 2022-07-01 发射仿真）
 const czml = [
   {
@@ -199,7 +200,7 @@ const czml = [
       gltf: [
         {
           interval: "2022-07-01T04:00:00Z/9999-12-31T23:59:59.9999999Z",
-          uri: `${window.location.origin}/data/model/launchvehicle/launchvehicle.gltf`,
+          uri: new URL(assetUrl('/data/model/launchvehicle/launchvehicle.gltf'), window.location.href).href,
         },
       ],
       minimumPixelSize: 128,

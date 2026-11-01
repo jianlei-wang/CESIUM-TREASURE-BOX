@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   Cartesian3,
@@ -24,7 +25,7 @@ const alpha = ref(0.45)
 const depth = ref(45)
 const scale = ref(1)
 
-const MODEL_URL = '/data/model/metro_station/scene.gltf'
+const MODEL_URL = assetUrl('/data/model/metro_station/scene.gltf')
 
 let viewer: Viewer | undefined
 let disposed = false

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Cartesian2,
@@ -59,7 +60,7 @@ function buildOptions(): WallEntityOptions {
     material: {
       color: Color.fromCssColorString(colorHex.value).withAlpha(opacity.value),
       speed: speed.value,
-      image: '/images/wall-fence.png'
+      image: assetUrl('/images/wall-fence.png')
     },
     outline: true
   }

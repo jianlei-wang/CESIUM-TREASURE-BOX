@@ -61,6 +61,52 @@ if (bareCesium.length) {
   failures.push(`bare "cesium" import found in ${bareCesium.length} chunk(s): ${bareCesium.slice(0, 5).join(', ')}`)
 }
 
+// 产物 base 是 `./`，GitHub Pages 部署在仓库子路径下。代码里若直接写 `/images/...`
+// 这类根路径绝对地址，线上会解析到域名根目录而 404。这里扫描源码，确保 public 资源
+// 绝对路径都经过 assetUrl() 处理。
+const publicDirs = [
+  'admin',
+  'cesium',
+  'data',
+  'dayanta',
+  'draco',
+  'geo',
+  'helpers',
+  'images',
+  'models',
+  'vendor',
+  'videos'
+]
+const rootAssetPattern = new RegExp(`["'\`]/(?:${publicDirs.join('|')})/`)
+const allowlistedPublicPaths = new Set([
+  'src/lib/asset-url.ts',
+  'src/components/PerfChecklistDoc.vue',
+  'src/cases/low-altitude-planning/roadmap.html'
+])
+const rootAssetViolations = []
+const walkSource = (dir) => {
+  for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+    const file = `${dir}/${entry.name}`
+    if (entry.isDirectory()) {
+      walkSource(file)
+      continue
+    }
+    if (!/\.(?:ts|tsx|vue|js|mjs)$/.test(entry.name) || allowlistedPublicPaths.has(file)) continue
+    const lines = readFileSync(join(root, file), 'utf8').split('\n')
+    lines.forEach((line, index) => {
+      if (rootAssetPattern.test(line) && !line.includes('assetUrl(')) {
+        rootAssetViolations.push(`${file}:${index + 1}`)
+      }
+    })
+  }
+}
+walkSource('src')
+if (rootAssetViolations.length) {
+  failures.push(
+    `root-absolute public asset path found (wrap with assetUrl()): ${rootAssetViolations.slice(0, 5).join(', ')}`
+  )
+}
+
 const initialTotal = initial.reduce((total, file) => total + readFileSync(join(dist, file)).length, 0)
 console.log(`check-bundle: ${assets.length} JS chunks, initial payload ${kb(initialTotal)}`)
 for (const file of entryJs) {

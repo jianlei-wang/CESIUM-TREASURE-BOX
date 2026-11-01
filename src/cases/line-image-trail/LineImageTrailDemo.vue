@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetUrl } from '../../lib/asset-url'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Cartesian2,
@@ -61,7 +62,7 @@ function buildOptions(): PolylineEntityOptions {
       color: Color.fromCssColorString(colorHex.value).withAlpha(opacity.value),
       speed: speed.value,
       repeatX: repeatX.value,
-      image: '/images/polyline-arrow.png'
+      image: assetUrl('/images/polyline-arrow.png')
     }
   }
 }

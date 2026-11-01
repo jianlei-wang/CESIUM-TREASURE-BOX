@@ -139,6 +139,13 @@ import icon_heatmap_3d from './heatmap-3d/icon.webp'
 import icon_heatmap_canvas from './heatmap-canvas/icon.webp'
 import icon_height_measure from './height-measure/icon.webp'
 import icon_height_restriction_analysis from './height-restriction-analysis/icon.webp'
+import icon_helper_compass from './helper-compass/icon.webp'
+import icon_helper_compass_bar from './helper-compass-bar/icon.webp'
+import icon_helper_post_process from './helper-post-process/icon.webp'
+import icon_helper_post_process_camera from './helper-post-process-camera/icon.webp'
+import icon_helper_post_process_style from './helper-post-process-style/icon.webp'
+import icon_helper_post_process_video from './helper-post-process-video/icon.webp'
+import icon_helper_post_process_weather from './helper-post-process-weather/icon.webp'
 import icon_html_popup from './html-popup/icon.webp'
 import icon_hydro_analysis from './hydro-analysis/icon.webp'
 import icon_hydro_analysis_pro from './hydro-analysis-pro/icon.webp'
@@ -248,6 +255,9 @@ import icon_shield_three from './shield-three/icon.webp'
 import icon_ship_buoyancy_three from './ship-buoyancy-three/icon.webp'
 import icon_shuttle_line from './shuttle-line/icon.webp'
 import icon_situation_plotting from './situation-plotting/icon.webp'
+import icon_sky_atmos_clouds from './sky-atmos-clouds/icon.webp'
+import icon_sky_atmos_light from './sky-atmos-light/icon.webp'
+import icon_sky_atmos_quality from './sky-atmos-quality/icon.webp'
 import icon_skyline_analysis from './skyline-analysis/icon.webp'
 import icon_skyline_presentation from './skyline-presentation/icon.webp'
 import icon_slope_gnss_warning from './slope-gnss-warning/icon.webp'
@@ -292,6 +302,7 @@ import icon_urban_flood_risk from './urban-flood-risk/icon.webp'
 import icon_urban_flood_three from './urban-flood-three/icon.webp'
 import icon_vector_converter from './vector-converter/icon.webp'
 import icon_vector_loader from './vector-loader/icon.webp'
+import icon_vegetation_placement_three from './vegetation-placement-three/icon.webp'
 import icon_vehicle_follow_three from './vehicle-follow-three/icon.webp'
 import icon_vehicle_suspension_three from './vehicle-suspension-three/icon.webp'
 import icon_video_feather from './video-feather/icon.webp'
@@ -497,6 +508,10 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'helper-overlay': () => import('./helper-overlay/index.ts'),
   'helper-path-flyover': () => import('./helper-path-flyover/index.ts'),
   'helper-post-process': () => import('./helper-post-process/index.ts'),
+  'helper-post-process-camera': () => import('./helper-post-process-camera/index.ts'),
+  'helper-post-process-style': () => import('./helper-post-process-style/index.ts'),
+  'helper-post-process-video': () => import('./helper-post-process-video/index.ts'),
+  'helper-post-process-weather': () => import('./helper-post-process-weather/index.ts'),
   'helper-sphere-camera': () => import('./helper-sphere-camera/index.ts'),
   'helper-view-cube': () => import('./helper-view-cube/index.ts'),
   'helper-walk': () => import('./helper-walk/index.ts'),
@@ -851,8 +866,8 @@ export const demos: CaseMeta[] = [
   { id: "height-measure", title: "空间测量-高度量测", category: "measure", description: "两点高度与高差量测，含地形与三维模型，实时鼠标提示", tag: "测量", icon: icon_height_measure, updatedAt: "2026-08-24", available: true },
   { id: "height-restriction-analysis", title: "空间分析-控高分析", category: "analysis", description: "交互绘制限高区域并设定限高值，生成半透明限高体，自动检测区域内超高建筑并高亮，输出超高数量、超高率、最大/平均超高度等统计指标；支持绝对海拔/相对地面限高、区域绘制与清除、体积样式等参数，内置功能实现说明", tag: "空间分析", icon: icon_height_restriction_analysis, available: true },
   { id: "helper-binoculars", title: "双筒望远镜", category: "scene", description: "望远镜模式：拖动环视、滚轮变焦，可显示十字分划与测距", tag: "场景工具", updatedAt: "2026-10-30", available: true },
-  { id: "helper-compass", title: "指南针控件", category: "widgets", description: "罗盘控件，点击指北、拖动旋转视角，随相机朝向实时转动", tag: "界面控件", updatedAt: "2026-10-30", available: true },
-  { id: "helper-compass-bar", title: "罗盘刻度条", category: "widgets", description: "水平罗盘刻度条，随相机朝向滚动，可拖动或点击刻度转向", tag: "界面控件", updatedAt: "2026-10-30", available: true },
+  { id: "helper-compass", title: "指南针控件", category: "widgets", description: "罗盘控件，点击指北、拖动旋转视角，随相机朝向实时转动", tag: "界面控件", icon: icon_helper_compass, updatedAt: "2026-10-30", available: true },
+  { id: "helper-compass-bar", title: "罗盘刻度条", category: "widgets", description: "水平罗盘刻度条，随相机朝向滚动，可拖动或点击刻度转向", tag: "界面控件", icon: icon_helper_compass_bar, updatedAt: "2026-10-30", available: true },
   { id: "helper-drone", title: "穿越机模拟", category: "scene", description: "街机式穿越机飞行，含碰撞、图传噪点、干扰区与控制失联", tag: "场景示例", updatedAt: "2026-10-30", available: true },
   { id: "helper-first-person", title: "第一人称漫游", category: "scene", description: "指针锁定式第一人称模式，移动鼠标环视、滚轮调节视场", tag: "场景工具", updatedAt: "2026-10-30", available: true },
   { id: "helper-flyover-studio", title: "飞行视频工作台", category: "scene", description: "拖入 GPX 轨迹，选择画幅与清晰度，逐帧渲染并导出 MP4 飞行视频", tag: "场景示例", updatedAt: "2026-10-30", available: true },
@@ -860,7 +875,11 @@ export const demos: CaseMeta[] = [
   { id: "helper-iso", title: "等轴测视图", category: "scene", description: "游戏式等轴测正交视角，可四分之一转、平移、缩放并配合玩具化后期", tag: "场景工具", updatedAt: "2026-10-30", available: true },
   { id: "helper-overlay", title: "遮挡线叠加层", category: "scene", description: "HTML/SVG 叠加层与遮罩线：被场景遮挡的线段自动隐藏", tag: "场景示例", updatedAt: "2026-10-30", available: true },
   { id: "helper-path-flyover", title: "轨迹飞行", category: "scene", description: "沿 GPX/GeoJSON 轨迹的相机动画，支持预设机位、地名标注与视频导出", tag: "场景示例", updatedAt: "2026-10-30", available: true },
-  { id: "helper-post-process", title: "屏幕后期特效", category: "effects", description: "19 种屏幕空间后期特效：胶片、红外、移轴、雨雪、云雾、无人机图传等", tag: "后期特效", updatedAt: "2026-10-30", available: true },
+  { id: "helper-post-process", title: "屏幕后期特效", category: "effects", description: "19 种屏幕空间后期特效：胶片、红外、移轴、雨雪、云雾、无人机图传等", tag: "后期特效", icon: icon_helper_post_process, updatedAt: "2026-10-30", available: true },
+  { id: "helper-post-process-camera", title: "镜头-聚光移轴与动态模糊", category: "effects", description: "聚光灯、移轴、运动模糊、速度线与广角镜头畸变、果冻效应六种镜头语言：点击地图可把焦点锁定到地表位置，配合模糊与暗角模拟航拍与运动镜头。", tag: "后期特效", icon: icon_helper_post_process_camera, updatedAt: "2026-11-01", available: true },
+  { id: "helper-post-process-style", title: "风格-手绘红外与胶片", category: "effects", description: "Dufour 手绘地图、色彩隔离、红外、特艺彩色与超 8 胶片五种成像风格：用笔触与斜射光生成手绘底图，再用色相隔离、伪彩与颗粒漏光切换复古影调。", tag: "后期特效", icon: icon_helper_post_process_style, updatedAt: "2026-11-01", available: true },
+  { id: "helper-post-process-video", title: "图传-无人机 OSD 与链路画质", category: "effects", description: "无人机 OSD 叠层、模拟图传噪点干扰与数字图传马赛克三种链路画质：模拟远距离无线图传的画面劣化与飞行数据叠加。", tag: "后期特效", icon: icon_helper_post_process_video, updatedAt: "2026-11-01", available: true },
+  { id: "helper-post-process-weather", title: "天气-雪线雾与雷雨特效", category: "effects", description: "雪线、山谷雾、降水、雨圈与闪电五种天气向屏幕空间特效：可调海拔与坡度形成雪线过渡，用雾顶与浓度控制山谷层雾，并叠加雨雪、地面雨圈与云底闪电。", tag: "后期特效", icon: icon_helper_post_process_weather, updatedAt: "2026-11-01", available: true },
   { id: "helper-sphere-camera", title: "球面环绕相机", category: "scene", description: "拖动地图围绕一点旋转相机，位置不变只改变朝向", tag: "场景工具", updatedAt: "2026-10-30", available: true },
   { id: "helper-view-cube", title: "视角立方体", category: "widgets", description: "视角立方体与方位三轴，点击面或轴快速切换相机视角", tag: "界面控件", updatedAt: "2026-10-30", available: true },
   { id: "helper-walk", title: "步行漫游", category: "scene", description: "键盘步行模式，贴合地形行走并支持碰撞检测", tag: "场景工具", updatedAt: "2026-10-30", available: true },
@@ -974,9 +993,9 @@ export const demos: CaseMeta[] = [
   { id: "ship-buoyancy-three", title: "波浪、船舶与浮力响应", category: "cesium-three", description: "海面由多频正弦波叠加生成动态波面，船体按采样波高与斜率产生升沉、横摇和纵摇，浮标随波起伏；可调波高、周期、浪向、风速、吃水和浮标数量。", tag: "Cesium + Three.js · 波浪与浮力", icon: icon_ship_buoyancy_three, updatedAt: "2026-10-23", available: true },
   { id: "shuttle-line", title: "穿梭流光道路线", category: "effects", description: "GeoJSON 路网加载穿梭流光材质，亮带沿道路方向持续流动", tag: "流光线", icon: icon_shuttle_line, updatedAt: "2026-09-06", available: true },
   { id: "situation-plotting", title: "综合态势标绘控件", category: "widgets", description: "集成 21 种军事标绘几何绘制与文本、图片、模型三类点标注，点选后可移动/旋转/缩放并修改属性，支持 WGS84、Web墨卡托、北京54、西安80 等坐标系下的 GeoJSON / SHP 标准导出。", tag: "标绘标注导出", icon: icon_situation_plotting, updatedAt: "2026-09-07", available: true },
-  { id: "sky-atmos-clouds", title: "天气特效-体积云层", category: "weather", description: "基于三层体积云与物理天气场构建天空云层：可分别调整每层云型、云底、厚度、密度与细节侵蚀，配合云量覆盖、风向风速和天空/地面补光，观察积云、高积云与卷云的层次过渡与实时变化。", tag: "天气系统", updatedAt: "2026-10-31", available: true },
-  { id: "sky-atmos-light", title: "天气特效-云隙光束", category: "weather", description: "在体积云基础上演示云隙光与大气散射：切换独立体积光与云底薄层光两种光路，调整介质密度、散射亮度、方向性与积分质量，或调节薄层的近地雾强度、日光直射增益与色彩，并结合 UTC 时间观察太阳方位变化对光束的影响。", tag: "天气系统", updatedAt: "2026-10-31", available: true },
-  { id: "sky-atmos-quality", title: "天气特效-天空画质", category: "weather", description: "聚焦天空渲染的成像与性能：比较 AgX、ACES、Reinhard 等色调映射曲线，调节曝光、地表增益与大气透视，开关 HBAO 环境光遮蔽、SMAA 抗锯齿、HDR 与对数深度缓冲，并通过距离降采样、相机高度淡出与降噪权重平衡画质和帧率。", tag: "天气系统", updatedAt: "2026-10-31", available: true },
+  { id: "sky-atmos-clouds", title: "天气特效-体积云层", category: "weather", description: "基于三层体积云与物理天气场构建天空云层：可分别调整每层云型、云底、厚度、密度与细节侵蚀，配合云量覆盖、风向风速和天空/地面补光，观察积云、高积云与卷云的层次过渡与实时变化。", tag: "天气系统", icon: icon_sky_atmos_clouds, updatedAt: "2026-10-31", available: true },
+  { id: "sky-atmos-light", title: "天气特效-云隙光束", category: "weather", description: "在体积云基础上演示云隙光与大气散射：切换独立体积光与云底薄层光两种光路，调整介质密度、散射亮度、方向性与积分质量，或调节薄层的近地雾强度、日光直射增益与色彩，并结合 UTC 时间观察太阳方位变化对光束的影响。", tag: "天气系统", icon: icon_sky_atmos_light, updatedAt: "2026-10-31", available: true },
+  { id: "sky-atmos-quality", title: "天气特效-天空画质", category: "weather", description: "聚焦天空渲染的成像与性能：比较 AgX、ACES、Reinhard 等色调映射曲线，调节曝光、地表增益与大气透视，开关 HBAO 环境光遮蔽、SMAA 抗锯齿、HDR 与对数深度缓冲，并通过距离降采样、相机高度淡出与降噪权重平衡画质和帧率。", tag: "天气系统", icon: icon_sky_atmos_quality, updatedAt: "2026-10-31", available: true },
   { id: "skyline-analysis", title: "空间分析-天际线分析", category: "analysis", description: "从观测点沿水平方位角发射射线，求解各方向最高遮挡点并构建三维天际线、射线束与扇形可见天空面；支持观测点高度、方位角范围与采样间隔、自适应细分、最大分析半径、地形叠加、天际线配色等参数，提供极坐标天际线图与量化读数，内置功能实现说明", tag: "空间分析", icon: icon_skyline_analysis, available: true },
   { id: "skyline-presentation", title: "三维场景演示_基础版", category: "scene", description: "Skyline Presentation 演示引擎：路径漫游、时序图层调度、标注弹窗与播放控制", tag: "展示汇报", icon: icon_skyline_presentation, available: true },
   { id: "slope-gnss-warning", title: "边坡 GNSS 位移预警与三级影响区", category: "analysis", description: "仿真 GNSS 监测网时序，按速率 / 改进切线角 / 累计位移 / 降雨耦合判据分级预警，经 IDW 变形场与能量线滑距推演生成核心区、重点区、影响区，支持阈值率定、时间轴回放与报告导出", tag: "地灾预警", icon: icon_slope_gnss_warning, updatedAt: "2026-09-16", available: true },
@@ -1021,7 +1040,7 @@ export const demos: CaseMeta[] = [
   { id: "urban-flood-three", title: "城市洪涝淹没与动态水流", category: "cesium-three", description: "按入流过程线抬升城区水位，建筑首层逐步被淹没，水面叠加波纹与流动矢量；可调入流峰值、最大水深、涨落时长、地表糙率与建筑密度，并输出风险等级。", tag: "Cesium + Three.js · 浅水演示", icon: icon_urban_flood_three, updatedAt: "2026-10-23", available: true },
   { id: "vector-converter", title: "数据转换-矢量数据转换", category: "data", description: "纯前端矢量数据格式互转工具：自动识别并解析 GeoJSON/TopoJSON、KML/KMZ、奥维 OVKML/OVKMZ/OVJSN/OVOBJ、GPX、WKT、CSV、Shapefile 等格式，统一为 WGS84 中间模型并在三维场景中预览，支持 WGS84/CGCS2000/GCJ02/BD09/Web墨卡托/高斯投影等坐标系互转，可导出为 GeoJSON/KML/KMZ/奥维/GPX/WKT/CSV/SHP，点位矢量可额外导出为 Excel 表格，内置功能实现说明", tag: "数据转换", icon: icon_vector_converter, available: true },
   { id: "vector-loader", title: "本地矢量数据加载", category: "tiles", description: "加载并展示 SHP / GeoJSON / KML 本地矢量数据", tag: "数据图层", icon: icon_vector_loader, available: true },
-  { id: "vegetation-placement-three", title: "场景植被批量布设与绘制来源", category: "cesium-three", description: "植被按区域面积与每公顷密度撒点，树木、草本、花朵与岩石分别独立开关与缩放；布设来源可切换为含孔洞的林地多边形、手绘矩形与圆形、沿路散点或等间距网格点位，生成后可随风摆动并按最大视距裁剪。", tag: "Cesium + Three.js · 植被布设", updatedAt: "2026-10-27", available: true },
+  { id: "vegetation-placement-three", title: "场景植被批量布设与绘制来源", category: "cesium-three", description: "植被按区域面积与每公顷密度撒点，树木、草本、花朵与岩石分别独立开关与缩放；布设来源可切换为含孔洞的林地多边形、手绘矩形与圆形、沿路散点或等间距网格点位，生成后可随风摆动并按最大视距裁剪。", tag: "Cesium + Three.js · 植被布设", icon: icon_vegetation_placement_three, updatedAt: "2026-10-27", available: true },
   { id: "vehicle-follow-three", title: "城市车辆驾驶与道路跟随", category: "cesium-three", description: "车辆沿参数化道路中心线行驶，按目标速度、坡度与摩擦逐步收敛；对向与同向车辆按车道偏移运动，实时显示航向、里程和跟车数量，可切换自动巡航与手动摆动。", tag: "Cesium + Three.js · 车辆运动", icon: icon_vehicle_follow_three, updatedAt: "2026-10-23", available: true },
   { id: "vehicle-suspension-three", title: "轮式车辆悬架与撞击墙体", category: "cesium-three", description: "车辆在坡道与直道上加速行驶，四轮悬架按质量、刚度与阻尼产生压缩、俯仰和侧倾；驶入砖墙时按车速与质量转化冲量，墙体构件被撞散、抛落并逐渐静止。", tag: "Cesium + Three.js · 车辆动力学", icon: icon_vehicle_suspension_three, updatedAt: "2026-10-26", available: true },
   { id: "video-feather", title: "数据可视化-视频融合(羽化)", category: "data", description: "视频叠加到地形后边缘以羽化渐变方式渐隐融合，支持羽化宽度、透明度、位置、尺寸实时调节，过渡自然柔和", tag: "视频羽化", icon: icon_video_feather, updatedAt: "2026-09-01", available: true },

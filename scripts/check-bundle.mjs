@@ -51,6 +51,16 @@ for (const asset of lazy) {
   if (asset.gzip > budget.chunkGzip) failures.push(`chunk ${asset.file} gzip is ${kb(asset.gzip)}`)
 }
 
+// vite-plugin-cesium 把 `cesium` 声明为外部依赖并通过 rollup-plugin-external-globals
+// 改写成全局 window.Cesium。星号重导出（export * from 'cesium'）无法被该插件改写，
+// 会在 chunk 中留下裸 `from "cesium"`，浏览器 ESM 解析失败导致案例白屏。
+const bareCesium = [...entryJs, ...lazy.map((asset) => `assets/${asset.file}`)].filter((file) =>
+  /from\s*["']cesium["']/.test(readFileSync(join(dist, file), 'utf8'))
+)
+if (bareCesium.length) {
+  failures.push(`bare "cesium" import found in ${bareCesium.length} chunk(s): ${bareCesium.slice(0, 5).join(', ')}`)
+}
+
 const initialTotal = initial.reduce((total, file) => total + readFileSync(join(dist, file)).length, 0)
 console.log(`check-bundle: ${assets.length} JS chunks, initial payload ${kb(initialTotal)}`)
 for (const file of entryJs) {

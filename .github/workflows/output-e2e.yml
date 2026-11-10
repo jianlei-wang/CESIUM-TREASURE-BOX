@@ -2,7 +2,7 @@ name: Output E2E
 
 on:
   push:
-    branches: [main, master, jianlei_wang]
+    branches: [master, jianlei-wang]
   pull_request:
   workflow_dispatch:
 

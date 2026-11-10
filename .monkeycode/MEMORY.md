@@ -54,12 +54,12 @@ Entries discovered by the Agent during task execution should follow this format:
   - 项目在 2026-10-31 前为纯前端；用户已明确要求新增浏览量后台服务，现允许同仓 Node 服务（`server/`）与 Docker 部署，其余新功能仍优先前端实现。
 
 [User Instruction Summary]
-- Date: 2026-10-13
-- Context: 用户反馈推送后 GitHub 显示 “jianlei-wang and MonkeyCode-AI committed”，期望提交只显示 jianlei-wang
+- Date: 2026-11-10
+- Context: 用户要求提交后 GitHub 上所有相关身份（作者、co-author、Insights Contributors）都是 jianlei-wang
 - Instructions:
-  - 本仓库提交只保留 jianlei-wang 作为作者，禁止提交信息出现 MonkeyCode-AI（monkeycode-ai）的 `Co-authored-by`。
-  - 根因：`.git/hooks/prepare-commit-msg` 会读取 git config `coauthor.N.name/.email` 并自动向提交信息追加 `Co-authored-by`；已用 `git config --unset-all coauthor.0.name` / `--unset-all coauthor.0.email` 清除。
-  - 若后续提交仍被追加 co-author：先 `git config --get-regexp '^coauthor\.'` 检查并清除配置，再 `git commit --amend` 修改该提交，最后 `git push --force-with-lease`。
+  - 本仓库提交只保留 `jianlei-wang <jianlei_wang7010@163.com>` 作为作者和提交者；禁止 MonkeyCode-AI / monkeycode-ai 的 `Co-authored-by`，禁止使用 `monkeycode-ai@chaitin.com`。
+  - 提交前必须执行 `git config --unset-all coauthor.0.name` 与 `git config --unset-all coauthor.0.email`。`.git/hooks/prepare-commit-msg` 会从 git config 自动追加 co-author，该 hook 应保持为空操作（`exit 0`）。
+  - GitHub Insights Contributors 按提交邮箱匹配账号：`monkeycode-ai@chaitin.com` 会显示为 MonkeyCode-AI。若历史提交仍带该邮箱或 Co-authored-by，需改写历史后 `git push --force-with-lease`。GitHub 图表可能延迟数小时更新。
 
 [Project Knowledge Summary]
 - Date: 2026-10-05
@@ -1085,10 +1085,11 @@ Entries discovered by the Agent during task execution should follow this format:
 
 [User Instruction Summary]
 - Date: 2026-10-22
-- Context: 用户多次强调仓库分支约束，此前误建了临时功能分支
+- Context: 用户明确要求仓库只保留 master 与 jianlei-wang（连字符）两个分支
 - Instructions:
-  - 本仓库只允许 `master` 和 `jianlei_wang` 两个分支，禁止创建任何临时/功能分支。
-  - 提交与推送一律直接使用现有分支（通常为 `jianlei_wang`），不要执行 `git checkout -b`。
+  - 本仓库只允许 `master` 和 `jianlei-wang` 两个分支，禁止创建任何临时/功能分支，远程多余分支（含 `jianlei_wang`）需删除。
+  - 提交与推送一律直接使用现有分支（开发走 `jianlei-wang`，发布走 `master`），不要执行 `git checkout -b`。
+  - GitHub Pages 环境保护只允许 `master` 部署；`jianlei-wang` 推送不得触发 deploy job，否则 checks 会红。
 
 [Project Knowledge Summary]
 - Date: 2026-10-31

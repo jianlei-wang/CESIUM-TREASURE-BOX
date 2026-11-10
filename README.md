@@ -108,7 +108,7 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 - `scripts/studio-selfcheck.mjs`：检查演示工程的 schema 版本、轨道求值、导出配置、数据源绑定与图层注册。
 - `tests/output/output.spec.mjs`：在真实浏览器中加载演示工程，校验导出流程与关键界面快照。
 - `tests/soak/soak.spec.mjs`：重复加载、切换案例与长时间运行，验证资源释放与稳定性。
-- `.github/workflows/deploy.yml`：推送 `main`、`master`、`jianlei_wang` 或 `jianlei-wang` 时执行质量门禁、输出回归、构建与 GitHub Pages 发布。
+- `.github/workflows/deploy.yml`：推送 `master` 时执行质量门禁、输出回归、构建与 GitHub Pages 发布。
 - `.github/workflows/output-e2e.yml`：Chromium 与 Firefox 矩阵回归。
 - `.github/workflows/soak.yml`：每周定时执行长时浸泡测试。
 
@@ -230,7 +230,7 @@ docker run --rm -p 8080:80 \
 仓库已内置 `.github/workflows/deploy.yml`：
 
 1. 进入仓库 **Settings -> Pages -> Build and deployment -> Source**，选择 **GitHub Actions**。
-2. 推送到 `main`、`master`、`jianlei_wang` 或 `jianlei-wang` 分支即自动构建并发布；也可在 **Actions** 页面手动触发。
+2. 推送到 `master` 即自动构建并发布 GitHub Pages；`jianlei-wang` 只跑质量与 E2E。也可在 **Actions** 页面手动触发。
 3. 构建产物为 `dist/`，`vite.config.ts` 已设置 `base: './'`，可部署到任意静态服务器或子路径。
 
 不要把项目源码目录直接作为 Pages 目录：源码版 `index.html` 引用 `/src/main.ts`，仅在 dev 模式下由 Vite 提供。

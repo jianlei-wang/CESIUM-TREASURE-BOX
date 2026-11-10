@@ -12,7 +12,7 @@
 
 ## 特性
 
-- **338 个案例，18 个分类**：系统 DEMO、三维特效、天气特效、粒子特效、水面效果、标记标绘、空间测量、空间分析、数据可视化、D3 地理大数据、三维数据加载、场景示例、大气环境、光照效果、界面控件、可视化大屏、ThreeJS 样例、Cesium + ThreeJS。
+- **366 个案例，18 个分类**：系统 DEMO、三维特效、天气特效、粒子特效、水面效果、标记标绘、空间测量、空间分析、数据可视化、D3 地理大数据、三维数据加载、场景示例、大气环境、光照效果、界面控件、可视化大屏、ThreeJS 样例、Cesium + ThreeJS。
 - **20 个 Cesium + Three.js 工程仿真案例**：覆盖落体、建筑破坏、滑坡、溃坝、车流、风场、路径规划、塔吊、桥梁、膜结构、林火、城市内涝、船舶、地震、挖掘机、巡检、疏散、盾构、烟羽与消防调度。案例内置确定性求解器、指标面板、参数标定与合成数据来源说明。
 - **三维场景演示漫游制作系统**：对标 Skyline Presentation 的 Step + Action 编排，支持步骤分段、定点飞行、航线录制、图层显隐、建设时序、字幕弹窗、场景效果、播放控制、工程导入导出与 1080P / 2K / 4K 视频导出。
 - **全局搜索与按需加载**：按名称、描述检索，支持最新收录排序；案例组件懒加载，Cesium 大体积脚本延迟注入，首屏保持轻量。
@@ -23,6 +23,7 @@
 
 ## 最近更新
 
+- **2026-11-01 · 子路径静态资源**：案例内模型、影像、LUT、视频与 Draco 解码器统一经 `assetUrl()` 拼接部署 `base`，GitHub Pages 子路径下静态资源可正确加载。
 - **2026-10-25 · CIM 场景专题**：新增倾斜模型分区分类高亮、热力采样三维曲面、无人机航线漫游、体素云团光线步进与着色器地形沙盘 5 个案例，覆盖分类体拾取、纹理抬升、闭合航线跟随、三维纹理步进与片元程序化地形。
 - **2026-10-21 · 三维场景演示漫游制作系统升级**：演示系统完成生产内核重构，新增草稿自动保存、项目包版本迁移、数据源绑定、图层注册、导出任务队列、失败诊断与 SDK 接口，并接入 `.cesium.presentation` 工程包与视频导出流水线。
 - **2026-10-20 · 质量门禁与回归体系**：新增 `quality`、`test:studio`、`test:output`、`test:soak` 脚本，接入 GitHub Actions 的 lint、格式、审计、许可证、锁文件、输出快照与构建体积检查。
@@ -44,7 +45,7 @@
 | 格网编码 | h3-js、s2js、a5-js、ngeohash、open-location-code、DGGRID / DGGAL |
 | 图表与导出 | echarts、html2canvas、jspdf、xlsx、docx、MediaRecorder |
 | 测试与质量 | Node Test、tsx、Playwright、ESLint、Prettier、vue-tsc |
-| 部署 | GitHub Pages、Docker + nginx |
+| 部署 | GitHub Pages、Docker + Node |
 
 ## 快速开始
 
@@ -85,7 +86,7 @@ npm run preview
 | `npm run audit` | 依赖安全审计 |
 | `npm run licenses` | 第三方许可证检查 |
 | `npm run lockfile:check` | 锁文件一致性检查 |
-| `npm run quality` | 依次执行 lint、格式、审计、许可证与锁文件检查 |
+| `npm run quality` | 依次执行 lint、格式、审计、许可证、锁文件检查，以及浏览量服务与 Worker 单元测试 |
 | `npm run test:cases` | 20 个工程仿真求解器的确定性单元测试 |
 | `npm run test:studio` | 演示系统 schema、轨道、导出配置与数据源自检 |
 | `npm run test:output` | Playwright 输出回归与截图快照 |
@@ -107,7 +108,7 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 - `scripts/studio-selfcheck.mjs`：检查演示工程的 schema 版本、轨道求值、导出配置、数据源绑定与图层注册。
 - `tests/output/output.spec.mjs`：在真实浏览器中加载演示工程，校验导出流程与关键界面快照。
 - `tests/soak/soak.spec.mjs`：重复加载、切换案例与长时间运行，验证资源释放与稳定性。
-- `.github/workflows/deploy.yml`：推送 `main`、`master` 或 `jianlei_wang` 时执行质量门禁、输出回归、构建与 GitHub Pages 发布。
+- `.github/workflows/deploy.yml`：推送 `main`、`master`、`jianlei_wang` 或 `jianlei-wang` 时执行质量门禁、输出回归、构建与 GitHub Pages 发布。
 - `.github/workflows/output-e2e.yml`：Chromium 与 Firefox 矩阵回归。
 - `.github/workflows/soak.yml`：每周定时执行长时浸泡测试。
 
@@ -116,8 +117,9 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 ```
 .
 ├── public/            # 静态资源（模型、影像、视频、LUT、海洋数据等）
-│   ├── data/          # 三维模型与业务数据（含 ocean-tsd 温盐深数据）
-│   ├── dayanta/       # 雁荡山三维切片
+│   ├── admin/         # 运营后台静态页面（/admin/）
+│   ├── data/          # 三维模型与业务数据（含 ocean-tsd、cases.json）
+│   ├── dayanta/       # 大雁塔三维切片
 │   ├── draco/         # Draco 解码器
 │   ├── geo/           # 大气 / 云 LUT 等着色器资源
 │   ├── images/        # 贴图素材
@@ -125,6 +127,7 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 │   └── videos/        # 视频素材
 ├── server/            # 浏览量服务（存储、鉴权、统计接口、静态托管）
 │   └── test/          # 服务端单元测试
+├── worker/            # Cloudflare Workers + D1 浏览量后端
 ├── scripts/           # 案例同步、质量门禁、文章回填与数据管线脚本
 │   ├── dev.mjs        # 一体化开发启动（浏览量服务 + Vite）
 │   └── ocean-tsd/     # 海洋温盐深数据生成、预处理与校验
@@ -134,13 +137,10 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 │   │   └── presentation-studio-lib/ # 三维场景演示漫游制作系统
 │   ├── components/    # 公共组件
 │   ├── datav/         # 可视化大屏示例
-│   ├── lib/           # 工具库（Cesium 场景、底图提供器、d3geo、空间计算等）
+│   ├── lib/           # 工具库（Cesium 场景、底图提供器、d3geo、assetUrl、空间计算等）
 │   ├── App.vue        # 案例库主界面
 │   └── main.ts        # 入口
 ├── tests/             # Playwright 输出回归、浸泡测试与夹具
-├── public/
-│   ├── admin/         # 运营后台静态页面（/admin/）
-│   └── data/cases.json # 后台与浏览量服务使用的案例目录（自动生成）
 ├── data/              # 运行时浏览量数据与后台口令（不入库）
 ├── docker/            # 容器入口脚本
 ├── CASE_LIST.md       # 全部案例清单与文章产出状态
@@ -167,7 +167,7 @@ window.__CESIUM_STUDIO_CONFIG__ = {
 
 当 3DBAG 官方数据源不可达时，案例会自动降级到 PDOK 3D Basisvoorziening 全国建筑白模（数据来源：PDOK / Kadaster，CC BY 4.0），并在界面提示当前数据来源。
 
-部署到子路径时通过构建变量 `BASE_URL` 调整资源前缀。Docker 运行时可使用环境变量覆盖配置：
+部署到子路径时通过构建变量 `BASE_URL` 调整资源前缀；案例内静态资源经 `src/lib/asset-url.ts` 的 `assetUrl()` 拼接该前缀。Docker 运行时可使用环境变量覆盖配置：
 
 ```bash
 docker build -t cesium-treasure-box .
@@ -230,7 +230,7 @@ docker run --rm -p 8080:80 \
 仓库已内置 `.github/workflows/deploy.yml`：
 
 1. 进入仓库 **Settings -> Pages -> Build and deployment -> Source**，选择 **GitHub Actions**。
-2. 推送到 `main`、`master` 或 `jianlei_wang` 分支即自动构建并发布；也可在 **Actions** 页面手动触发。
+2. 推送到 `main`、`master`、`jianlei_wang` 或 `jianlei-wang` 分支即自动构建并发布；也可在 **Actions** 页面手动触发。
 3. 构建产物为 `dist/`，`vite.config.ts` 已设置 `base: './'`，可部署到任意静态服务器或子路径。
 
 不要把项目源码目录直接作为 Pages 目录：源码版 `index.html` 引用 `/src/main.ts`，仅在 dev 模式下由 Vite 提供。

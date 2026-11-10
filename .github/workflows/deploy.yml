@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main, master, jianlei_wang]
+    branches: [main, master, jianlei_wang, jianlei-wang]
   workflow_dispatch:
 
 permissions:

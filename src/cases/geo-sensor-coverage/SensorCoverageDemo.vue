@@ -4,7 +4,6 @@ import {
   Cartesian2,
   Cartesian3,
   Color,
-  ConstantProperty,
   Entity,
   ImageMaterialProperty,
   PolygonHierarchy,
@@ -15,7 +14,8 @@ import {
 } from 'cesium'
 import { createMapScene, destroyScene, loadBingImagery, type SceneCallbacks } from '../../lib/cesium-scene'
 import { pickLonLat } from '../geo-intel-lib/pick'
-import { coverageAreaKm2, coverageCanvas, coverageFootprint, evaluateCoverage, type SensorSpec } from '../geo-intel-lib/coverage'
+import { coverageAreaKm2, coverageCanvas, coverageFootprint, coverageRangeBand, evaluateCoverage, type SensorSpec } from '../geo-intel-lib/coverage'
+import { destinationPoint } from '../geo-intel-lib/geometry'
 import '../geo-intel-lib/panel.css'
 
 const container = ref<HTMLElement | null>(null)
@@ -58,16 +58,20 @@ const sensors = ref<SensorSpec[]>([
 ])
 
 const active = computed(() => sensors.value[activeIndex.value])
-const activeArea = computed(() => coverageAreaKm2(active.value).toFixed(2))
+const activeBand = computed(() => coverageRangeBand(active.value))
+const activeArea = computed(() => {
+  const area = coverageAreaKm2(active.value, activeBand.value)
+  return area < 0.01 ? area.toFixed(4) : area.toFixed(2)
+})
 
 let viewer: Viewer | undefined
 let handler: ScreenSpaceEventHandler | undefined
-let heatEntity: Entity | undefined
+const heatEntities: Entity[] = []
 const footprintEntities: Entity[] = []
 const sensorEntities: Entity[] = []
 const probeEntities: Entity[] = []
 
-const REGION_BBOX = { latMin: 31.21, latMax: 31.26, lonMin: 121.455, lonMax: 121.512 }
+const OVERLAY_HEIGHT = 30
 
 function coverageColor(t: number): { r: number; g: number; b: number; a: number } {
   const stops = [
@@ -92,17 +96,57 @@ function coverageColor(t: number): { r: number; g: number; b: number; a: number 
   return { r: 230, g: 70, b: 60, a: 180 }
 }
 
+function fanBbox(spec: SensorSpec, band: { nearM: number; farM: number }) {
+  const ring = coverageFootprint(spec, 32, band)
+  let latMin = Number.POSITIVE_INFINITY
+  let latMax = Number.NEGATIVE_INFINITY
+  let lonMin = Number.POSITIVE_INFINITY
+  let lonMax = Number.NEGATIVE_INFINITY
+  for (const [lon, lat] of ring) {
+    latMin = Math.min(latMin, lat)
+    latMax = Math.max(latMax, lat)
+    lonMin = Math.min(lonMin, lon)
+    lonMax = Math.max(lonMax, lon)
+  }
+  const padLat = 0.0002
+  const padLon = padLat / Math.max(Math.cos((((latMin + latMax) / 2) * Math.PI) / 180), 0.2)
+  return {
+    latMin: latMin - padLat,
+    latMax: latMax + padLat,
+    lonMin: lonMin - padLon,
+    lonMax: lonMax + padLon
+  }
+}
+
 function rebuildHeat(): void {
   if (!viewer || viewer.isDestroyed()) return
-  const canvas = coverageCanvas(sensors.value, REGION_BBOX, gridResolution.value, Math.round(gridResolution.value * 0.62), coverageColor)
-  const rectangle = Rectangle.fromDegrees(REGION_BBOX.lonMin, REGION_BBOX.latMin, REGION_BBOX.lonMax, REGION_BBOX.latMax)
-  const material = new ImageMaterialProperty({ image: canvas.toDataURL(), transparent: true })
-  if (!heatEntity) {
-    heatEntity = viewer.entities.add({ rectangle: { coordinates: rectangle, material, height: 25 } })
-  } else {
-    heatEntity.rectangle!.coordinates = new ConstantProperty(rectangle)
-    heatEntity.rectangle!.material = material
-  }
+  for (const e of heatEntities) viewer.entities.remove(e)
+  heatEntities.length = 0
+  const divisions = Math.max(24, Math.round(gridResolution.value / 2))
+  sensors.value.forEach((spec, index) => {
+    const band = coverageRangeBand(spec)
+    const bbox = fanBbox(spec, band)
+    const midLat = (((bbox.latMin + bbox.latMax) / 2) * Math.PI) / 180
+    const latSpanM = (bbox.latMax - bbox.latMin) * 111320
+    const lonSpanM = (bbox.lonMax - bbox.lonMin) * 111320 * Math.cos(midLat)
+    const cellM = Math.max(2, Math.min(160, (band.farM - band.nearM) / divisions))
+    let width = Math.max(8, Math.ceil(lonSpanM / cellM))
+    let height = Math.max(8, Math.ceil(latSpanM / cellM))
+    const maxDim = 480
+    if (Math.max(width, height) > maxDim) {
+      const scale = maxDim / Math.max(width, height)
+      width = Math.max(8, Math.floor(width * scale))
+      height = Math.max(8, Math.floor(height * scale))
+    }
+    const canvas = coverageCanvas([spec], bbox, width, height, coverageColor)
+    const rectangle = Rectangle.fromDegrees(bbox.lonMin, bbox.latMin, bbox.lonMax, bbox.latMax)
+    const material = new ImageMaterialProperty({ image: canvas.toDataURL(), transparent: true })
+    heatEntities.push(
+      viewer!.entities.add({
+        rectangle: { coordinates: rectangle, material, height: OVERLAY_HEIGHT + 0.5 + index * 0.5 }
+      })
+    )
+  })
 }
 
 function rebuildFootprints(): void {
@@ -110,19 +154,35 @@ function rebuildFootprints(): void {
   for (const e of footprintEntities) viewer.entities.remove(e)
   footprintEntities.length = 0
   sensors.value.forEach((spec, index) => {
-    const ring = coverageFootprint(spec)
+    const band = coverageRangeBand(spec)
+    const ring = coverageFootprint(spec, 32, band)
     footprintEntities.push(
       viewer!.entities.add({
         polygon: {
-          hierarchy: new PolygonHierarchy(ring.map(([lon, lat]) => Cartesian3.fromDegrees(lon, lat, 40))),
+          hierarchy: new PolygonHierarchy(ring.map(([lon, lat]) => Cartesian3.fromDegrees(lon, lat, OVERLAY_HEIGHT))),
           material: Color.fromCssColorString(index === activeIndex.value ? 'rgba(120,220,255,0.16)' : 'rgba(140,170,210,0.08)'),
           outline: true,
           outlineColor: Color.fromCssColorString(index === activeIndex.value ? '#7ddcff' : 'rgba(150,190,230,0.7)'),
           outlineWidth: 2,
-          height: 40
+          height: OVERLAY_HEIGHT
         }
       })
     )
+    if (index === activeIndex.value) {
+      const axis = [0, band.nearM, band.farM].map((d) => {
+        const p = destinationPoint(spec.lat, spec.lon, spec.azimuthDeg, d)
+        return Cartesian3.fromDegrees(p.lon, p.lat, OVERLAY_HEIGHT)
+      })
+      footprintEntities.push(
+        viewer!.entities.add({
+          polyline: {
+            positions: axis,
+            width: 1.5,
+            material: Color.fromCssColorString('rgba(125,220,255,0.55)')
+          }
+        })
+      )
+    }
   })
 }
 
@@ -133,7 +193,7 @@ function rebuildSensors(): void {
   sensors.value.forEach((spec, index) => {
     sensorEntities.push(
       viewer!.entities.add({
-        position: Cartesian3.fromDegrees(spec.lon, spec.lat, spec.heightM + 8),
+        position: Cartesian3.fromDegrees(spec.lon, spec.lat, OVERLAY_HEIGHT),
         point: {
           pixelSize: index === activeIndex.value ? 12 : 8,
           color: Color.fromCssColorString(index === activeIndex.value ? '#ffffff' : '#8dd8ff'),
@@ -155,10 +215,19 @@ function rebuildSensors(): void {
   })
 }
 
+let heatRaf = 0
+function scheduleHeat(): void {
+  if (heatRaf) return
+  heatRaf = requestAnimationFrame(() => {
+    heatRaf = 0
+    rebuildHeat()
+  })
+}
+
 function refreshAll(): void {
   rebuildSensors()
   rebuildFootprints()
-  rebuildHeat()
+  scheduleHeat()
 }
 
 function probe(lon: number, lat: number): void {
@@ -178,7 +247,7 @@ function probe(lon: number, lat: number): void {
   })
   probeEntities.push(
     viewer.entities.add({
-      position: Cartesian3.fromDegrees(lon, lat, 55),
+      position: Cartesian3.fromDegrees(lon, lat, OVERLAY_HEIGHT + 8),
       point: {
         pixelSize: 9,
         color: bestValue > 0 ? Color.fromCssColorString('#7dffb0') : Color.fromCssColorString('#ff6b6b'),
@@ -202,7 +271,7 @@ watch(activeIndex, () => {
   rebuildSensors()
   rebuildFootprints()
 })
-watch(gridResolution, () => rebuildHeat())
+watch(gridResolution, () => scheduleHeat())
 
 onMounted(() => {
   if (!container.value) return
@@ -238,6 +307,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (heatRaf) cancelAnimationFrame(heatRaf)
+  heatRaf = 0
   handler?.destroy()
   handler = undefined
   destroyScene(viewer)
@@ -296,8 +367,8 @@ onBeforeUnmount(() => {
         <span class="gi-value">{{ gridResolution }}</span>
       </div>
 
-      <p class="gi-hint">覆盖强度综合方位偏差、距离衰减与俯仰匹配计算；红色区域为高强度覆盖。</p>
-      <div class="gi-result">设备 {{ activeIndex + 1 }} 理论覆盖面积 {{ activeArea }} km²</div>
+      <p class="gi-hint">近界由安装高度与俯仰角推导，远界受有效距离约束；视场扇形与热度图共用同一覆盖范围，强度综合方位偏差与距离衰减。</p>
+      <div class="gi-result">设备 {{ activeIndex + 1 }} 覆盖 {{ Math.round(activeBand.nearM) }} m – {{ (activeBand.farM / 1000).toFixed(2) }} km，面积 {{ activeArea }} km²</div>
       <div class="gi-hint">{{ probeText }}</div>
     </div>
 

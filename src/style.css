@@ -99,11 +99,18 @@ button { border: 0; cursor: pointer; }
 .search-box { display: flex; align-items: center; gap: 7px; width: 190px; height: 36px; padding: 0 11px; border: 1px solid #e2e8f1; border-radius: 8px; color: #9cabc0; background: #fff; }
 .search-box input { width: 100%; border: 0; outline: 0; color: #43536b; font-size: 11px; background: transparent; }
 .search-box input::placeholder { color: #aab5c4; }
+.sort-dropdown { position: relative; }
 .sort-button { display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 11px; border: 1px solid #e2e8f1; border-radius: 8px; background: #fff; color: #77869a; font-size: 11px; transition: .2s; }
-.sort-button:hover, .sort-button.active { border-color: #a8c8ed; color: #2f80ed; background: #f3f7fd; }
+.sort-button:hover, .sort-button.active, .sort-button.is-open { border-color: #a8c8ed; color: #2f80ed; background: #f3f7fd; }
 .sort-button .el-icon { font-size: 12px; }
 .sort-button .el-icon { transition: transform .2s; }
 .sort-button .el-icon.reversed { transform: rotate(180deg); }
+.sort-menu { position: absolute; z-index: 12; top: calc(100% + 6px); right: 0; min-width: 168px; margin: 0; padding: 5px; list-style: none; border: 1px solid #e2e8f1; border-radius: 10px; background: #fff; box-shadow: 0 12px 26px rgba(28, 52, 84, .14); }
+.sort-option { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 7px 9px; border: 0; border-radius: 7px; background: transparent; color: #4a5a70; font-size: 11px; text-align: left; cursor: pointer; transition: .15s; }
+.sort-option:hover { background: #f3f7fd; }
+.sort-option.active { color: #2f80ed; background: #e9f2fe; font-weight: 600; }
+.sort-option-label { flex: 0 0 auto; }
+.sort-option-hint { color: #9aa7b7; font-size: 10px; font-weight: 400; }
 .demo-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 22px 17px; max-height: calc(100vh - 205px); overflow-y: auto; align-content: start; padding: 2px 8px 14px 2px; scrollbar-color: #8ba2be #edf2f8; scrollbar-width: thin; }
 .demo-grid::-webkit-scrollbar { width: 9px; }
 .demo-grid::-webkit-scrollbar-track { border-radius: 999px; background: #edf2f8; }

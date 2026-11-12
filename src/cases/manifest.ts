@@ -126,9 +126,11 @@ import icon_free_polygon from './free-polygon/icon.webp'
 import icon_free_polygon_edit from './free-polygon-edit/icon.webp'
 import icon_geo_atmosphere from './geo-atmosphere/icon.webp'
 import icon_geo_clouds from './geo-clouds/icon.webp'
+import icon_geo_detection_overlay from './geo-detection-overlay/icon.webp'
 import icon_geo_entropy_halo from './geo-entropy-halo/icon.webp'
 import icon_geo_flight_track from './geo-flight-track/icon.webp'
 import icon_geo_hdr from './geo-hdr/icon.webp'
+import icon_geo_idw_surface from './geo-idw-surface/icon.webp'
 import icon_geo_lensflare from './geo-lensflare/icon.webp'
 import icon_geo_moon from './geo-moon/icon.webp'
 import icon_geo_sensor_imaging from './geo-sensor-imaging/icon.webp'
@@ -159,6 +161,7 @@ import icon_helper_post_process_video from './helper-post-process-video/icon.web
 import icon_helper_post_process_weather from './helper-post-process-weather/icon.webp'
 import icon_helper_sphere_camera from './helper-sphere-camera/icon.webp'
 import icon_helper_walk from './helper-walk/icon.webp'
+import icon_helper_weather from './helper-weather/icon.webp'
 import icon_html_popup from './html-popup/icon.webp'
 import icon_hydro_analysis from './hydro-analysis/icon.webp'
 import icon_hydro_analysis_pro from './hydro-analysis-pro/icon.webp'
@@ -874,11 +877,11 @@ export const demos: CaseMeta[] = [
   { id: "free-polygon-edit", title: "自由面-编辑版", category: "draw", description: "绘制自由面后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_free_polygon_edit, updatedAt: "2026-09-06", available: true },
   { id: "geo-atmosphere", title: "物理大气与动态曝光", category: "geo", description: "Bruneton 物理大气（预计算 LUT）以 Cesium 原生 PostProcessStage 注入：天空散射、大气透视、昼/夜/晨昏动态曝光与 ACES HDR 色调映射，天空光照随真实太阳位置（Simon1994 + ICRF）与相机当地太阳高度角变化，支持手动曝光、镜头光晕与原生地面光照开关", tag: "大气散射", icon: icon_geo_atmosphere, updatedAt: "2026-09-04", available: true },
   { id: "geo-clouds", title: "体积云 Raymarch", category: "geo", description: "Weather 3D 分布烘焙 + 分层球壳体积 raymarch 云：多散射 Beer-Lambert 光照、级联阴影（BSM）云内自阴影、时域重建（Bayer 1/4 分迈 + velocity reprojection）与天气预设热切；云 overlay 线性域合成在大气链与 ACES 色调映射之间", tag: "体积云", icon: icon_geo_clouds, updatedAt: "2026-09-04", available: true },
-  { id: "geo-detection-overlay", title: "数据可视化-目标检测框叠层", category: "data", description: "把目标检测结果以屏幕空间包围框叠加在地图场景上，包含类别着色、置信度标签、跟踪编号与目标方向箭头，支持置信度阈值过滤、框体样式与标签显隐调节，目标随场景旋转实时跟随。", tag: "目标检测, 叠层, 包围框, 跟踪", updatedAt: "2026-11-12", available: true },
+  { id: "geo-detection-overlay", title: "数据可视化-目标检测框叠层", category: "data", description: "把目标检测结果以屏幕空间包围框叠加在地图场景上，包含类别着色、置信度标签、跟踪编号与目标方向箭头，支持置信度阈值过滤、框体样式与标签显隐调节，目标随场景旋转实时跟随。", tag: "目标检测, 叠层, 包围框, 跟踪", icon: icon_geo_detection_overlay, updatedAt: "2026-11-12", available: true },
   { id: "geo-entropy-halo", title: "三维特效-结构熵光晕描边", category: "effects", description: "以卷帘方式左右对比场景处理前后差异：左侧保持原始画面，右侧叠加结构熵光晕效果。响应由亮度梯度、局部纹理离散度与深度跃变融合而成，俯视、斜视与平视都能稳定描边，支持拖动卷帘位置、半径、增益、阈值与着色调节，并可切换仅描边模式。", tag: "后处理, 熵, 光晕, 卷帘对比", icon: icon_geo_entropy_halo, updatedAt: "2026-11-12", available: true },
   { id: "geo-flight-track", title: "空间分析-航班航迹外推", category: "analysis", description: "根据历史航迹点计算地速、航向与爬升率，按等速与转弯率假设外推未来若干分钟的预测航迹，并以置信锥表现不确定性随时间增长，支持外推时长、转弯率与速度偏差调节。", tag: "航迹, 外推, 预测, 置信锥", icon: icon_geo_flight_track, updatedAt: "2026-11-12", available: true },
   { id: "geo-hdr", title: "动态曝光与色调映射", category: "geo", description: "物理天空散射输出半浮点 HDR 线性值，经 ACES 色调映射与抖动降阶消 banding；昼/夜曝光与晨昏过渡角按相机当地太阳高度动态插值，实时 HUD 显示太阳高度与有效曝光倍数", tag: "HDR 色调", icon: icon_geo_hdr, updatedAt: "2026-09-04", available: true },
-  { id: "geo-idw-surface", title: "空间分析-站点数据插值成面", category: "analysis", description: "把离散站点观测值按下垫面距离权重插值成连续曲面，支持幂指数、邻域站点数、网格分辨率与影响半径调节，同步输出插值方差用于判断可信度，点击地图可读取该处插值结果与最近站点距离。", tag: "IDW, 插值, 站点, 曲面", updatedAt: "2026-11-12", available: true },
+  { id: "geo-idw-surface", title: "空间分析-站点数据插值成面", category: "analysis", description: "把离散站点观测值按下垫面距离权重插值成连续曲面，支持幂指数、邻域站点数、网格分辨率与影响半径调节，同步输出插值方差用于判断可信度，点击地图可读取该处插值结果与最近站点距离。", tag: "IDW, 插值, 站点, 曲面", icon: icon_geo_idw_surface, updatedAt: "2026-11-12", available: true },
   { id: "geo-lensflare", title: "镜头光晕与高光", category: "geo", description: "Cesium 原生 PostProcessStage 合成链：以深度遮挡采样真实反映太阳被山体/地物遮挡，灰度高光抠像生成轴向鬼影（Ghost）与柔光光晕（Halo），视线实时瞄准真实太阳方向（Simon1994 + ICRF）", tag: "镜头光晕", icon: icon_geo_lensflare, updatedAt: "2026-09-04", available: true },
   { id: "geo-moon", title: "月球与月光照明", category: "geo", description: "Simon1994 月位经 ICRF→Fixed 求 ECEF 方向，月盘以 Oren-Nayar 月面反照率与冷蓝月光色调渲染，四周叠加月晕天空散射；月光强度与月晕亮度可调，月相（朔望）由日月光线夹角实时求解并 HUD 展示", tag: "月球", icon: icon_geo_moon, updatedAt: "2026-09-04", available: true },
   { id: "geo-risk-fusion", title: "空间分析-多灾种风险融合", category: "analysis", description: "把内涝、大风、地震与高温四类孕灾场按可调权重融合为综合风险面，支持权重滑块、分项开关与风险分级阈值调节，叠加栅格显示分级结果并统计各级面积占比，点击地图返回该点综合风险等级与主导灾种。", tag: "多灾种, 风险, 融合, 分级", updatedAt: "2026-11-12", available: true },
@@ -914,7 +917,7 @@ export const demos: CaseMeta[] = [
   { id: "helper-sphere-camera", title: "球面环绕相机", category: "scene", description: "拖动地图围绕一点旋转相机，位置不变只改变朝向", tag: "场景工具", icon: icon_helper_sphere_camera, updatedAt: "2026-11-10", available: true },
   { id: "helper-view-cube", title: "视角立方体", category: "widgets", description: "视角立方体与方位三轴，点击面或轴快速切换相机视角", tag: "界面控件", updatedAt: "2026-10-30", available: true },
   { id: "helper-walk", title: "步行漫游", category: "scene", description: "键盘步行模式，贴合地形行走并支持碰撞检测", tag: "场景工具", icon: icon_helper_walk, updatedAt: "2026-11-10", available: true },
-  { id: "helper-weather", title: "雷达天气", category: "weather", description: "MeteoSwiss 雷达降雨、云层与闪电，含空间化雷声，可按时次回放", tag: "天气特效", updatedAt: "2026-10-30", available: true },
+  { id: "helper-weather", title: "雷达天气", category: "weather", description: "MeteoSwiss 雷达降雨、云层与闪电，含空间化雷声，可按时次回放", tag: "天气特效", icon: icon_helper_weather, updatedAt: "2026-10-30", available: true },
   { id: "html-popup", title: "自定义HTML弹窗", category: "draw", description: "地图点位绑定 HTML 弹窗，拖动地球弹窗跟随", tag: "标注弹窗", icon: icon_html_popup, updatedAt: "2026-08-24", available: true },
   { id: "hydro-analysis", title: "空间分析-水文分析(基础版)", category: "analysis", description: "基于真实地形 DEM 分步完成洼地填平、D8 流向、汇流累积、栅格河网提取、河网矢量化，并可拾取倾泻点生成汇水流域，支持分辨率/阈值/显示样式等参数调整", tag: "空间分析", icon: icon_hydro_analysis, updatedAt: "2026-09-04", available: true },
   { id: "hydro-analysis-pro", title: "空间分析-水文分析(升级版)", category: "analysis", description: "在基础版水文分析之上迭代：地形采集支持按行列数或按间距(米)设置网格密度；逐步分析成果集中在页面左上方，栅格成果导出 GeoTIFF、矢量成果导出 GeoJSON 或 SHP(含属性)；每个步骤提供原理与实现说明的帮助图标", tag: "空间分析", icon: icon_hydro_analysis_pro, updatedAt: "2026-09-04", available: true },

@@ -87,12 +87,27 @@ const activeCategory = ref('effects')
 const mobileMenuOpen = ref(false)
 const searchTerm = ref('')
 type SortMode = 'newest' | 'views' | 'default'
-const SORT_LABELS: Record<SortMode, string> = { newest: '最新收录', views: '浏览最多', default: '默认顺序' }
+const SORT_OPTIONS: Array<{ id: SortMode; label: string; hint: string }> = [
+  { id: 'newest', label: '最新收录', hint: '按更新时间倒序' },
+  { id: 'views', label: '浏览最多', hint: '按累计浏览量倒序' },
+  { id: 'default', label: '默认顺序', hint: '按案例注册顺序' }
+]
+const SORT_LABELS = Object.fromEntries(SORT_OPTIONS.map((item) => [item.id, item.label])) as Record<SortMode, string>
 const sortMode = ref<SortMode>('newest')
 const sortLabel = computed(() => SORT_LABELS[sortMode.value])
-function cycleSortMode(): void {
-  const order: SortMode[] = ['newest', 'views', 'default']
-  sortMode.value = order[(order.indexOf(sortMode.value) + 1) % order.length]
+const sortMenuOpen = ref(false)
+const sortDropdown = ref<HTMLElement | null>(null)
+
+function selectSortMode(mode: SortMode): void {
+  sortMode.value = mode
+  sortMenuOpen.value = false
+}
+
+function closeSortMenu(event: PointerEvent): void {
+  if (!sortMenuOpen.value) return
+  const target = event.target as Node | null
+  if (sortDropdown.value && target && sortDropdown.value.contains(target)) return
+  sortMenuOpen.value = false
 }
 const showUpdatedAt = ref(true)
 const helpOpen = ref(false)
@@ -338,6 +353,7 @@ function stopPerformanceObservers() {
 onMounted(() => {
   bindCesiumPrefetch()
   fetchGithubStats()
+  window.addEventListener('pointerdown', closeSortMenu, true)
   if (playerMode.value) {
     const demo = demos.find((item) => item.id === 'presentation-editor')
     if (demo) void openCase(demo)
@@ -363,6 +379,7 @@ watch(
 )
 
 onUnmounted(() => {
+  window.removeEventListener('pointerdown', closeSortMenu, true)
   stopFpsMonitor()
   stopPerformanceObservers()
 })
@@ -491,10 +508,33 @@ onUnmounted(() => {
               <el-icon><Search /></el-icon>
               <input v-model="searchTerm" type="search" placeholder="全局搜索案例名称 / 描述" />
             </div>
-            <button class="sort-button" :class="{ active: sortMode !== 'default' }" :title="`当前排序：${sortLabel}，点击切换`" @click="cycleSortMode">
-              {{ sortLabel }}
-              <el-icon :class="{ reversed: sortMode === 'default' }"><ArrowDown /></el-icon>
-            </button>
+            <div ref="sortDropdown" class="sort-dropdown">
+              <button
+                class="sort-button"
+                :class="{ active: sortMode !== 'default', 'is-open': sortMenuOpen }"
+                :aria-expanded="sortMenuOpen"
+                aria-haspopup="listbox"
+                :title="`当前排序：${sortLabel}`"
+                @click="sortMenuOpen = !sortMenuOpen"
+              >
+                {{ sortLabel }}
+                <el-icon :class="{ reversed: sortMenuOpen }"><ArrowDown /></el-icon>
+              </button>
+              <ul v-if="sortMenuOpen" class="sort-menu" role="listbox">
+                <li v-for="option in SORT_OPTIONS" :key="option.id">
+                  <button
+                    class="sort-option"
+                    :class="{ active: sortMode === option.id }"
+                    role="option"
+                    :aria-selected="sortMode === option.id"
+                    @click="selectSortMode(option.id)"
+                  >
+                    <span class="sort-option-label">{{ option.label }}</span>
+                    <span class="sort-option-hint">{{ option.hint }}</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
 
@@ -564,7 +604,7 @@ onUnmounted(() => {
             </section>
             <section>
               <h4>搜索与排序</h4>
-              <p>分类标题右侧的搜索框支持全局搜索，可跨全部分类按案例名称或描述检索；输入关键词后自动切换到全局搜索结果视图。排序按钮可在「最新收录 / 浏览最多 / 默认顺序」之间循环切换：最新收录按更新时间倒序，浏览最多按累计浏览量倒序并以更新时间兜底，默认顺序保持案例注册顺序。</p>
+              <p>分类标题右侧的搜索框支持全局搜索，可跨全部分类按案例名称或描述检索；输入关键词后自动切换到全局搜索结果视图。排序按钮展开下拉菜单，可在「最新收录 / 浏览最多 / 默认顺序」三项中选择：最新收录按更新时间倒序，浏览最多按累计浏览量倒序并以更新时间兜底，默认顺序保持案例注册顺序。</p>
             </section>
             <section>
               <h4>新增案例</h4>

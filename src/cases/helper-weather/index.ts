@@ -2,6 +2,7 @@ import { defineAsyncComponent } from 'vue'
 import type { DemoCard } from '../types'
 
 const HelperWeatherDemo = defineAsyncComponent(() => import('./HelperWeatherDemo.vue'))
+import icon from './icon.webp'
 
 const caseItem: DemoCard = {
   id: 'helper-weather',
@@ -10,6 +11,7 @@ const caseItem: DemoCard = {
   description: 'MeteoSwiss 雷达降雨、云层与闪电，含空间化雷声，可按时次回放',
   tag: '天气特效',
   component: HelperWeatherDemo,
+  icon,
   updatedAt: '2026-10-30'
 }
 

@@ -243,6 +243,26 @@
 | V6.47.13 | 2026-10-02 | 「三维风场向量体」案例卡片补齐 icon：上传原图（1231×613）等比缩为 300px 宽 WebP（quality 82）写入 `icon.webp`（300×149），`index.ts` 挂载 `icon`，重生成 manifest / CASE_LIST | 已完成 |
 | V6.48 | 2026-11-12 | 新增九个地学分析案例（IDW 插值成面、摄像机覆盖、目标检测叠层、研究区裁剪、航迹外推、卫星轨道、结构熵光晕、多灾种风险融合、传感器成像），共享 `geo-intel-lib`；结构熵光晕改卷帘对比并修复俯视不生效；传感器成像增加正常成像模式；三案例接入 300×159 卡片 icon | 已完成 |
 | V6.49 | 2026-11-12 | 案例列表新增「浏览最多」排序：排序按钮在「最新收录 / 浏览最多 / 默认顺序」三态循环，浏览量相同以更新时间兜底；界面设置同步三选项单选框，浏览量数据刷新改为按分类与关键词触发 | 已完成 |
+| V6.50 | 2026-11-12 | 排序按钮由三态循环改为下拉菜单（三选项含「默认顺序」，点击外部自动收起）；「雷达天气」「目标检测框叠层」「站点数据插值成面」接入 300×159 卡片 icon | 已完成 |
+
+## V6.50 排序下拉菜单与三案例卡片图标
+
+**用户要求**：排序补回「默认顺序」并改成下拉菜单形式；`helper-weather`（雷达天气）、`geo-detection-overlay`、「站点数据插值成面」分别用三张上传图作为卡片 icon。
+
+**实施内容**：
+
+1. `src/App.vue`：移除 `cycleSortMode()` 循环逻辑，改为 `SORT_OPTIONS` 配置数组（`newest` / `views` / `default`）驱动 `sortMenuOpen` 下拉面板与 `selectSortMode()`；`onMounted` 注册 `pointerdown` 捕获监听、`onUnmounted` 移除，点击面板外部自动收起。
+2. `src/style.css`：新增 `.sort-dropdown` / `.sort-menu` / `.sort-option` 样式，选项两行排布（主标签 + 语义提示），当前项高亮；`.sort-button.is-open` 复用 hover 态，箭头随展开旋转。
+3. 帮助弹窗「搜索与排序」文案由「循环切换」改为「展开下拉菜单选择」。
+4. 三张上传图（1232×644 / 1226×648 / 1229×649）以 Chromium canvas 等比缩放裁切为 300×159 WebP，分别写入 `helper-weather`（4748 B）、`geo-detection-overlay`（20696 B）、`geo-idw-surface`（10794 B）的 `icon.webp`，并在各自 `index.ts` 导入 `icon` 字段。
+5. 执行 `npm run sync` 重生成 `manifest.ts` 与 `public/data/cases.json`（375 案例 / 18 分类）。
+
+**验证标准**：
+
+- `npx eslint src/App.vue src/cases/geo-detection-overlay/index.ts src/cases/geo-idw-surface/index.ts src/cases/helper-weather/index.ts` 退出码 0。
+- headless 点击排序按钮：`.sort-menu` 为 1、`.sort-option` 为 3；选「默认顺序」后按钮文案更新、菜单收起、首卡为首个注册案例；选「最新收录」首卡为「三维特效-结构熵光晕描边」；点击面板外菜单消失。
+- 三案例卡片 `img` 的 `naturalWidth/naturalHeight` 均为 `300×159`，渲染尺寸随卡片缩放（204×115）。
+
 
 ## V6.49 案例列表新增按浏览量排序
 

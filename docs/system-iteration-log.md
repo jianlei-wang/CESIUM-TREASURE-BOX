@@ -241,6 +241,26 @@
 | V6.47.11 | 2026-09-30 | 「三维地层属性体」支持影像底图：控制面板新增「底图」开关，开启后显示 Bing 卫星影像球面提供地理参照，地下地层体叠加于影像之上渲染；关闭时恢复工程深色背景 | 已完成 |
 | V6.47.12 | 2026-10-01 | 「三维地层属性体」案例卡片补齐 icon：上传原图等比缩为 300px 宽 WebP（quality 82）写入 `icon.webp`，`index.ts` 挂载 `icon`，重生成 manifest / CASE_LIST | 已完成 |
 | V6.47.13 | 2026-10-02 | 「三维风场向量体」案例卡片补齐 icon：上传原图（1231×613）等比缩为 300px 宽 WebP（quality 82）写入 `icon.webp`（300×149），`index.ts` 挂载 `icon`，重生成 manifest / CASE_LIST | 已完成 |
+| V6.48 | 2026-11-12 | 新增九个地学分析案例（IDW 插值成面、摄像机覆盖、目标检测叠层、研究区裁剪、航迹外推、卫星轨道、结构熵光晕、多灾种风险融合、传感器成像），共享 `geo-intel-lib`；结构熵光晕改卷帘对比并修复俯视不生效；传感器成像增加正常成像模式；三案例接入 300×159 卡片 icon | 已完成 |
+| V6.49 | 2026-11-12 | 案例列表新增「浏览最多」排序：排序按钮在「最新收录 / 浏览最多 / 默认顺序」三态循环，浏览量相同以更新时间兜底；界面设置同步三选项单选框，浏览量数据刷新改为按分类与关键词触发 | 已完成 |
+
+## V6.49 案例列表新增按浏览量排序
+
+**用户要求**：案例列表增加按浏览量排序；推送代码到线上并同步各分支。
+
+**实施内容**：
+
+1. `src/App.vue`：`sortNewest: boolean` 改为三态 `sortMode: 'newest' | 'views' | 'default'`，新增 `SORT_LABELS` 与 `cycleSortMode()` 循环切换；`visibleDemos` 按 `sortMode` 分支：`views` 先比较 `viewCountOf(id)` 降序、相同再按 `updatedAtOf()` 降序兜底，`newest` 仍按更新时间降序，`default` 原样返回。
+2. 抽出 `updatedAtOf(demo)` 统一默认日期（可用案例兜底 `2026-08-22`），避免排序与卡片展示口径不一致。
+3. 浏览量状态与 `visibleDemos` 存在循环依赖风险：`caseViews` / `viewCountOf` 声明上移到 `visibleDemos` 之前；浏览量拉取的 watch 源由 `visibleDemos.map(id).join(',')` 改为 `分类|关键词`，避免「拉到浏览量 → 顺序变化 → 再次请求」的自触发循环。
+4. 模板排序按钮改为显示当前 `sortLabel`，`active` 条件为 `sortMode !== 'default'`，箭头仅在默认顺序时下翻；界面设置「默认排序」由两项单选框扩为「最新收录 / 浏览最多 / 默认顺序」三项，绑定 `sortMode`。
+5. 帮助弹窗「搜索与排序」与 `README.md` 特性说明同步三种排序语义；`README.md` 案例数量 366 → 375。
+
+**验证标准**：
+
+- `npx eslint src/App.vue` 与 `npx eslint src/cases/geo-intel-lib src/cases/geo-sensor-imaging ...` 退出码 0；`vue-tsc -b` 退出码 0（`NODE_OPTIONS=--max-old-space-size=1900`，默认堆在 7GB 环境会 OOM）。
+- headless 点击排序按钮四轮，标签依次为 `最新收录 → 浏览最多 → 默认顺序 → 最新收录`（三态循环闭合）。
+- 拦截 `/api/views` 返回伪随机计数后切到「浏览最多」：42 张卡片浏览量单调不增（9.5万 → 6,147），顺序与接口值一致；界面设置 `input[name=orderMode]` 数量为 3。
 
 ## V6.47.13 三维风场向量体案例卡片 icon 补齐
 

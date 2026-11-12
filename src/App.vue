@@ -86,7 +86,14 @@ function bindCesiumPrefetch() {
 const activeCategory = ref('effects')
 const mobileMenuOpen = ref(false)
 const searchTerm = ref('')
-const sortNewest = ref(true)
+type SortMode = 'newest' | 'views' | 'default'
+const SORT_LABELS: Record<SortMode, string> = { newest: '最新收录', views: '浏览最多', default: '默认顺序' }
+const sortMode = ref<SortMode>('newest')
+const sortLabel = computed(() => SORT_LABELS[sortMode.value])
+function cycleSortMode(): void {
+  const order: SortMode[] = ['newest', 'views', 'default']
+  sortMode.value = order[(order.indexOf(sortMode.value) + 1) % order.length]
+}
 const showUpdatedAt = ref(true)
 const helpOpen = ref(false)
 const settingsOpen = ref(false)
@@ -101,6 +108,18 @@ let caseOpenSeq = 0
 
 const currentCategory = computed(() => categories.find((item) => item.id === activeCategory.value) ?? categories[0])
 const searching = computed(() => searchTerm.value.trim().length > 0)
+const caseViews = ref<CaseViewCounts>({})
+const viewsAvailable = ref(true)
+let viewRequestSeq = 0
+
+function viewCountOf(id: string): number {
+  return caseViews.value[id] ?? 0
+}
+
+function updatedAtOf(demo: CaseMeta): string {
+  return demo.updatedAt ?? (demo.available ? '2026-08-22' : '')
+}
+
 const visibleDemos = computed(() => {
   const keyword = searchTerm.value.trim().toLowerCase()
   const filtered = demos.filter((demo) => {
@@ -112,20 +131,19 @@ const visibleDemos = computed(() => {
     }
     return demo.category === activeCategory.value
   })
-  if (!sortNewest.value) return filtered
-  return [...filtered].sort((left, right) => (right.updatedAt ?? (right.available ? '2026-08-22' : '')).localeCompare(left.updatedAt ?? (left.available ? '2026-08-22' : '')))
+  if (sortMode.value === 'default') return filtered
+  if (sortMode.value === 'views') {
+    return [...filtered].sort((left, right) => {
+      const diff = viewCountOf(right.id) - viewCountOf(left.id)
+      if (diff !== 0) return diff
+      return updatedAtOf(right).localeCompare(updatedAtOf(left))
+    })
+  }
+  return [...filtered].sort((left, right) => updatedAtOf(right).localeCompare(updatedAtOf(left)))
 })
 const categoryCounts = computed(() => new Map(categories.map((category) => [category.id, demos.filter((demo) => demo.category === category.id).length])))
 const totalDemos = computed(() => demos.length)
 const availableDemos = computed(() => demos.filter((demo) => demo.available).length)
-
-const caseViews = ref<CaseViewCounts>({})
-const viewsAvailable = ref(true)
-let viewRequestSeq = 0
-
-function viewCountOf(id: string): number {
-  return caseViews.value[id] ?? 0
-}
 
 async function refreshCaseViews(ids: string[]) {
   const seq = ++viewRequestSeq
@@ -337,7 +355,7 @@ watch(fullCaseDemo, (demo) => {
 })
 
 watch(
-  () => visibleDemos.value.map((demo) => demo.id).join(','),
+  () => `${activeCategory.value}|${searchTerm.value.trim().toLowerCase()}`,
   () => {
     void refreshCaseViews(visibleDemos.value.map((demo) => demo.id))
   },
@@ -473,10 +491,10 @@ onUnmounted(() => {
               <el-icon><Search /></el-icon>
               <input v-model="searchTerm" type="search" placeholder="全局搜索案例名称 / 描述" />
             </div>
-             <button class="sort-button" :class="{ active: sortNewest }" @click="sortNewest = !sortNewest">
-               {{ sortNewest ? '最新收录' : '默认顺序' }}
-               <el-icon :class="{ reversed: !sortNewest }"><ArrowDown /></el-icon>
-             </button>
+            <button class="sort-button" :class="{ active: sortMode !== 'default' }" :title="`当前排序：${sortLabel}，点击切换`" @click="cycleSortMode">
+              {{ sortLabel }}
+              <el-icon :class="{ reversed: sortMode === 'default' }"><ArrowDown /></el-icon>
+            </button>
           </div>
         </div>
 
@@ -546,7 +564,7 @@ onUnmounted(() => {
             </section>
             <section>
               <h4>搜索与排序</h4>
-              <p>分类标题右侧的搜索框支持全局搜索，可跨全部分类按案例名称或描述检索；输入关键词后自动切换到全局搜索结果视图。「最新收录 / 默认顺序」按钮切换排序方式，最新收录优先展示近期更新的案例。</p>
+              <p>分类标题右侧的搜索框支持全局搜索，可跨全部分类按案例名称或描述检索；输入关键词后自动切换到全局搜索结果视图。排序按钮可在「最新收录 / 浏览最多 / 默认顺序」之间循环切换：最新收录按更新时间倒序，浏览最多按累计浏览量倒序并以更新时间兜底，默认顺序保持案例注册顺序。</p>
             </section>
             <section>
               <h4>新增案例</h4>
@@ -570,8 +588,9 @@ onUnmounted(() => {
                 <p>控制案例卡片在列表中的排列顺序。</p>
               </div>
               <div class="setting-control">
-                <label class="toggle"><input type="radio" name="orderMode" :checked="sortNewest" @change="sortNewest = true" /><span>最新收录</span></label>
-                <label class="toggle"><input type="radio" name="orderMode" :checked="!sortNewest" @change="sortNewest = false" /><span>默认顺序</span></label>
+                <label class="toggle"><input type="radio" name="orderMode" :checked="sortMode === 'newest'" @change="sortMode = 'newest'" /><span>最新收录</span></label>
+                <label class="toggle"><input type="radio" name="orderMode" :checked="sortMode === 'views'" @change="sortMode = 'views'" /><span>浏览最多</span></label>
+                <label class="toggle"><input type="radio" name="orderMode" :checked="sortMode === 'default'" @change="sortMode = 'default'" /><span>默认顺序</span></label>
               </div>
             </section>
             <section class="setting-row">

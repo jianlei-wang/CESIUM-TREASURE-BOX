@@ -126,9 +126,12 @@ import icon_free_polygon from './free-polygon/icon.webp'
 import icon_free_polygon_edit from './free-polygon-edit/icon.webp'
 import icon_geo_atmosphere from './geo-atmosphere/icon.webp'
 import icon_geo_clouds from './geo-clouds/icon.webp'
+import icon_geo_entropy_halo from './geo-entropy-halo/icon.webp'
+import icon_geo_flight_track from './geo-flight-track/icon.webp'
 import icon_geo_hdr from './geo-hdr/icon.webp'
 import icon_geo_lensflare from './geo-lensflare/icon.webp'
 import icon_geo_moon from './geo-moon/icon.webp'
+import icon_geo_sensor_imaging from './geo-sensor-imaging/icon.webp'
 import icon_geological_voxel from './geological-voxel/icon.png'
 import icon_geoserver_layer from './geoserver-layer/icon.webp'
 import icon_geoserver_loader from './geoserver-loader/icon.webp'
@@ -494,9 +497,18 @@ export const caseLoaders: Record<string, () => Promise<{ default: DemoCard }>> =
   'free-polygon-edit': () => import('./free-polygon-edit/index.ts'),
   'geo-atmosphere': () => import('./geo-atmosphere/index.ts'),
   'geo-clouds': () => import('./geo-clouds/index.ts'),
+  'geo-detection-overlay': () => import('./geo-detection-overlay/index.ts'),
+  'geo-entropy-halo': () => import('./geo-entropy-halo/index.ts'),
+  'geo-flight-track': () => import('./geo-flight-track/index.ts'),
   'geo-hdr': () => import('./geo-hdr/index.ts'),
+  'geo-idw-surface': () => import('./geo-idw-surface/index.ts'),
   'geo-lensflare': () => import('./geo-lensflare/index.ts'),
   'geo-moon': () => import('./geo-moon/index.ts'),
+  'geo-risk-fusion': () => import('./geo-risk-fusion/index.ts'),
+  'geo-satellite-orbit': () => import('./geo-satellite-orbit/index.ts'),
+  'geo-sensor-coverage': () => import('./geo-sensor-coverage/index.ts'),
+  'geo-sensor-imaging': () => import('./geo-sensor-imaging/index.ts'),
+  'geo-study-area': () => import('./geo-study-area/index.ts'),
   'geological-voxel': () => import('./geological-voxel/index.ts'),
   'geoserver-layer': () => import('./geoserver-layer/index.ts'),
   'geoserver-loader': () => import('./geoserver-loader/index.ts'),
@@ -862,9 +874,18 @@ export const demos: CaseMeta[] = [
   { id: "free-polygon-edit", title: "自由面-编辑版", category: "draw", description: "绘制自由面后可点选已绘对象，进入顶点模式拖拽整形并增删顶点，支持整体移动/旋转/缩放，可将选中或全部对象导出为 GeoJSON（编辑结果与绘制一致）。", tag: "标绘编辑", icon: icon_free_polygon_edit, updatedAt: "2026-09-06", available: true },
   { id: "geo-atmosphere", title: "物理大气与动态曝光", category: "geo", description: "Bruneton 物理大气（预计算 LUT）以 Cesium 原生 PostProcessStage 注入：天空散射、大气透视、昼/夜/晨昏动态曝光与 ACES HDR 色调映射，天空光照随真实太阳位置（Simon1994 + ICRF）与相机当地太阳高度角变化，支持手动曝光、镜头光晕与原生地面光照开关", tag: "大气散射", icon: icon_geo_atmosphere, updatedAt: "2026-09-04", available: true },
   { id: "geo-clouds", title: "体积云 Raymarch", category: "geo", description: "Weather 3D 分布烘焙 + 分层球壳体积 raymarch 云：多散射 Beer-Lambert 光照、级联阴影（BSM）云内自阴影、时域重建（Bayer 1/4 分迈 + velocity reprojection）与天气预设热切；云 overlay 线性域合成在大气链与 ACES 色调映射之间", tag: "体积云", icon: icon_geo_clouds, updatedAt: "2026-09-04", available: true },
+  { id: "geo-detection-overlay", title: "数据可视化-目标检测框叠层", category: "data", description: "把目标检测结果以屏幕空间包围框叠加在地图场景上，包含类别着色、置信度标签、跟踪编号与目标方向箭头，支持置信度阈值过滤、框体样式与标签显隐调节，目标随场景旋转实时跟随。", tag: "目标检测, 叠层, 包围框, 跟踪", updatedAt: "2026-11-12", available: true },
+  { id: "geo-entropy-halo", title: "三维特效-结构熵光晕描边", category: "effects", description: "以卷帘方式左右对比场景处理前后差异：左侧保持原始画面，右侧叠加结构熵光晕效果。响应由亮度梯度、局部纹理离散度与深度跃变融合而成，俯视、斜视与平视都能稳定描边，支持拖动卷帘位置、半径、增益、阈值与着色调节，并可切换仅描边模式。", tag: "后处理, 熵, 光晕, 卷帘对比", icon: icon_geo_entropy_halo, updatedAt: "2026-11-12", available: true },
+  { id: "geo-flight-track", title: "空间分析-航班航迹外推", category: "analysis", description: "根据历史航迹点计算地速、航向与爬升率，按等速与转弯率假设外推未来若干分钟的预测航迹，并以置信锥表现不确定性随时间增长，支持外推时长、转弯率与速度偏差调节。", tag: "航迹, 外推, 预测, 置信锥", icon: icon_geo_flight_track, updatedAt: "2026-11-12", available: true },
   { id: "geo-hdr", title: "动态曝光与色调映射", category: "geo", description: "物理天空散射输出半浮点 HDR 线性值，经 ACES 色调映射与抖动降阶消 banding；昼/夜曝光与晨昏过渡角按相机当地太阳高度动态插值，实时 HUD 显示太阳高度与有效曝光倍数", tag: "HDR 色调", icon: icon_geo_hdr, updatedAt: "2026-09-04", available: true },
+  { id: "geo-idw-surface", title: "空间分析-站点数据插值成面", category: "analysis", description: "把离散站点观测值按下垫面距离权重插值成连续曲面，支持幂指数、邻域站点数、网格分辨率与影响半径调节，同步输出插值方差用于判断可信度，点击地图可读取该处插值结果与最近站点距离。", tag: "IDW, 插值, 站点, 曲面", updatedAt: "2026-11-12", available: true },
   { id: "geo-lensflare", title: "镜头光晕与高光", category: "geo", description: "Cesium 原生 PostProcessStage 合成链：以深度遮挡采样真实反映太阳被山体/地物遮挡，灰度高光抠像生成轴向鬼影（Ghost）与柔光光晕（Halo），视线实时瞄准真实太阳方向（Simon1994 + ICRF）", tag: "镜头光晕", icon: icon_geo_lensflare, updatedAt: "2026-09-04", available: true },
   { id: "geo-moon", title: "月球与月光照明", category: "geo", description: "Simon1994 月位经 ICRF→Fixed 求 ECEF 方向，月盘以 Oren-Nayar 月面反照率与冷蓝月光色调渲染，四周叠加月晕天空散射；月光强度与月晕亮度可调，月相（朔望）由日月光线夹角实时求解并 HUD 展示", tag: "月球", icon: icon_geo_moon, updatedAt: "2026-09-04", available: true },
+  { id: "geo-risk-fusion", title: "空间分析-多灾种风险融合", category: "analysis", description: "把内涝、大风、地震与高温四类孕灾场按可调权重融合为综合风险面，支持权重滑块、分项开关与风险分级阈值调节，叠加栅格显示分级结果并统计各级面积占比，点击地图返回该点综合风险等级与主导灾种。", tag: "多灾种, 风险, 融合, 分级", updatedAt: "2026-11-12", available: true },
+  { id: "geo-satellite-orbit", title: "空间分析-卫星轨道与星下点推演", category: "analysis", description: "由半长轴、偏心率、倾角、升交点赤经与近地点幅角推演卫星开普勒轨道，实时绘制轨道环、星下点轨迹与卫星位置，支持轨道参数调节、时间倍速推进与地面覆盖圆显示。", tag: "轨道, 星下点, 卫星, 开普勒", updatedAt: "2026-11-12", available: true },
+  { id: "geo-sensor-coverage", title: "空间分析-摄像机覆盖范围", category: "analysis", description: "按方位角、视场角、有效距离、俯仰与安装高度计算多台摄像设备的可见覆盖，支持拖动方向角与视场角实时重算，生成覆盖热度栅格并标注覆盖盲区与重叠区。", tag: "可见域, 覆盖, 摄像机, 视场角", updatedAt: "2026-11-12", available: true },
+  { id: "geo-sensor-imaging", title: "三维特效-传感器成像风格", category: "effects", description: "对场景整体施加成像风格后处理，提供正常成像、热成像、微光夜视、暗光增强、棕褐与单色六种模式，可调增益、噪声、暗角、扫描线与光晕强度，正常成像模式保留原始画面以便对比，其余模式模拟光电传感设备在不同光谱下的成像观感。", tag: "成像风格, 后处理, 夜视, 热像", icon: icon_geo_sensor_imaging, updatedAt: "2026-11-12", available: true },
+  { id: "geo-study-area", title: "空间分析-研究区裁剪与要素筛选", category: "analysis", description: "在地图上定义多边形研究区，实时裁剪兴趣点图层并统计区内数量、最近边界距离与要素密度，支持多边形绘制、半径缓冲区、类别过滤与裁剪开关，用于快速聚焦局部分析范围。", tag: "研究区, 裁剪, 缓冲区, 要素统计", updatedAt: "2026-11-12", available: true },
   { id: "geological-voxel", title: "三维地质体-标准层状模型", category: "data", description: "基于 VoxelPrimitive 构建 24×24×24 体素的标准层状地质体：六层岩性含波浪界面与局部构造侵入体，支持分层显隐、透明度/步长/屏幕误差调节、X/Y/Z 方向剖切与岩性拾取查询", tag: "三维地质体", icon: icon_geological_voxel, updatedAt: "2026-09-03", available: true },
   { id: "geoserver-layer", title: "GeoServer 指定图层", category: "tiles", description: "直接加载指定的 WMS / WFS / WMTS 图层服务", tag: "地图服务", icon: icon_geoserver_layer, available: true },
   { id: "geoserver-loader", title: "GeoServer 服务加载", category: "tiles", description: "加载 WMS / WFS / WMTS 地图服务并管理图层", tag: "地图服务", icon: icon_geoserver_loader, available: true },

@@ -15,7 +15,9 @@ const { viewer, status, ready } = useHelperViewer(container)
 watch([ready, bar], async ([isReady]) => {
   if (!isReady || !viewer.value || !bar.value) return
   await nextTick()
-  bar.value.scene = viewer.value.scene
+  const instance = viewer.value
+  if (!instance || instance.isDestroyed() || !bar.value) return
+  bar.value.scene = instance.scene
 }, { flush: 'post' })
 </script>
 

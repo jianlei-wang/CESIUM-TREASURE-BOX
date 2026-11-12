@@ -33,18 +33,22 @@ export function getCesiumStats(): CesiumStats {
   const viewer = activeViewer
   if (!viewer || viewer.isDestroyed()) return { triangles: 0, tileQueue: 0 }
 
-  const scene = viewer.scene as unknown as {
-    frameState: { commandList: Array<{ count: number }> }
-  }
-  const commands = scene.frameState.commandList
-  let vertices = 0
-  for (let i = 0; i < commands.length; i += 1) {
-    vertices += commands[i].count
-  }
+  try {
+    const scene = viewer.scene as unknown as {
+      frameState: { commandList: Array<{ count: number }> }
+    }
+    const commands = scene.frameState.commandList
+    let vertices = 0
+    for (let i = 0; i < commands.length; i += 1) {
+      vertices += commands[i].count
+    }
 
-  return {
-    triangles: Math.round(vertices / 3),
-    tileQueue: (viewer.scene.globe as unknown as { tileLoadQueueLength: number }).tileLoadQueueLength
+    return {
+      triangles: Math.round(vertices / 3),
+      tileQueue: (viewer.scene.globe as unknown as { tileLoadQueueLength: number }).tileLoadQueueLength
+    }
+  } catch {
+    return { triangles: 0, tileQueue: 0 }
   }
 }
 
@@ -111,5 +115,10 @@ export async function setTerrainEnabled(viewer: Viewer, enabled: boolean): Promi
 export function destroyScene(viewer: Viewer | undefined): void {
   if (viewer && activeViewer === viewer) activeViewer = undefined
   if (viewer && window.mapViewer === viewer) window.mapViewer = undefined
-  viewer?.destroy()
+  if (!viewer || viewer.isDestroyed()) return
+  try {
+    viewer.destroy()
+  } catch {
+    // in-flight Cesium callbacks can throw while the widget is already gone
+  }
 }

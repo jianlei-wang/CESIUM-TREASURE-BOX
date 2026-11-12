@@ -164,7 +164,10 @@ export default class TerrainSampler {
       return cartographics.map(() => undefined);
     }
     const heights = await this.sampleAt_(cartographics, this.level_);
-    const missing = heights.keys().filter((i) => heights[i] === undefined).toArray();
+    const missing = [];
+    for (let i = 0; i < heights.length; i++) {
+      if (heights[i] === undefined) missing.push(i);
+    }
     if (missing.length > 0) {
       const coarse = await this.sampleAt_(missing.map((i) => cartographics[i]), FALLBACK_LEVEL);
       missing.forEach((i, k) => {
@@ -198,7 +201,7 @@ export default class TerrainSampler {
     /** @type {(number | undefined)[]} */
     const heights = new Array(cartographics.length).fill(undefined);
     await Promise.all(
-      groups.entries().map(async ([key, group]) => {
+      Array.from(groups.entries()).map(async ([key, group]) => {
         await this.availability_(group.x, group.y, level);
         const data = await this.tile_(key, group.x, group.y, level);
         if (!data) {
@@ -287,16 +290,25 @@ export default class TerrainSampler {
     if (this.provider_.getTileDataAvailable(x, y, level) === false) {
       return undefined;
     }
-    await this.slot_();
-    try {
-      const request = this.provider_.requestTileGeometry(x, y, level);
-      return request ? await request : undefined;
-    } catch {
-      return undefined;
-    } finally {
-      this.inFlight_--;
-      this.waiting_.shift()?.();
+    // requestTileGeometry returns undefined when the scheduler is full; retry
+    // instead of caching a miss, or every height on that tile becomes 0 and the
+    // camera sits inside the mountain.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await this.slot_();
+      try {
+        const request = this.provider_.requestTileGeometry(x, y, level);
+        if (request) {
+          return await request;
+        }
+      } catch {
+        return undefined;
+      } finally {
+        this.inFlight_--;
+        this.waiting_.shift()?.();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
     }
+    return undefined;
   }
 
   /** @return {Promise<void>} resolves once fewer than TILES_IN_FLIGHT requests are pending */

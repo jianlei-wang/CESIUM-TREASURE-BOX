@@ -139,13 +139,23 @@ import icon_heatmap_3d from './heatmap-3d/icon.webp'
 import icon_heatmap_canvas from './heatmap-canvas/icon.webp'
 import icon_height_measure from './height-measure/icon.webp'
 import icon_height_restriction_analysis from './height-restriction-analysis/icon.webp'
+import icon_helper_binoculars from './helper-binoculars/icon.webp'
 import icon_helper_compass from './helper-compass/icon.webp'
 import icon_helper_compass_bar from './helper-compass-bar/icon.webp'
+import icon_helper_drone from './helper-drone/icon.webp'
+import icon_helper_first_person from './helper-first-person/icon.webp'
+import icon_helper_flyover_studio from './helper-flyover-studio/icon.webp'
+import icon_helper_flyto from './helper-flyto/icon.webp'
+import icon_helper_iso from './helper-iso/icon.webp'
+import icon_helper_overlay from './helper-overlay/icon.webp'
+import icon_helper_path_flyover from './helper-path-flyover/icon.webp'
 import icon_helper_post_process from './helper-post-process/icon.webp'
 import icon_helper_post_process_camera from './helper-post-process-camera/icon.webp'
 import icon_helper_post_process_style from './helper-post-process-style/icon.webp'
 import icon_helper_post_process_video from './helper-post-process-video/icon.webp'
 import icon_helper_post_process_weather from './helper-post-process-weather/icon.webp'
+import icon_helper_sphere_camera from './helper-sphere-camera/icon.webp'
+import icon_helper_walk from './helper-walk/icon.webp'
 import icon_html_popup from './html-popup/icon.webp'
 import icon_hydro_analysis from './hydro-analysis/icon.webp'
 import icon_hydro_analysis_pro from './hydro-analysis-pro/icon.webp'
@@ -865,24 +875,24 @@ export const demos: CaseMeta[] = [
   { id: "heatmap-canvas", title: "数据分析-热力图", category: "data", description: "数据驱动的 Canvas 密度热力图动态渲染", tag: "数据可视化", icon: icon_heatmap_canvas, updatedAt: "2026-08-27", available: true },
   { id: "height-measure", title: "空间测量-高度量测", category: "measure", description: "两点高度与高差量测，含地形与三维模型，实时鼠标提示", tag: "测量", icon: icon_height_measure, updatedAt: "2026-08-24", available: true },
   { id: "height-restriction-analysis", title: "空间分析-控高分析", category: "analysis", description: "交互绘制限高区域并设定限高值，生成半透明限高体，自动检测区域内超高建筑并高亮，输出超高数量、超高率、最大/平均超高度等统计指标；支持绝对海拔/相对地面限高、区域绘制与清除、体积样式等参数，内置功能实现说明", tag: "空间分析", icon: icon_height_restriction_analysis, available: true },
-  { id: "helper-binoculars", title: "双筒望远镜", category: "scene", description: "望远镜模式：拖动环视、滚轮变焦，可显示十字分划与测距", tag: "场景工具", updatedAt: "2026-10-30", available: true },
+  { id: "helper-binoculars", title: "双筒望远镜", category: "scene", description: "望远镜模式：拖动环视、滚轮变焦，可显示十字分划与测距", tag: "场景工具", icon: icon_helper_binoculars, updatedAt: "2026-11-10", available: true },
   { id: "helper-compass", title: "指南针控件", category: "widgets", description: "罗盘控件，点击指北、拖动旋转视角，随相机朝向实时转动", tag: "界面控件", icon: icon_helper_compass, updatedAt: "2026-10-30", available: true },
   { id: "helper-compass-bar", title: "罗盘刻度条", category: "widgets", description: "水平罗盘刻度条，随相机朝向滚动，可拖动或点击刻度转向", tag: "界面控件", icon: icon_helper_compass_bar, updatedAt: "2026-10-30", available: true },
-  { id: "helper-drone", title: "穿越机模拟", category: "scene", description: "街机式穿越机飞行，含碰撞、图传噪点、干扰区与控制失联", tag: "场景示例", updatedAt: "2026-10-30", available: true },
-  { id: "helper-first-person", title: "第一人称漫游", category: "scene", description: "指针锁定式第一人称模式，移动鼠标环视、滚轮调节视场", tag: "场景工具", updatedAt: "2026-10-30", available: true },
-  { id: "helper-flyover-studio", title: "飞行视频工作台", category: "scene", description: "拖入 GPX 轨迹，选择画幅与清晰度，逐帧渲染并导出 MP4 飞行视频", tag: "场景示例", updatedAt: "2026-10-30", available: true },
-  { id: "helper-flyto", title: "双击飞行", category: "scene", description: "双击地面沿视线飞向目标点，带运动模糊与景深", tag: "场景工具", updatedAt: "2026-10-30", available: true },
-  { id: "helper-iso", title: "等轴测视图", category: "scene", description: "游戏式等轴测正交视角，可四分之一转、平移、缩放并配合玩具化后期", tag: "场景工具", updatedAt: "2026-10-30", available: true },
-  { id: "helper-overlay", title: "遮挡线叠加层", category: "scene", description: "HTML/SVG 叠加层与遮罩线：被场景遮挡的线段自动隐藏", tag: "场景示例", updatedAt: "2026-10-30", available: true },
-  { id: "helper-path-flyover", title: "轨迹飞行", category: "scene", description: "沿 GPX/GeoJSON 轨迹的相机动画，支持预设机位、地名标注与视频导出", tag: "场景示例", updatedAt: "2026-10-30", available: true },
+  { id: "helper-drone", title: "穿越机模拟", category: "scene", description: "街机式穿越机飞行，含碰撞、图传噪点、干扰区与控制失联", tag: "场景示例", icon: icon_helper_drone, updatedAt: "2026-11-10", available: true },
+  { id: "helper-first-person", title: "第一人称漫游", category: "scene", description: "指针锁定式第一人称模式，移动鼠标环视、滚轮调节视场", tag: "场景工具", icon: icon_helper_first_person, updatedAt: "2026-11-10", available: true },
+  { id: "helper-flyover-studio", title: "飞行视频工作台", category: "scene", description: "拖入 GPX 轨迹，选择画幅与清晰度，逐帧渲染并导出 MP4 飞行视频", tag: "场景示例", icon: icon_helper_flyover_studio, updatedAt: "2026-11-10", available: true },
+  { id: "helper-flyto", title: "双击飞行", category: "scene", description: "双击地面沿视线飞向目标点，带运动模糊与景深", tag: "场景工具", icon: icon_helper_flyto, updatedAt: "2026-11-10", available: true },
+  { id: "helper-iso", title: "等轴测视图", category: "scene", description: "游戏式等轴测正交视角，可四分之一转、平移、缩放并配合玩具化后期", tag: "场景工具", icon: icon_helper_iso, updatedAt: "2026-11-10", available: true },
+  { id: "helper-overlay", title: "遮挡线叠加层", category: "scene", description: "HTML/SVG 叠加层与遮罩线：被场景遮挡的线段自动隐藏", tag: "场景示例", icon: icon_helper_overlay, updatedAt: "2026-11-10", available: true },
+  { id: "helper-path-flyover", title: "轨迹飞行", category: "scene", description: "沿 GPX/GeoJSON 轨迹的相机动画，支持预设机位、地名标注与视频导出", tag: "场景示例", icon: icon_helper_path_flyover, updatedAt: "2026-11-10", available: true },
   { id: "helper-post-process", title: "屏幕后期特效", category: "effects", description: "19 种屏幕空间后期特效：胶片、红外、移轴、雨雪、云雾、无人机图传等", tag: "后期特效", icon: icon_helper_post_process, updatedAt: "2026-10-30", available: true },
   { id: "helper-post-process-camera", title: "镜头-聚光移轴与动态模糊", category: "effects", description: "聚光灯、移轴、运动模糊、速度线与广角镜头畸变、果冻效应六种镜头语言：点击地图可把焦点锁定到地表位置，配合模糊与暗角模拟航拍与运动镜头。", tag: "后期特效", icon: icon_helper_post_process_camera, updatedAt: "2026-11-01", available: true },
   { id: "helper-post-process-style", title: "风格-手绘红外与胶片", category: "effects", description: "Dufour 手绘地图、色彩隔离、红外、特艺彩色与超 8 胶片五种成像风格：用笔触与斜射光生成手绘底图，再用色相隔离、伪彩与颗粒漏光切换复古影调。", tag: "后期特效", icon: icon_helper_post_process_style, updatedAt: "2026-11-01", available: true },
   { id: "helper-post-process-video", title: "图传-无人机 OSD 与链路画质", category: "effects", description: "无人机 OSD 叠层、模拟图传噪点干扰与数字图传马赛克三种链路画质：模拟远距离无线图传的画面劣化与飞行数据叠加。", tag: "后期特效", icon: icon_helper_post_process_video, updatedAt: "2026-11-01", available: true },
   { id: "helper-post-process-weather", title: "天气-雪线雾与雷雨特效", category: "effects", description: "雪线、山谷雾、降水、雨圈与闪电五种天气向屏幕空间特效：可调海拔与坡度形成雪线过渡，用雾顶与浓度控制山谷层雾，并叠加雨雪、地面雨圈与云底闪电。", tag: "后期特效", icon: icon_helper_post_process_weather, updatedAt: "2026-11-01", available: true },
-  { id: "helper-sphere-camera", title: "球面环绕相机", category: "scene", description: "拖动地图围绕一点旋转相机，位置不变只改变朝向", tag: "场景工具", updatedAt: "2026-10-30", available: true },
+  { id: "helper-sphere-camera", title: "球面环绕相机", category: "scene", description: "拖动地图围绕一点旋转相机，位置不变只改变朝向", tag: "场景工具", icon: icon_helper_sphere_camera, updatedAt: "2026-11-10", available: true },
   { id: "helper-view-cube", title: "视角立方体", category: "widgets", description: "视角立方体与方位三轴，点击面或轴快速切换相机视角", tag: "界面控件", updatedAt: "2026-10-30", available: true },
-  { id: "helper-walk", title: "步行漫游", category: "scene", description: "键盘步行模式，贴合地形行走并支持碰撞检测", tag: "场景工具", updatedAt: "2026-10-30", available: true },
+  { id: "helper-walk", title: "步行漫游", category: "scene", description: "键盘步行模式，贴合地形行走并支持碰撞检测", tag: "场景工具", icon: icon_helper_walk, updatedAt: "2026-11-10", available: true },
   { id: "helper-weather", title: "雷达天气", category: "weather", description: "MeteoSwiss 雷达降雨、云层与闪电，含空间化雷声，可按时次回放", tag: "天气特效", updatedAt: "2026-10-30", available: true },
   { id: "html-popup", title: "自定义HTML弹窗", category: "draw", description: "地图点位绑定 HTML 弹窗，拖动地球弹窗跟随", tag: "标注弹窗", icon: icon_html_popup, updatedAt: "2026-08-24", available: true },
   { id: "hydro-analysis", title: "空间分析-水文分析(基础版)", category: "analysis", description: "基于真实地形 DEM 分步完成洼地填平、D8 流向、汇流累积、栅格河网提取、河网矢量化，并可拾取倾泻点生成汇水流域，支持分辨率/阈值/显示样式等参数调整", tag: "空间分析", icon: icon_hydro_analysis, updatedAt: "2026-09-04", available: true },

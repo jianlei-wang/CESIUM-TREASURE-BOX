@@ -194,6 +194,7 @@ export default class CesiumViewCube extends LitElement {
    * East, north and up at the camera, turned by its view; new axes, and a render, only when they change.
    */
   updateFromCamera() {
+    if (!this.scene) return;
     const {camera, ellipsoid, mode} = this.scene;
     const frame = mode === SceneMode.SCENE3D
       ? FixedFrameTransforms.eastNorthUpToFixedFrame(camera.positionWC, ellipsoid, frameScratch)

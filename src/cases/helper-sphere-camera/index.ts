@@ -1,5 +1,6 @@
 import { defineAsyncComponent } from 'vue'
 import type { DemoCard } from '../types'
+import icon from './icon.webp'
 
 const HelperSphereCameraDemo = defineAsyncComponent(() => import('./HelperSphereCameraDemo.vue'))
 
@@ -9,8 +10,9 @@ const caseItem: DemoCard = {
   category: 'scene',
   description: '拖动地图围绕一点旋转相机，位置不变只改变朝向',
   tag: '场景工具',
+  icon,
   component: HelperSphereCameraDemo,
-  updatedAt: '2026-10-30'
+  updatedAt: '2026-11-10'
 }
 
 export default caseItem

@@ -105,6 +105,7 @@ const { status } = useHelperViewer(container, {}, async (instance) => {
   viewerRef = instance
   instance.scene.globe.lambertDiffuseMultiplier = 0.35
   instance.scene.globe.vertexShadowDarkness = 0.7
+  instance.scene.requestRenderMode = false
   void checkEncoder()
   return () => {
     controller?.abort()
@@ -258,6 +259,7 @@ function onScrub(): void {
 async function startPlay(): Promise<void> {
   if (!flyover) return
   viewerRef?.camera.cancelFlight()
+  if (viewerRef) viewerRef.scene.requestRenderMode = false
   stage.value = 'playing'
   await flyover.play()
   if (stage.value === 'playing') stage.value = 'ready'

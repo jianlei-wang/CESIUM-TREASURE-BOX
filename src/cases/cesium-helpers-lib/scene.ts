@@ -19,6 +19,8 @@ export type HelperViewerOptions = {
   onStatus?: (message: string) => void
 }
 
+export const HELPER_VIEWER_CANCELLED = 'helper-viewer-cancelled'
+
 let schedulerConfigured = false
 
 function configureScheduler(): void {
@@ -48,7 +50,12 @@ export async function createHelperViewer(
   try {
     await loadWorldTerrain(viewer)
   } catch {
-    viewer.terrainProvider = new EllipsoidTerrainProvider()
+    if (!viewer.isDestroyed()) viewer.terrainProvider = new EllipsoidTerrainProvider()
+  }
+
+  if (viewer.isDestroyed() || !container.isConnected) {
+    if (!viewer.isDestroyed()) destroyHelperViewer(viewer)
+    throw new Error(HELPER_VIEWER_CANCELLED)
   }
 
   if (options.smooth) {

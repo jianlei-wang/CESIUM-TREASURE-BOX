@@ -1,5 +1,6 @@
 import { defineAsyncComponent } from 'vue'
 import type { DemoCard } from '../types'
+import icon from './icon.webp'
 
 const HelperFlyoverStudioDemo = defineAsyncComponent(() => import('./HelperFlyoverStudioDemo.vue'))
 
@@ -9,8 +10,9 @@ const caseItem: DemoCard = {
   category: 'scene',
   description: '拖入 GPX 轨迹，选择画幅与清晰度，逐帧渲染并导出 MP4 飞行视频',
   tag: '场景示例',
+  icon,
   component: HelperFlyoverStudioDemo,
-  updatedAt: '2026-10-30'
+  updatedAt: '2026-11-10'
 }
 
 export default caseItem

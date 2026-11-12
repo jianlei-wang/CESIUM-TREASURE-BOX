@@ -1,6 +1,6 @@
-import { onBeforeUnmount, onMounted, ref, shallowRef, type Ref } from 'vue'
+import { onMounted, onUnmounted, ref, shallowRef, type Ref } from 'vue'
 import type { Viewer } from 'cesium'
-import { createHelperViewer, destroyHelperViewer, type HelperViewerOptions } from './scene'
+import { HELPER_VIEWER_CANCELLED, createHelperViewer, destroyHelperViewer, type HelperViewerOptions } from './scene'
 
 export type HelperSetupResult = void | (() => void) | Promise<void | (() => void)>
 
@@ -17,6 +17,20 @@ export function useHelperViewer(
   const status = ref('正在初始化场景…')
   const ready = ref(false)
   let cleanup: (() => void) | undefined
+  let disposed = false
+
+  function teardown(instance?: Viewer | null): void {
+    try {
+      cleanup?.()
+    } catch {
+      // setup cleanup can touch a Viewer that is already gone
+    } finally {
+      cleanup = undefined
+      destroyHelperViewer(instance ?? viewer.value ?? undefined)
+      viewer.value = null
+      ready.value = false
+    }
+  }
 
   onMounted(async () => {
     if (!container.value) return
@@ -24,30 +38,39 @@ export function useHelperViewer(
       const instance = await createHelperViewer(container.value, {
         ...options,
         onStatus: (message) => {
+          if (disposed) return
           status.value = message
           options.onStatus?.(message)
         }
       })
+      if (disposed) {
+        destroyHelperViewer(instance)
+        return
+      }
       viewer.value = instance
       if (setup) {
         const result = await setup(instance)
         if (typeof result === 'function') cleanup = result
       }
+      if (disposed) {
+        teardown(instance)
+        return
+      }
       ready.value = true
       status.value = ''
     } catch (error) {
+      if (disposed) {
+        teardown()
+        return
+      }
+      if (error instanceof Error && error.message === HELPER_VIEWER_CANCELLED) return
       status.value = error instanceof Error ? error.message : String(error)
     }
   })
 
-  onBeforeUnmount(() => {
-    try {
-      cleanup?.()
-    } finally {
-      cleanup = undefined
-      destroyHelperViewer(viewer.value ?? undefined)
-      viewer.value = null
-    }
+  onUnmounted(() => {
+    disposed = true
+    teardown()
   })
 
   return { viewer, status, ready }

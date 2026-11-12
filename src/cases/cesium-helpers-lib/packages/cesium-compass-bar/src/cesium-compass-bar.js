@@ -179,6 +179,7 @@ export default class CesiumCompassBar extends LitElement {
     if (this.scene && !this.unlistenFromPostRender) {
       this.unlistenFromPostRender = this.scene.postRender.addEventListener(
         () => {
+          if (!this.scene) return;
           this.heading = this.scene.camera.heading;
         }
       );

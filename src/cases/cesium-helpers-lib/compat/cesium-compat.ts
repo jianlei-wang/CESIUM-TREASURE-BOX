@@ -54,6 +54,7 @@ export const RenderState = Cesium.RenderState
 export const Resource = Cesium.Resource
 export const Sampler = Cesium.Sampler
 export const SceneMode = Cesium.SceneMode
+export const sampleTerrainMostDetailed = Cesium.sampleTerrainMostDetailed
 export const SceneTransforms = Cesium.SceneTransforms
 export const ScreenSpaceEventHandler = Cesium.ScreenSpaceEventHandler
 export const ScreenSpaceEventType = Cesium.ScreenSpaceEventType

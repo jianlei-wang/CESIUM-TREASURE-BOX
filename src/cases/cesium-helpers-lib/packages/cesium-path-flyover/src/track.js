@@ -86,7 +86,11 @@ function parseGeoJson(text) {
  * @return {LonLat}
  */
 function toLonLat(coordinate) {
-  return [coordinate[0], coordinate[1]];
+  const coord = /** @type {LonLat} */ ([coordinate[0], coordinate[1]]);
+  if (Number.isFinite(coordinate[2])) {
+    /** @type {any} */ (coord).height = coordinate[2];
+  }
+  return coord;
 }
 
 /**
@@ -115,6 +119,11 @@ function parseGpxPoints(text, tag) {
       const seconds = time ? Date.parse(time[1]) / 1000 : NaN;
       if (!isNaN(seconds)) {
         coord.push(seconds);
+      }
+      const ele = children && /<(?:\w+:)?ele>([^<]*)</.exec(children);
+      const height = ele ? parseFloat(ele[1]) : NaN;
+      if (!isNaN(height)) {
+        /** @type {any} */ (coord).height = height;
       }
       coords.push(coord);
     }

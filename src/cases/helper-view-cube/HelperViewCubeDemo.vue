@@ -16,8 +16,10 @@ const { viewer, status, ready } = useHelperViewer(container)
 watch([ready, cube, triad, showTriad], async ([isReady]) => {
   if (!isReady || !viewer.value) return
   await nextTick()
-  if (cube.value) cube.value.scene = viewer.value.scene
-  if (triad.value) triad.value.scene = viewer.value.scene
+  const instance = viewer.value
+  if (!instance || instance.isDestroyed()) return
+  if (cube.value) cube.value.scene = instance.scene
+  if (triad.value) triad.value.scene = instance.scene
 }, { flush: 'post' })
 </script>
 

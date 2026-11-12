@@ -19,6 +19,7 @@ import {
   SceneMode,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
+  sampleTerrainMostDetailed,
   Transforms,
 } from "@cesium/engine";
 import FreeLook from "./free-look.js";
@@ -198,8 +199,12 @@ export default class CesiumPathFlyover {
     if (load !== this.load_) {
       return;
     }
+    await this.fillMissingHeights_(scene.terrainProvider, cartographics, terrain);
+    if (load !== this.load_) {
+      return;
+    }
     const points = cartographics.map((c, i) =>
-      Cartesian3.fromRadians(c.longitude, c.latitude, (terrain[i] ?? 0) + MARKER_HEIGHT, scene.ellipsoid)
+      Cartesian3.fromRadians(c.longitude, c.latitude, this.trackHeight_(terrain[i], coords[i]) + MARKER_HEIGHT, scene.ellipsoid)
     );
     const distances = [0];
     for (let i = 1; i < points.length; i++) {
@@ -433,6 +438,8 @@ export default class CesiumPathFlyover {
     if (this.freeLook) {
       this.installFreeLook_();
     }
+    this.placeFrame_();
+    this.viewer.scene.requestRender();
     return this.play_.promise;
   }
 
@@ -640,6 +647,67 @@ export default class CesiumPathFlyover {
   }
 
   /**
+   * GPS / GeoJSON altitude when the sampler left a hole, or when it reported a
+   * height clearly below the recorded track (inside the mountain).
+   * @param {number | undefined} sampled
+   * @param {any} coord
+   * @return {number}
+   */
+  trackHeight_(sampled, coord) {
+    const recorded = coord?.height;
+    const height = Math.max(
+      Number.isFinite(sampled) ? sampled : Number.NEGATIVE_INFINITY,
+      Number.isFinite(recorded) ? recorded : Number.NEGATIVE_INFINITY
+    );
+    return Number.isFinite(height) ? height : 0;
+  }
+
+  /**
+   * @param {import('@cesium/engine').TerrainProvider} provider
+   * @param {import('@cesium/core').Cartographic[]} cartographics
+   * @param {(number | undefined)[]} terrain
+   * @return {Promise<void>}
+   */
+  async fillMissingHeights_(provider, cartographics, terrain) {
+    if (provider instanceof EllipsoidTerrainProvider) {
+      return;
+    }
+    const missing = [];
+    for (let i = 0; i < terrain.length; i++) {
+      if (terrain[i] === undefined) missing.push(i);
+    }
+    if (missing.length === 0) {
+      return;
+    }
+    try {
+      const detailed = await sampleTerrainMostDetailed(
+        provider,
+        missing.map((i) => cartographics[i].clone())
+      );
+      missing.forEach((i, k) => {
+        const height = detailed[k]?.height;
+        if (Number.isFinite(height)) terrain[i] = height;
+      });
+    } catch {
+      // recorded GPS heights still lift the track if the service does not answer
+    }
+  }
+
+  /**
+   * Raises a point to the loaded globe when the spline sat below the mesh.
+   * @param {import('@cesium/core').Cartesian3} cartesian
+   * @param {import('@cesium/core').Cartesian3} result
+   * @return {import('@cesium/core').Cartesian3}
+   */
+  raiseToGlobe_(cartesian, result) {
+    const scene = this.viewer.scene;
+    const carto = Cartographic.fromCartesian(cartesian, scene.ellipsoid, cartographicScratch);
+    const ground = scene.globe?.getHeight(carto);
+    const height = ground === undefined ? carto.height : Math.max(carto.height, ground + MARKER_HEIGHT);
+    return Cartesian3.fromRadians(carto.longitude, carto.latitude, height, scene.ellipsoid, result);
+  }
+
+  /**
    * Places the marker and the camera for the current progress.
    */
   placeFrame_() {
@@ -647,7 +715,7 @@ export default class CesiumPathFlyover {
     const spline = /** @type {CatmullRomSpline} */ (this.spline_);
     const path = /** @type {Path} */ (this.path_);
     const along = easedProgress(this.t_, EASE_SECONDS / this.duration);
-    this.marker_.position = spline.evaluate(along, markerScratch);
+    this.marker_.position = this.raiseToGlobe_(spline.evaluate(along, markerScratch), markerScratch);
     if (this.trail_) {
       const i0 = spline.findTimeInterval(along);
       const times = spline.times;
@@ -656,13 +724,18 @@ export default class CesiumPathFlyover {
 
     const index = this.t_ * (path.targets.length - 1);
     const i = Math.min(Math.floor(index), path.targets.length - 1);
-    const target = Cartesian3.lerp(path.targets[i], path.targets[Math.min(i + 1, path.targets.length - 1)], index - i, targetScratch);
+    const target = this.raiseToGlobe_(
+      Cartesian3.lerp(path.targets[i], path.targets[Math.min(i + 1, path.targets.length - 1)], index - i, targetScratch),
+      targetScratch
+    );
     const heading = sampleProfile(path.headings, this.t_);
     const range = sampleProfile(path.range, this.t_);
     const lift = sampleProfile(path.lift, this.t_);
     const planned = cameraOffsetEnu(heading, range, this.pitch, lift, plannedScratch);
     let offset = planned;
     const look = this.looking_?.look;
+    // @ts-expect-error Transforms.eastNorthUpToFixedFrame is missing from the @cesium/engine 26.4.0 typings
+    const enu = Transforms.eastNorthUpToFixedFrame(target, scene.ellipsoid, enuScratch);
     if (look) {
       const view = look.update(this.now_());
       if (look.active) {
@@ -670,10 +743,12 @@ export default class CesiumPathFlyover {
         // the plan cleared the planned camera, not one the viewer swung aside: lift
         // this one by what it lacks beyond what the planned one lacks against the
         // loaded tiles, so the lift is zero at zero offsets and never jumps
-        // @ts-expect-error Transforms.eastNorthUpToFixedFrame is missing from the @cesium/engine 26.4.0 typings
-        const enu = Transforms.eastNorthUpToFixedFrame(target, scene.ellipsoid, enuScratch);
         offset.z += Math.max(0, this.shortfall_(enu, offset) - this.shortfall_(enu, planned));
       }
+    }
+    if (offset === planned) {
+      offset = Cartesian3.clone(planned, offsetScratch);
+      offset.z += this.shortfall_(enu, offset);
     }
     scene.camera.lookAt(target, offset);
     scene.camera.lookAtTransform(Matrix4.IDENTITY);

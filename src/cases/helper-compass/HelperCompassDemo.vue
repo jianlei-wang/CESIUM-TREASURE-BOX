@@ -14,8 +14,10 @@ const { viewer, status, ready } = useHelperViewer(container)
 watch([ready, compass], async ([isReady]) => {
   if (!isReady || !viewer.value || !compass.value) return
   await nextTick()
-  compass.value.scene = viewer.value.scene
-  compass.value.clock = viewer.value.clock
+  const instance = viewer.value
+  if (!instance || instance.isDestroyed() || !compass.value) return
+  compass.value.scene = instance.scene
+  compass.value.clock = instance.clock
 }, { flush: 'post' })
 </script>
 

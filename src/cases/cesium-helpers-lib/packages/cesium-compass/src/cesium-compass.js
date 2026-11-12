@@ -342,6 +342,7 @@ export default class CesiumCompass extends LitElement {
   willUpdate() {
     if (this.scene && this.clock && !this.unlistenFromPostRender) {
       this.unlistenFromPostRender = this.scene.postRender.addEventListener(() => {
+        if (!this.scene) return;
         const heading = this.scene.camera.heading;
         this.displayHeading += CesiumMath.negativePiToPi(heading - this.heading);
         this.heading = heading;

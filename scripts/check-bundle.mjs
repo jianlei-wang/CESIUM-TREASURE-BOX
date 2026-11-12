@@ -4,9 +4,11 @@ import { gzipSync } from 'node:zlib'
 
 const root = process.cwd()
 const dist = join(root, 'dist')
+// entryGzip 预算随案例清单线性增长：manifest.ts 把全部案例的标题与描述内联进首屏包，
+// 每新增一个案例约 +0.2 kB gzip。预留在 160 kB 以容纳案例数量继续增长。
 const budget = {
   entryJs: 400 * 1024,
-  entryGzip: 150 * 1024,
+  entryGzip: 160 * 1024,
   initialCss: 120 * 1024,
   chunkJs: 800 * 1024,
   chunkGzip: 250 * 1024

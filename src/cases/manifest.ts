@@ -135,6 +135,7 @@ import icon_geo_lensflare from './geo-lensflare/icon.webp'
 import icon_geo_moon from './geo-moon/icon.webp'
 import icon_geo_risk_fusion from './geo-risk-fusion/icon.webp'
 import icon_geo_satellite_orbit from './geo-satellite-orbit/icon.webp'
+import icon_geo_sensor_coverage from './geo-sensor-coverage/icon.webp'
 import icon_geo_sensor_imaging from './geo-sensor-imaging/icon.webp'
 import icon_geo_study_area from './geo-study-area/icon.webp'
 import icon_geological_voxel from './geological-voxel/icon.png'
@@ -889,7 +890,7 @@ export const demos: CaseMeta[] = [
   { id: "geo-moon", title: "月球与月光照明", category: "geo", description: "Simon1994 月位经 ICRF→Fixed 求 ECEF 方向，月盘以 Oren-Nayar 月面反照率与冷蓝月光色调渲染，四周叠加月晕天空散射；月光强度与月晕亮度可调，月相（朔望）由日月光线夹角实时求解并 HUD 展示", tag: "月球", icon: icon_geo_moon, updatedAt: "2026-09-04", available: true },
   { id: "geo-risk-fusion", title: "空间分析-多灾种风险融合", category: "analysis", description: "把内涝、大风、地震与高温四类孕灾场按可调权重融合为综合风险面，支持权重滑块、分项开关与风险分级阈值调节，叠加栅格显示分级结果并统计各级面积占比，点击地图返回该点综合风险等级与主导灾种。", tag: "多灾种, 风险, 融合, 分级", icon: icon_geo_risk_fusion, updatedAt: "2026-11-12", available: true },
   { id: "geo-satellite-orbit", title: "空间分析-卫星轨道与星下点推演", category: "analysis", description: "由半长轴、偏心率、倾角、升交点赤经与近地点幅角推演卫星开普勒轨道，实时绘制轨道环、星下点轨迹与卫星位置，支持轨道参数调节、时间倍速推进与地面覆盖圆显示。", tag: "轨道, 星下点, 卫星, 开普勒", icon: icon_geo_satellite_orbit, updatedAt: "2026-11-12", available: true },
-  { id: "geo-sensor-coverage", title: "空间分析-摄像机覆盖范围", category: "analysis", description: "按方位角、视场角、有效距离、俯仰与安装高度计算多台摄像设备的可见覆盖，支持拖动方向角与视场角实时重算，生成覆盖热度栅格并标注覆盖盲区与重叠区。", tag: "可见域, 覆盖, 摄像机, 视场角", updatedAt: "2026-11-12", available: true },
+  { id: "geo-sensor-coverage", title: "空间分析-摄像机覆盖范围", category: "analysis", description: "按方位角、视场角、有效距离、俯仰与安装高度计算多台摄像设备的可见覆盖，支持拖动方向角与视场角实时重算，生成覆盖热度栅格并标注覆盖盲区与重叠区。", tag: "可见域, 覆盖, 摄像机, 视场角", icon: icon_geo_sensor_coverage, updatedAt: "2026-11-12", available: true },
   { id: "geo-sensor-imaging", title: "三维特效-传感器成像风格", category: "effects", description: "对场景整体施加成像风格后处理，提供正常成像、热成像、微光夜视、暗光增强、棕褐与单色六种模式，可调增益、噪声、暗角、扫描线与光晕强度，正常成像模式保留原始画面以便对比，其余模式模拟光电传感设备在不同光谱下的成像观感。", tag: "成像风格, 后处理, 夜视, 热像", icon: icon_geo_sensor_imaging, updatedAt: "2026-11-12", available: true },
   { id: "geo-study-area", title: "空间分析-研究区裁剪与要素筛选", category: "analysis", description: "在地图上定义多边形研究区，实时裁剪兴趣点图层并统计区内数量、最近边界距离与要素密度，支持多边形绘制、半径缓冲区、类别过滤与裁剪开关，用于快速聚焦局部分析范围。", tag: "研究区, 裁剪, 缓冲区, 要素统计", icon: icon_geo_study_area, updatedAt: "2026-11-12", available: true },
   { id: "geological-voxel", title: "三维地质体-标准层状模型", category: "data", description: "基于 VoxelPrimitive 构建 24×24×24 体素的标准层状地质体：六层岩性含波浪界面与局部构造侵入体，支持分层显隐、透明度/步长/屏幕误差调节、X/Y/Z 方向剖切与岩性拾取查询", tag: "三维地质体", icon: icon_geological_voxel, updatedAt: "2026-09-03", available: true },

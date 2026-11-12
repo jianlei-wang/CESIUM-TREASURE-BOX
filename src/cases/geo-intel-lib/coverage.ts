@@ -24,8 +24,7 @@ export function evaluateCoverage(spec: SensorSpec, lat: number, lon: number): Co
     return { visibility: 0, rangeM: dist, bearingDeltaDeg: 180 }
   }
   const bearing = initialBearing(spec.lat, spec.lon, lat, lon)
-  let delta = Math.abs(((bearing - spec.azimuthDeg + 540) % 360) - 180)
-  delta = 180 - delta
+  const delta = Math.abs(((bearing - spec.azimuthDeg + 540) % 360) - 180)
   const half = spec.fovDeg / 2
   if (delta > half) {
     return { visibility: 0, rangeM: dist, bearingDeltaDeg: delta }

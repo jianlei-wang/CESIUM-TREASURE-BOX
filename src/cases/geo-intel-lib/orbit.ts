@@ -89,6 +89,38 @@ export function orbitalPeriodSec(aKm: number): number {
   return (2 * Math.PI) / meanMotionRadPerSec(aKm)
 }
 
+export function orbitPathEci(elements: OrbitElements, samples = 240): EciPoint[] {
+  const a = elements.semiMajorAxisKm
+  const e = elements.eccentricity
+  const cosO = Math.cos(elements.raanDeg * DEG)
+  const sinO = Math.sin(elements.raanDeg * DEG)
+  const cosI = Math.cos(elements.inclinationDeg * DEG)
+  const sinI = Math.sin(elements.inclinationDeg * DEG)
+  const out: EciPoint[] = []
+  for (let i = 0; i <= samples; i += 1) {
+    const E = (Math.PI * 2 * i) / samples
+    const xv = a * (Math.cos(E) - e)
+    const yv = a * Math.sqrt(1 - e * e) * Math.sin(E)
+    const r = Math.hypot(xv, yv)
+    const argLat = Math.atan2(yv, xv) + elements.argPerigeeDeg * DEG
+    const cosU = Math.cos(argLat)
+    const sinU = Math.sin(argLat)
+    out.push({
+      x: r * (cosO * cosU - sinO * sinU * cosI),
+      y: r * (sinO * cosU + cosO * sinU * cosI),
+      z: r * sinU * sinI
+    })
+  }
+  return out
+}
+
+export function orbitPathGeodeticAt(
+  pathEci: EciPoint[],
+  atMs: number
+): Array<{ lat: number; lon: number; heightKm: number }> {
+  return pathEci.map((p) => eciToGeodetic(p, atMs))
+}
+
 export function groundTrack(
   elements: OrbitElements,
   startMs: number,

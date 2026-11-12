@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   ArcType,
+  CallbackProperty,
   Cartesian2,
   Cartesian3,
   Color,
@@ -16,9 +17,11 @@ import {
   eciToGeodetic,
   groundTrack,
   normalizeLon,
+  orbitPathEci,
+  orbitPathGeodeticAt,
   orbitalPeriodSec,
   propagateEci,
-  splitGroundTrack,
+  type EciPoint,
   type OrbitElements
 } from '../geo-intel-lib/orbit'
 import { circleRing } from '../geo-intel-lib/geometry'
@@ -41,11 +44,25 @@ const periodText = ref('')
 const altText = ref('')
 const subPointText = ref('')
 
+const EARTH_R = 6371
+const RING_SAMPLES = 240
+const TRACK_SAMPLES = 220
+const TEXT_INTERVAL_MS = 200
+const REFRESH_MS = 80
+
 let viewer: Viewer | undefined
 let raf = 0
-let simMs = Date.now()
+let epochMs = Date.now()
+let simMs = epochMs
 let lastFrame = 0
-const orbitEntities: Entity[] = []
+let lastTextMs = 0
+let ringPath: EciPoint[] = []
+let ringCache: { at: number; positions: Cartesian3[] } | null = null
+let trackCache: { at: number; positions: Cartesian3[] } | null = null
+let ringEntity: Entity | undefined
+let trackEntity: Entity | undefined
+let coverageEntity: Entity | undefined
+let satelliteEntity: Entity | undefined
 
 function elements(): OrbitElements {
   return {
@@ -55,98 +72,121 @@ function elements(): OrbitElements {
     raanDeg: raanDeg.value,
     argPerigeeDeg: argPerigeeDeg.value,
     meanAnomalyDeg: meanAnomalyDeg.value,
-    epochMs: simMs
+    epochMs
   }
 }
 
-const EARTH_R = 6371
-
-function clearOrbit(): void {
-  if (!viewer || viewer.isDestroyed()) return
-  for (const e of orbitEntities) viewer.entities.remove(e)
-  orbitEntities.length = 0
+function heightOf(heightKm: number): number {
+  return Math.max(0, heightKm * 1000)
 }
 
-function orbitRingPoints(el: OrbitElements, samples = 180): Array<{ lat: number; lon: number; heightM: number }> {
-  const period = orbitalPeriodSec(el.semiMajorAxisKm) * 1000
-  const out: Array<{ lat: number; lon: number; heightM: number }> = []
-  for (let i = 0; i <= samples; i += 1) {
-    const t = el.epochMs + (period * i) / samples
-    const g = eciToGeodetic(propagateEci(el, t), t)
-    out.push({ lat: g.lat, lon: g.lon, heightM: Math.max(0, g.heightKm * 1000) })
-  }
+function ringPositions(): Cartesian3[] {
+  if (ringCache && Math.abs(simMs - ringCache.at) < REFRESH_MS) return ringCache.positions
+  const geo = orbitPathGeodeticAt(ringPath, simMs)
+  const out: Cartesian3[] = []
+  for (const p of geo) out.push(Cartesian3.fromDegrees(p.lon, p.lat, heightOf(p.heightKm)))
+  ringCache = { at: simMs, positions: out }
   return out
 }
 
-function buildStatic(): void {
-  if (!viewer || viewer.isDestroyed()) return
-  clearOrbit()
+function trackPositions(): Cartesian3[] {
+  if (trackCache && Math.abs(simMs - trackCache.at) < REFRESH_MS) return trackCache.positions
   const el = elements()
-
-  const ring = orbitRingPoints(el)
-  let segment: Array<{ lat: number; lon: number; heightM: number }> = []
-  const flush = (): void => {
-    if (segment.length > 1) {
-      orbitEntities.push(
-        viewer!.entities.add({
-          polyline: {
-            positions: segment.map((p) => Cartesian3.fromDegrees(p.lon, p.lat, p.heightM)),
-            width: 2,
-            material: new PolylineGlowMaterialProperty({
-              color: Color.fromCssColorString('#8bdcff'),
-              glowPower: 0.2
-            }),
-            arcType: ArcType.GEODESIC
-          }
-        })
-      )
-    }
-    segment = []
-  }
-  for (let i = 0; i < ring.length; i += 1) {
-    if (i > 0 && Math.abs(ring[i].lon - ring[i - 1].lon) > 180) flush()
-    segment.push(ring[i])
-  }
-  flush()
-
-  if (showGroundTrack.value) {
-    const track = groundTrack(el, el.epochMs, orbitalPeriodSec(el.semiMajorAxisKm), 240)
-    const segments = splitGroundTrack(track)
-    for (const seg of segments) {
-      if (seg.length < 2) continue
-      orbitEntities.push(
-        viewer.entities.add({
-          polyline: {
-            positions: seg.map((p) => Cartesian3.fromDegrees(p.lon, p.lat, 1200)),
-            width: 2,
-            material: new PolylineGlowMaterialProperty({
-              color: Color.fromCssColorString('#ffd479'),
-              glowPower: 0.16
-            }),
-            arcType: ArcType.GEODESIC
-          }
-        })
-      )
-    }
-  }
-
   const period = orbitalPeriodSec(el.semiMajorAxisKm)
-  periodText.value = `轨道周期 ${(period / 60).toFixed(1)} 分钟`
-  altText.value = `近地高度 ${(semiMajorKm.value - EARTH_R).toFixed(0)} km / 偏心率 ${eccentricity.value.toFixed(4)}`
+  const track = groundTrack(el, simMs, period, TRACK_SAMPLES)
+  const out: Cartesian3[] = []
+  for (const p of track) out.push(Cartesian3.fromDegrees(p.lon, p.lat, 1200))
+  trackCache = { at: simMs, positions: out }
+  return out
 }
 
-function updateSatellite(nowMs: number): void {
-  if (!viewer || viewer.isDestroyed()) return
+function satelliteGeodetic(): { lat: number; lon: number; heightKm: number; radiusKm: number } {
   const el = elements()
-  const eci = propagateEci(el, nowMs)
-  const g = eciToGeodetic(eci, nowMs)
-  const pos = Cartesian3.fromDegrees(g.lon, g.lat, Math.max(0, g.heightKm * 1000))
+  const eci = propagateEci(el, simMs)
+  const g = eciToGeodetic(eci, simMs)
+  return { ...g, radiusKm: Math.hypot(eci.x, eci.y, eci.z) }
+}
 
-  const marker = viewer.entities.getById('orbit-satellite')
-  if (marker) {
-    marker.position = new ConstantPositionProperty(pos)
+function coverageHierarchy(): PolygonHierarchy {
+  const g = satelliteGeodetic()
+  const centralAngle = Math.acos(Math.min(1, EARTH_R / Math.max(EARTH_R, g.radiusKm)))
+  const radiusKm = EARTH_R * centralAngle
+  const ring = circleRing(g.lat, g.lon, radiusKm * 1000, 96)
+  return new PolygonHierarchy(ring.map(([lon, lat]) => Cartesian3.fromDegrees(lon, lat, 500)))
+}
+
+function refreshPath(): void {
+  ringPath = orbitPathEci(elements(), RING_SAMPLES)
+  ringCache = null
+  trackCache = null
+}
+
+function buildEntities(): void {
+  if (!viewer || viewer.isDestroyed()) return
+  refreshPath()
+
+  if (!ringEntity) {
+    ringEntity = viewer.entities.add({
+      polyline: {
+        positions: new CallbackProperty(ringPositions, false),
+        width: 2,
+        material: new PolylineGlowMaterialProperty({
+          color: Color.fromCssColorString('#8bdcff'),
+          glowPower: 0.2
+        }),
+        arcType: ArcType.NONE
+      }
+    })
+  }
+
+  if (!trackEntity) {
+    trackEntity = viewer.entities.add({
+      show: showGroundTrack.value,
+      polyline: {
+        positions: new CallbackProperty(trackPositions, false),
+        width: 2,
+        material: new PolylineGlowMaterialProperty({
+          color: Color.fromCssColorString('#ffd479'),
+          glowPower: 0.16
+        }),
+        arcType: ArcType.GEODESIC
+      }
+    })
+  }
+
+  if (!coverageEntity) {
+    coverageEntity = viewer.entities.add({
+      show: showCoverage.value,
+      polygon: {
+        hierarchy: new CallbackProperty(coverageHierarchy, false),
+        material: Color.fromCssColorString('rgba(90,190,255,0.16)'),
+        outline: true,
+        outlineColor: Color.fromCssColorString('rgba(140,220,255,0.7)'),
+        outlineWidth: 1,
+        height: 500
+      }
+    })
+  }
+}
+
+function refreshReadouts(): void {
+  const el = elements()
+  const period = orbitalPeriodSec(el.semiMajorAxisKm)
+  const perigee = el.semiMajorAxisKm * (1 - el.eccentricity) - EARTH_R
+  const apogee = el.semiMajorAxisKm * (1 + el.eccentricity) - EARTH_R
+  periodText.value = `轨道周期 ${(period / 60).toFixed(1)} 分钟`
+  altText.value = `近地点 ${perigee.toFixed(0)} km / 远地点 ${apogee.toFixed(0)} km`
+}
+
+function updateSatellite(): void {
+  if (!viewer || viewer.isDestroyed()) return
+  const g = satelliteGeodetic()
+  const pos = Cartesian3.fromDegrees(g.lon, g.lat, heightOf(g.heightKm))
+
+  if (satelliteEntity) {
+    satelliteEntity.position = new ConstantPositionProperty(pos)
   } else {
-    viewer.entities.add({
+    satelliteEntity = viewer.entities.add({
       id: 'orbit-satellite',
       position: pos,
       point: {
@@ -168,27 +208,13 @@ function updateSatellite(nowMs: number): void {
     })
   }
 
-  const coverage = viewer.entities.getById('orbit-coverage')
-  const footprintDeg = Math.acos(EARTH_R / Math.max(EARTH_R, semiMajorKm.value)) * (180 / Math.PI) * 111
-  const ring = circleRing(g.lat, g.lon, footprintDeg * 1000 * 0.55, 64)
-  if (showCoverage.value) {
-    if (coverage) viewer.entities.remove(coverage)
-    viewer.entities.add({
-      id: 'orbit-coverage',
-      polygon: {
-        hierarchy: new PolygonHierarchy(ring.map(([lon, lat]) => Cartesian3.fromDegrees(lon, lat, 500))),
-        material: Color.fromCssColorString('rgba(90,190,255,0.16)'),
-        outline: true,
-        outlineColor: Color.fromCssColorString('rgba(140,220,255,0.7)'),
-        outlineWidth: 1,
-        height: 500
-      }
-    })
-  } else if (coverage) {
-    viewer.entities.remove(coverage)
-  }
+  if (coverageEntity) coverageEntity.show = showCoverage.value
+  if (trackEntity) trackEntity.show = showGroundTrack.value
 
-  subPointText.value = `星下点 ${g.lat.toFixed(2)}°, ${normalizeLon(g.lon).toFixed(2)}° · 高度 ${g.heightKm.toFixed(0)} km`
+  if (simMs - lastTextMs >= TEXT_INTERVAL_MS) {
+    lastTextMs = simMs
+    subPointText.value = `星下点 ${g.lat.toFixed(2)}°, ${normalizeLon(g.lon).toFixed(2)}° · 高度 ${g.heightKm.toFixed(0)} km`
+  }
 }
 
 function loop(now: number): void {
@@ -197,26 +223,31 @@ function loop(now: number): void {
   lastFrame = now
   if (!viewer || viewer.isDestroyed()) return
   simMs += dt * 1000 * timeScale.value
-  updateSatellite(simMs)
+  updateSatellite()
   viewer.scene.requestRender()
 }
 
 function rebase(): void {
-  simMs = Date.now()
-  buildStatic()
-  updateSatellite(simMs)
+  epochMs = Date.now()
+  simMs = epochMs
+  lastTextMs = 0
+  refreshPath()
+  refreshReadouts()
+  updateSatellite()
 }
 
 watch(
   [semiMajorKm, eccentricity, inclinationDeg, raanDeg, argPerigeeDeg, meanAnomalyDeg],
   () => {
-    buildStatic()
-    updateSatellite(simMs)
+    refreshPath()
+    refreshReadouts()
+    updateSatellite()
   }
 )
 watch([showCoverage, showGroundTrack], () => {
-  buildStatic()
-  updateSatellite(simMs)
+  if (coverageEntity) coverageEntity.show = showCoverage.value
+  if (trackEntity) trackEntity.show = showGroundTrack.value
+  updateSatellite()
 })
 
 onMounted(() => {
@@ -234,6 +265,7 @@ onMounted(() => {
     loadBingImagery(viewer, callbacks)
     viewer.camera.setView({ destination: Cartesian3.fromDegrees(0, 20, 26000000) })
     rebase()
+    buildEntities()
     raf = requestAnimationFrame(loop)
     statusMessage.value = ''
   } catch (error) {
@@ -245,8 +277,13 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(raf)
   destroyScene(viewer)
   viewer = undefined
+  ringEntity = undefined
+  trackEntity = undefined
+  coverageEntity = undefined
+  satelliteEntity = undefined
 })
 </script>
+
 
 <template>
   <div class="gi-shell">
